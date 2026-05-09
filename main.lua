@@ -217,22 +217,32 @@ local function fling(target)
     task.spawn(function()
         local thrp0 = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
         local startPos = thrp0 and thrp0.Position
-        local stopAt = tick() + 10
+        local startedAt = tick()
+        local stopAt = startedAt + 10
         local flung = false
+        local hiVelFrames = 0
         while flingActive and tick() < stopAt and isAlive(target) and isAlive(me) do
             local mh = hrp()
             local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+            local thum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
             if mh and th then
-                if startPos then
-                    local moved = (th.Position - startPos).Magnitude
-                    if moved > 25 or th.Velocity.Magnitude > 150 then
-                        flung = true
-                        break
-                    end
-                end
                 mh.CFrame = th.CFrame
                 mh.Velocity = Vector3.new(99999, 99999, 99999)
                 mh.RotVelocity = Vector3.new(99999, 99999, 99999)
+            end
+            if th and startPos and tick() - startedAt > 2 then
+                local vel = th.Velocity.Magnitude
+                if vel > 600 then hiVelFrames = hiVelFrames + 1
+                else hiVelFrames = 0 end
+                local moved = (th.Position - startPos).Magnitude
+                local state = thum and thum:GetState()
+                local ragdoll = state == Enum.HumanoidStateType.PlatformStanding
+                             or state == Enum.HumanoidStateType.FallingDown
+                             or state == Enum.HumanoidStateType.Physics
+                if hiVelFrames >= 5 or moved > 60 or ragdoll then
+                    flung = true
+                    break
+                end
             end
             task.wait()
         end
@@ -324,7 +334,7 @@ task.spawn(function()
                     task.wait(2)
                     log("burn step (" .. session.ownerId .. " vs " .. targetId .. ")")
                     if session.ownerId ~= targetId then log("burn skip: owner changed") return end
-                    whisper("opening whisper", target)
+                    whisper("Loading new owner...", target)
                 end)
                 task.spawn(function()
                     task.wait(5)
