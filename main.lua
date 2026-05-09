@@ -267,9 +267,11 @@ local function handleCommand(p, msg)
     end
     if not session.ownerId or p.UserId ~= session.ownerId then return end
     if cmd == "fling" then
-        if flingActive then return end
+        log("fling cmd: query=" .. tostring(args[2]) .. " active=" .. tostring(flingActive))
+        if flingActive then log("fling already active") return end
         local t = findPlayer(args[2])
-        if t then fling(t) end
+        log("fling target: " .. (t and t.DisplayName or "nil"))
+        if t then fling(t) else log("no fling target found") end
         return
     end
     if flingActive then flingActive = false end
@@ -366,11 +368,6 @@ me.CharacterAdded:Connect(function(char)
 end)
 
 log("bot online")
-task.spawn(function()
-    task.wait(2)
-    if session.ownerId then return end
-    sendChat('type "!owner" for private commands')
-end)
 
 --[[ Main loop ]]--
 local lastMurderId, announced, gunDelivered, aloneTpDone
