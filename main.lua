@@ -58,7 +58,7 @@ end)
 local gui = Instance.new("ScreenGui", game.CoreGui)
 gui.Name, gui.ResetOnSpawn = "MM", false
 local f = Instance.new("Frame", gui)
-f.Size, f.Position = UDim2.new(0, 140, 0, 180), UDim2.new(0, 10, 0, 10)
+f.Size, f.Position = UDim2.new(0, 140, 0, 180), UDim2.new(1, -150, 0, 10)
 f.BackgroundColor3, f.Visible = Color3.fromRGB(20, 20, 20), false
 Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
 local img = Instance.new("ImageLabel", f)
