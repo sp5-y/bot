@@ -36,12 +36,11 @@ lbl.Size, lbl.Position, lbl.BackgroundTransparency = UDim2.new(1, -10, 0, 28), U
 lbl.TextColor3, lbl.Font, lbl.TextScaled = Color3.new(1, 0, 0), Enum.Font.GothamBold, true
 
 --[[ Log GUI ]]--
-local LOG_CAP = 14
 local logFrame = Instance.new("Frame", gui)
-logFrame.Size = UDim2.new(0, 320, 0, 240)
-logFrame.Position = UDim2.new(1, -330, 1, -250)
+logFrame.Size = UDim2.new(0, 260, 0, 130)
+logFrame.Position = UDim2.new(1, -270, 1, -140)
 logFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-logFrame.BackgroundTransparency = 0.25
+logFrame.BackgroundTransparency = 0.3
 logFrame.BorderSizePixel = 0
 Instance.new("UICorner", logFrame).CornerRadius = UDim.new(0, 6)
 local logList = Instance.new("UIListLayout", logFrame)
@@ -53,22 +52,24 @@ logPad.PaddingTop, logPad.PaddingBottom = UDim.new(0, 4), UDim.new(0, 4)
 local logCounter = 0
 local function log(msg)
     logCounter = logCounter + 1
+    local order = logCounter
     local t = Instance.new("TextLabel", logFrame)
-    t.Size = UDim2.new(1, 0, 0, 15)
+    t.Size = UDim2.new(1, 0, 0, 14)
     t.BackgroundTransparency = 1
     t.Font = Enum.Font.Code
-    t.TextSize = 13
+    t.TextSize = 12
     t.TextXAlignment = Enum.TextXAlignment.Left
     t.TextColor3 = Color3.fromRGB(180, 230, 180)
     t.Text = "[" .. os.date("%X") .. "] " .. tostring(msg)
-    t.LayoutOrder = logCounter
+    t.LayoutOrder = order
     t.TextTruncate = Enum.TextTruncate.AtEnd
+    local kids = logFrame:GetChildren()
     local labels = {}
-    for _, c in ipairs(logFrame:GetChildren()) do
+    for _, c in ipairs(kids) do
         if c:IsA("TextLabel") then table.insert(labels, c) end
     end
     table.sort(labels, function(a, b) return a.LayoutOrder < b.LayoutOrder end)
-    while #labels > LOG_CAP do
+    while #labels > 8 do
         labels[1]:Destroy()
         table.remove(labels, 1)
     end
@@ -151,6 +152,8 @@ local function whisper(m, target)
             local ch = findWhisperChannel(o.UserId)
             if ch then
                 ch:SendAsync(m)
+            else
+                TCS.TextChannels.RBXGeneral:SendAsync("/w " .. o.DisplayName .. " " .. m)
             end
         else
             RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(
@@ -158,12 +161,6 @@ local function whisper(m, target)
                 "All"
             )
         end
-    end)
-end
-local function openWhisper(p)
-    if isLegacy then return end
-    pcall(function()
-        TCS.TextChannels.RBXGeneral:SendAsync("/w " .. p.DisplayName)
     end)
 end
 
@@ -221,7 +218,6 @@ local function handleCommand(p, msg)
         if not session.ownerId or isFraud or session.ownerId == p.UserId then
             session.ownerId = p.UserId
             if isFraud then fraudOptedOut = false end
-            openWhisper(p)
         end
         return
     end
@@ -257,7 +253,6 @@ local function tryAutoClaimFraud(p)
     if p == me then return end
     session.ownerId = p.UserId
     log("auto-claimed fraud as owner: " .. p.DisplayName)
-    openWhisper(p)
 end
 local function hookSpeaker(p)
     p.Chatted:Connect(function(msg) handleCommand(p, msg) end)
@@ -281,12 +276,17 @@ task.spawn(function()
             log("new owner: " .. (owner and owner.DisplayName or "nil"))
             if owner then
                 task.spawn(function()
-                    task.wait(4)
-                    if session.ownerId ~= owner.UserId then return end
-                    local ch = findWhisperChannel(owner.UserId)
-                    log(ch and ("channel ready: " .. ch.Name) or "no channel after 4s")
-                    whisper("ownership granted", owner)
                     task.wait(2)
+                    if session.ownerId ~= owner.UserId then return end
+                    log("opening whisper -> " .. owner.DisplayName)
+                    pcall(function()
+                        if not isLegacy then
+                            TCS.TextChannels.RBXGeneral:SendAsync("/w " .. owner.DisplayName)
+                        else
+                            RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer("/w " .. owner.DisplayName, "All")
+                        end
+                    end)
+                    task.wait(3)
                     if session.ownerId ~= owner.UserId then return end
                     whisper(HELP, owner)
                 end)
@@ -338,20 +338,19 @@ while session.active and gui.Parent do
 
     if (m or botM) and not announced then
         announced = true
-        task.spawn(function()
-            task.wait(0.3)
-            local owner = findOwner()
-            local sN = findHolder({"Gun", "Revolver"})
-            if botM then
-                if owner and sN and owner.UserId == sN.UserId then tpTo(owner) end
+        local owner = findOwner()
+        local sN = findHolder({"Gun", "Revolver"})
+        if botM then
+            if owner and sN and owner.UserId == sN.UserId then tpTo(owner) end
+        else
+            if m and owner and owner.UserId == m.UserId then
+                tpTo(owner)
             else
-                if m and owner and owner.UserId == m.UserId then
-                    tpTo(owner)
-                else
-                    tpHome()
-                end
+                tpHome()
             end
-            task.wait(0.7)
+        end
+        task.spawn(function()
+            task.wait(1)
             if toggleRole then
                 local mLabel = botM and "Me" or (m and shortName(m)) or "?"
                 local sLabel = botS and "Me" or (sN and shortName(sN)) or "?"
