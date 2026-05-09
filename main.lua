@@ -9,7 +9,7 @@ local me, cam = Players.LocalPlayer, workspace.CurrentCamera
 local DEFAULT_FOV, WIDE_FOV = 70, 100
 local SPAWN_CFRAME = nil
 local FRAUD_NAME = "fraud4balenci"
-local toggleRole = false
+local toggleRole = true
 local toggleGun = false
 local fraudOptedOut = false
 
@@ -36,11 +36,12 @@ lbl.Size, lbl.Position, lbl.BackgroundTransparency = UDim2.new(1, -10, 0, 28), U
 lbl.TextColor3, lbl.Font, lbl.TextScaled = Color3.new(1, 0, 0), Enum.Font.GothamBold, true
 
 --[[ Log GUI ]]--
+local LOG_CAP = 14
 local logFrame = Instance.new("Frame", gui)
-logFrame.Size = UDim2.new(0, 260, 0, 130)
-logFrame.Position = UDim2.new(1, -270, 1, -140)
+logFrame.Size = UDim2.new(0, 320, 0, 240)
+logFrame.Position = UDim2.new(1, -330, 1, -250)
 logFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-logFrame.BackgroundTransparency = 0.3
+logFrame.BackgroundTransparency = 0.25
 logFrame.BorderSizePixel = 0
 Instance.new("UICorner", logFrame).CornerRadius = UDim.new(0, 6)
 local logList = Instance.new("UIListLayout", logFrame)
@@ -52,28 +53,25 @@ logPad.PaddingTop, logPad.PaddingBottom = UDim.new(0, 4), UDim.new(0, 4)
 local logCounter = 0
 local function log(msg)
     logCounter = logCounter + 1
-    local order = logCounter
     local t = Instance.new("TextLabel", logFrame)
-    t.Size = UDim2.new(1, 0, 0, 14)
+    t.Size = UDim2.new(1, 0, 0, 15)
     t.BackgroundTransparency = 1
     t.Font = Enum.Font.Code
-    t.TextSize = 12
+    t.TextSize = 13
     t.TextXAlignment = Enum.TextXAlignment.Left
     t.TextColor3 = Color3.fromRGB(180, 230, 180)
     t.Text = "[" .. os.date("%X") .. "] " .. tostring(msg)
-    t.LayoutOrder = order
+    t.LayoutOrder = logCounter
     t.TextTruncate = Enum.TextTruncate.AtEnd
-    local kids = logFrame:GetChildren()
     local labels = {}
-    for _, c in ipairs(kids) do
+    for _, c in ipairs(logFrame:GetChildren()) do
         if c:IsA("TextLabel") then table.insert(labels, c) end
     end
     table.sort(labels, function(a, b) return a.LayoutOrder < b.LayoutOrder end)
-    while #labels > 8 do
+    while #labels > LOG_CAP do
         labels[1]:Destroy()
         table.remove(labels, 1)
     end
-    task.delay(8, function() if t and t.Parent then t:Destroy() end end)
 end
 
 --[[ Finders ]]--
@@ -284,9 +282,13 @@ task.spawn(function()
             if owner then
                 task.spawn(function()
                     task.wait(4)
-                    if session.ownerId == owner.UserId then
-                        whisper(HELP, owner)
-                    end
+                    if session.ownerId ~= owner.UserId then return end
+                    local ch = findWhisperChannel(owner.UserId)
+                    log(ch and ("channel ready: " .. ch.Name) or "no channel after 4s")
+                    whisper("ownership granted", owner)
+                    task.wait(2)
+                    if session.ownerId ~= owner.UserId then return end
+                    whisper(HELP, owner)
                 end)
             end
         elseif not session.ownerId then
