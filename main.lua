@@ -8,7 +8,7 @@ local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
 local me, cam = Players.LocalPlayer, workspace.CurrentCamera
 local DEFAULT_FOV, WIDE_FOV = 70, 100
 local SPAWN_CFRAME = nil
-local FRAUD_NAME = "fraud4balenci"
+local FRAUD_NAME = "test"
 local toggleRole = true
 local toggleGun = false
 local fraudOptedOut = false
@@ -208,7 +208,7 @@ local function bringGun(target)
 end
 
 --[[ Commands ]]--
-local HELP = "!owner !dethrone !chat <msg> !who !tp [name] !tpmurd !tpsher !gun [name] !togglerole !togglegun !home !reset !help"
+local HELP = "!owner !dethrone !gun [name] !who !chat <msg> !tp [name] !tpmurd !tpsher !togglerole !togglegun !home !reset !help"
 local function handleCommand(p, msg)
     if msg:sub(1, 1) ~= "!" then return end
     local args = msg:split(" ")
@@ -278,17 +278,12 @@ task.spawn(function()
                 task.spawn(function()
                     task.wait(2)
                     if session.ownerId ~= owner.UserId then return end
-                    log("opening whisper -> " .. owner.DisplayName)
-                    pcall(function()
-                        if not isLegacy then
-                            TCS.TextChannels.RBXGeneral:SendAsync("/w " .. owner.DisplayName)
-                        else
-                            RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer("/w " .. owner.DisplayName, "All")
-                        end
+                    whisper("opening whisper", owner)
+                    task.spawn(function()
+                        task.wait(3)
+                        if session.ownerId ~= owner.UserId then return end
+                        whisper(HELP, owner)
                     end)
-                    task.wait(3)
-                    if session.ownerId ~= owner.UserId then return end
-                    whisper(HELP, owner)
                 end)
             end
         elseif not session.ownerId then
