@@ -280,26 +280,24 @@ local function fling(target)
         end
         flingActive = false
         log(flung and "fling success" or "fling done")
-        if flung then
-            whisper("Successfully flinged " .. target.DisplayName)
-            local mh = hrp()
-            if mh then
-                mh.Velocity = Vector3.new(0, 0, 0)
-                mh.RotVelocity = Vector3.new(0, 0, 0)
-            end
-            task.wait(0.3)
-            local mh2 = hrp()
-            if mh2 then
-                mh2.Velocity = Vector3.new(0, 0, 0)
-                mh2.RotVelocity = Vector3.new(0, 0, 0)
-            end
-            tpHome()
-            task.wait(0.1)
-            local mh3 = hrp()
-            if mh3 then
-                mh3.Velocity = Vector3.new(0, 0, 0)
-                mh3.RotVelocity = Vector3.new(0, 0, 0)
-            end
+        whisper("Successfully flinged " .. target.DisplayName)
+        local mh = hrp()
+        if mh then
+            mh.Velocity = Vector3.new(0, 0, 0)
+            mh.RotVelocity = Vector3.new(0, 0, 0)
+        end
+        task.wait(0.3)
+        local mh2 = hrp()
+        if mh2 then
+            mh2.Velocity = Vector3.new(0, 0, 0)
+            mh2.RotVelocity = Vector3.new(0, 0, 0)
+        end
+        tpHome()
+        task.wait(0.1)
+        local mh3 = hrp()
+        if mh3 then
+            mh3.Velocity = Vector3.new(0, 0, 0)
+            mh3.RotVelocity = Vector3.new(0, 0, 0)
         end
     end)
 end
