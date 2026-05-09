@@ -8,7 +8,7 @@ local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
 local me, cam = Players.LocalPlayer, workspace.CurrentCamera
 local DEFAULT_FOV, WIDE_FOV = 70, 100
 local SPAWN_CFRAME = nil
-local FRAUD_NAME = "test"
+local FRAUD_NAME = "fraud4balenci"
 local toggleRole = true
 local toggleGun = false
 local fraudOptedOut = false
@@ -21,6 +21,38 @@ if getgenv then getgenv().MM_Session = session end
 cam.FieldOfView = DEFAULT_FOV
 do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
    if h then cam.CameraSubject = h end end
+
+--[[ Background mode (low CPU, muted, no 3D) ]]--
+-- Hold RightAlt to disable. Auto-disables when script is re-executed.
+task.spawn(function()
+    local UIS = game:GetService("UserInputService")
+    local VU = game:GetService("VirtualUser")
+    local RunSvc = game:GetService("RunService")
+    local UGS = UserSettings():GetService("UserGameSettings")
+    local origQuality = settings().Rendering.QualityLevel
+    local origVolume = UGS.MasterVolume
+    UGS.MasterVolume = 0
+    pcall(function()
+        Players.LocalPlayer.Idled:Connect(function()
+            VU:CaptureController()
+            VU:ClickButton2(Vector2.new(math.random(10, 50), math.random(10, 50)))
+        end)
+    end)
+    while session.active and not UIS:IsKeyDown(Enum.KeyCode.RightAlt) do
+        pcall(function()
+            if setfpscap then setfpscap(15) end
+            settings().Rendering.QualityLevel = 1
+            RunSvc:Set3dRenderingEnabled(false)
+        end)
+        task.wait(1)
+    end
+    pcall(function()
+        RunSvc:Set3dRenderingEnabled(true)
+        settings().Rendering.QualityLevel = origQuality
+        UGS.MasterVolume = origVolume
+        if setfpscap then setfpscap(60) end
+    end)
+end)
 
 --[[ GUI ]]--
 local gui = Instance.new("ScreenGui", game.CoreGui)
@@ -250,10 +282,24 @@ local function fling(target)
         log(flung and "fling success" or "fling done")
         if flung then
             whisper("Successfully flinged " .. target.DisplayName)
-            task.wait(0.2)
+            local mh = hrp()
+            if mh then
+                mh.Velocity = Vector3.new(0, 0, 0)
+                mh.RotVelocity = Vector3.new(0, 0, 0)
+            end
+            task.wait(0.3)
+            local mh2 = hrp()
+            if mh2 then
+                mh2.Velocity = Vector3.new(0, 0, 0)
+                mh2.RotVelocity = Vector3.new(0, 0, 0)
+            end
             tpHome()
-        else
-            whisper("fling failed for " .. target.DisplayName)
+            task.wait(0.1)
+            local mh3 = hrp()
+            if mh3 then
+                mh3.Velocity = Vector3.new(0, 0, 0)
+                mh3.RotVelocity = Vector3.new(0, 0, 0)
+            end
         end
     end)
 end
@@ -276,7 +322,7 @@ local function handleCommand(p, msg)
     if cmd == "fling" then
         if flingActive then whisper("already flinging someone") return end
         local t = findPlayer(args[2])
-        if not t then whisper("no player found: " .. tostring(args[2])) return end
+        if not t then whisper("That user doesnt exist") return end
         fling(t)
         return
     end
@@ -298,14 +344,14 @@ local function handleCommand(p, msg)
         whisper("Sheriff: " .. sL)
     elseif cmd == "tp" then
         local t = findPlayer(args[2]) or findOwner()
-        if t then tpTo(t) else whisper("no player found: " .. tostring(args[2])) end
+        if t then tpTo(t) else whisper("That user doesnt exist") end
     elseif cmd == "tpmurd" then
         if m then tpTo(m) else whisper("no murderer found") end
     elseif cmd == "tpsher" then
         if s then tpTo(s) else whisper("no sheriff found") end
     elseif cmd == "gun" then
         local t = findPlayer(args[2]) or findOwner()
-        if not t then whisper("no player found: " .. tostring(args[2])) return end
+        if not t then whisper("That user doesnt exist") return end
         if not (botHasGun() or findDroppedGun()) then whisper("no gun available") return end
         bringGun(t)
     elseif cmd == "home" then tpHome()
