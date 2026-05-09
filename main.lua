@@ -207,8 +207,42 @@ local function bringGun(target)
     dropGunAt(target)
 end
 
+--[[ Fling ]]--
+local flingActive = false
+local function fling(target)
+    if flingActive then return end
+    if not isAlive(target) or not isAlive(me) then return end
+    flingActive = true
+    log("flinging " .. target.DisplayName)
+    task.spawn(function()
+        local thrp0 = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+        local startPos = thrp0 and thrp0.Position
+        local stopAt = tick() + 10
+        local flung = false
+        while flingActive and tick() < stopAt and isAlive(target) and isAlive(me) do
+            local mh = hrp()
+            local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+            if mh and th then
+                if startPos then
+                    local moved = (th.Position - startPos).Magnitude
+                    if moved > 25 or th.Velocity.Magnitude > 150 then
+                        flung = true
+                        break
+                    end
+                end
+                mh.CFrame = th.CFrame
+                mh.Velocity = Vector3.new(99999, 99999, 99999)
+                mh.RotVelocity = Vector3.new(99999, 99999, 99999)
+            end
+            task.wait()
+        end
+        flingActive = false
+        log(flung and "fling success" or "fling done")
+    end)
+end
+
 --[[ Commands ]]--
-local HELP = "!owner !dethrone !gun [name] !who !chat <msg> !tp [name] !tpmurd !tpsher !togglerole !togglegun !home !reset !help"
+local HELP = "!owner !dethrone !gun [name] !fling <name> !who !chat <msg> !tp [name] !tpmurd !tpsher !togglerole !togglegun !home !reset !help"
 local function handleCommand(p, msg)
     if msg:sub(1, 1) ~= "!" then return end
     local args = msg:split(" ")
@@ -222,6 +256,13 @@ local function handleCommand(p, msg)
         return
     end
     if not session.ownerId or p.UserId ~= session.ownerId then return end
+    if cmd == "fling" then
+        if flingActive then return end
+        local t = findPlayer(args[2])
+        if t then fling(t) end
+        return
+    end
+    if flingActive then flingActive = false end
     local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
     if cmd == "dethrone" then
         if p.Name:lower() == FRAUD_NAME then fraudOptedOut = true end
