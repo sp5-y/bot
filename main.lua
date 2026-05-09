@@ -226,6 +226,7 @@ local function handleCommand(p, msg)
     if cmd == "dethrone" then
         if p.Name:lower() == FRAUD_NAME then fraudOptedOut = true end
         session.ownerId = nil
+        toggleRole, toggleGun = true, false
         sendChat('owner released — type "!owner" to claim')
         return
     elseif cmd == "chat" then sendChat(rest)
@@ -263,6 +264,7 @@ Players.PlayerAdded:Connect(hookSpeaker)
 Players.PlayerRemoving:Connect(function(p)
     if session.ownerId and p.UserId == session.ownerId then
         session.ownerId = nil
+        toggleRole, toggleGun = true, false
         sendChat('owner left — type "!owner" to claim')
     end
 end)
@@ -275,15 +277,19 @@ task.spawn(function()
             local owner = Players:GetPlayerByUserId(session.ownerId)
             log("new owner: " .. (owner and owner.DisplayName or "nil"))
             if owner then
+                local target = owner
+                local targetId = owner.UserId
                 task.spawn(function()
                     task.wait(2)
-                    if session.ownerId ~= owner.UserId then return end
-                    whisper("opening whisper", owner)
-                    task.spawn(function()
-                        task.wait(3)
-                        if session.ownerId ~= owner.UserId then return end
-                        whisper(HELP, owner)
-                    end)
+                    log("burn step (" .. session.ownerId .. " vs " .. targetId .. ")")
+                    if session.ownerId ~= targetId then log("burn skip: owner changed") return end
+                    whisper("opening whisper", target)
+                end)
+                task.spawn(function()
+                    task.wait(5)
+                    log("HELP step (" .. tostring(session.ownerId) .. " vs " .. targetId .. ")")
+                    if session.ownerId ~= targetId then log("HELP skip: owner changed") return end
+                    whisper(HELP, target)
                 end)
             end
         elseif not session.ownerId then
