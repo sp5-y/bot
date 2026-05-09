@@ -239,44 +239,48 @@ local function fling(target)
         local startedAt = tick()
         local stopAt = startedAt + 10
         local flung = false
-        local thrust
-        local function makeThrust(parentPart)
-            if thrust then pcall(function() thrust:Destroy() end) end
-            thrust = Instance.new("BodyThrust")
-            thrust.Force = Vector3.new(9999, 9999, 9999)
-            thrust.Name = "MM_Yeet"
-            thrust.Parent = parentPart
-        end
-        local mh = hrp()
-        if mh then makeThrust(mh) end
         while flingActive and tick() < stopAt and isAlive(target) and isAlive(me) do
-            local mh2 = hrp()
+            local mh = hrp()
             local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-            if mh2 and th then
-                if not thrust or thrust.Parent ~= mh2 then makeThrust(mh2) end
-                mh2.CFrame = th.CFrame
-                thrust.Location = th.Position
+            if mh and th then
+                mh.CFrame = th.CFrame
+                mh.Velocity = Vector3.new(math.huge, math.huge, math.huge)
+                mh.RotVelocity = Vector3.new(math.huge, math.huge, math.huge)
             end
-            if th and startPos and tick() - startedAt > 2 then
+            if th and startPos and tick() - startedAt > 1 then
                 local moved = (th.Position - startPos).Magnitude
-                if moved > 60 or th.Velocity.Magnitude > 600 then
+                if moved > 50 or th.Velocity.Magnitude > 400 then
                     flung = true
                     break
                 end
             end
             task.wait()
         end
-        if thrust then pcall(function() thrust:Destroy() end) end
         flingActive = false
         log(flung and "fling success" or "fling done")
         whisper("Successfully flinged " .. target.DisplayName)
-        task.wait(0.2)
+        local waitUntil = tick() + 5
+        while tick() < waitUntil do
+            if me.Character and me.Character:FindFirstChild("HumanoidRootPart")
+               and me.Character:FindFirstChildOfClass("Humanoid")
+               and me.Character:FindFirstChildOfClass("Humanoid").Health > 0 then
+                break
+            end
+            task.wait(0.1)
+        end
         local mhf = hrp()
+        if not mhf then
+            reset()
+            task.wait(0.5)
+            if not me.Character then me.CharacterAdded:Wait() end
+            me.Character:WaitForChild("HumanoidRootPart", 5)
+            mhf = hrp()
+        end
         if mhf then
             mhf.Anchored = true
             zeroVel(mhf)
             if SPAWN_CFRAME then mhf.CFrame = SPAWN_CFRAME end
-            task.wait(0.15)
+            task.wait(0.2)
             zeroVel(mhf)
             local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
             if hum then pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end) end
