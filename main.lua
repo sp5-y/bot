@@ -248,6 +248,10 @@ local function fling(target)
         end
         flingActive = false
         log(flung and "fling success" or "fling done")
+        if flung then
+            task.wait(0.2)
+            tpHome()
+        end
     end)
 end
 
