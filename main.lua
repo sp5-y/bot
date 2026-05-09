@@ -207,13 +207,28 @@ local function tweenTo(cf, dur)
     local tw = Tween:Create(h, TweenInfo.new(dur, Enum.EasingStyle.Linear), {CFrame = cf})
     tw:Play(); tw.Completed:Wait()
 end
+local function zeroVel(h)
+    if not h then return end
+    pcall(function() h.AssemblyLinearVelocity = Vector3.zero end)
+    pcall(function() h.AssemblyAngularVelocity = Vector3.zero end)
+    h.Velocity = Vector3.zero
+    h.RotVelocity = Vector3.zero
+end
 local function tpTo(p)
     local h, t = hrp(), p and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-    if h and t then h.CFrame = t.CFrame + Vector3.new(0, 0, 3) end
+    if h and t then
+        zeroVel(h)
+        h.CFrame = t.CFrame + Vector3.new(0, 0, 3)
+        zeroVel(h)
+    end
 end
 local function tpHome()
     local h = hrp()
-    if h and SPAWN_CFRAME then h.CFrame = SPAWN_CFRAME end
+    if h and SPAWN_CFRAME then
+        zeroVel(h)
+        h.CFrame = SPAWN_CFRAME
+        zeroVel(h)
+    end
 end
 local function reset()
     local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
@@ -283,21 +298,20 @@ local function fling(target)
         whisper("Successfully flinged " .. target.DisplayName)
         local mh = hrp()
         if mh then
-            mh.Velocity = Vector3.new(0, 0, 0)
-            mh.RotVelocity = Vector3.new(0, 0, 0)
-        end
-        task.wait(0.3)
-        local mh2 = hrp()
-        if mh2 then
-            mh2.Velocity = Vector3.new(0, 0, 0)
-            mh2.RotVelocity = Vector3.new(0, 0, 0)
-        end
-        tpHome()
-        task.wait(0.1)
-        local mh3 = hrp()
-        if mh3 then
-            mh3.Velocity = Vector3.new(0, 0, 0)
-            mh3.RotVelocity = Vector3.new(0, 0, 0)
+            mh.Anchored = true
+            pcall(function() mh.AssemblyLinearVelocity = Vector3.zero end)
+            pcall(function() mh.AssemblyAngularVelocity = Vector3.zero end)
+            mh.Velocity = Vector3.zero
+            mh.RotVelocity = Vector3.zero
+            if SPAWN_CFRAME then mh.CFrame = SPAWN_CFRAME end
+            task.wait(0.15)
+            pcall(function() mh.AssemblyLinearVelocity = Vector3.zero end)
+            pcall(function() mh.AssemblyAngularVelocity = Vector3.zero end)
+            mh.Velocity = Vector3.zero
+            mh.RotVelocity = Vector3.zero
+            local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+            if hum then pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end) end
+            mh.Anchored = false
         end
     end)
 end
