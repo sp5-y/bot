@@ -24,35 +24,7 @@ do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
 
 --[[ Background mode (low CPU, muted, no 3D) ]]--
 -- Hold RightAlt to disable. Auto-disables when script is re-executed.
-task.spawn(function()
-    local UIS = game:GetService("UserInputService")
-    local VU = game:GetService("VirtualUser")
-    local RunSvc = game:GetService("RunService")
-    local UGS = UserSettings():GetService("UserGameSettings")
-    local origQuality = settings().Rendering.QualityLevel
-    local origVolume = UGS.MasterVolume
-    UGS.MasterVolume = 0
-    pcall(function()
-        Players.LocalPlayer.Idled:Connect(function()
-            VU:CaptureController()
-            VU:ClickButton2(Vector2.new(math.random(10, 50), math.random(10, 50)))
-        end)
-    end)
-    while session.active and not UIS:IsKeyDown(Enum.KeyCode.RightAlt) do
-        pcall(function()
-            if setfpscap then setfpscap(15) end
-            settings().Rendering.QualityLevel = 1
-            RunSvc:Set3dRenderingEnabled(false)
-        end)
-        task.wait(1)
-    end
-    pcall(function()
-        RunSvc:Set3dRenderingEnabled(true)
-        settings().Rendering.QualityLevel = origQuality
-        UGS.MasterVolume = origVolume
-        if setfpscap then setfpscap(60) end
-    end)
-end)
+
 
 --[[ GUI ]]--
 local gui = Instance.new("ScreenGui", game.CoreGui)
@@ -267,51 +239,48 @@ local function fling(target)
         local startedAt = tick()
         local stopAt = startedAt + 10
         local flung = false
-        local hiVelFrames = 0
+        local thrust
+        local function makeThrust(parentPart)
+            if thrust then pcall(function() thrust:Destroy() end) end
+            thrust = Instance.new("BodyThrust")
+            thrust.Force = Vector3.new(9999, 9999, 9999)
+            thrust.Name = "MM_Yeet"
+            thrust.Parent = parentPart
+        end
+        local mh = hrp()
+        if mh then makeThrust(mh) end
         while flingActive and tick() < stopAt and isAlive(target) and isAlive(me) do
-            local mh = hrp()
+            local mh2 = hrp()
             local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-            local thum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
-            if mh and th then
-                mh.CFrame = th.CFrame
-                mh.Velocity = Vector3.new(99999, 99999, 99999)
-                mh.RotVelocity = Vector3.new(99999, 99999, 99999)
+            if mh2 and th then
+                if not thrust or thrust.Parent ~= mh2 then makeThrust(mh2) end
+                mh2.CFrame = th.CFrame
+                thrust.Location = th.Position
             end
             if th and startPos and tick() - startedAt > 2 then
-                local vel = th.Velocity.Magnitude
-                if vel > 600 then hiVelFrames = hiVelFrames + 1
-                else hiVelFrames = 0 end
                 local moved = (th.Position - startPos).Magnitude
-                local state = thum and thum:GetState()
-                local ragdoll = state == Enum.HumanoidStateType.PlatformStanding
-                             or state == Enum.HumanoidStateType.FallingDown
-                             or state == Enum.HumanoidStateType.Physics
-                if hiVelFrames >= 5 or moved > 60 or ragdoll then
+                if moved > 60 or th.Velocity.Magnitude > 600 then
                     flung = true
                     break
                 end
             end
             task.wait()
         end
+        if thrust then pcall(function() thrust:Destroy() end) end
         flingActive = false
         log(flung and "fling success" or "fling done")
         whisper("Successfully flinged " .. target.DisplayName)
-        local mh = hrp()
-        if mh then
-            mh.Anchored = true
-            pcall(function() mh.AssemblyLinearVelocity = Vector3.zero end)
-            pcall(function() mh.AssemblyAngularVelocity = Vector3.zero end)
-            mh.Velocity = Vector3.zero
-            mh.RotVelocity = Vector3.zero
-            if SPAWN_CFRAME then mh.CFrame = SPAWN_CFRAME end
+        task.wait(0.2)
+        local mhf = hrp()
+        if mhf then
+            mhf.Anchored = true
+            zeroVel(mhf)
+            if SPAWN_CFRAME then mhf.CFrame = SPAWN_CFRAME end
             task.wait(0.15)
-            pcall(function() mh.AssemblyLinearVelocity = Vector3.zero end)
-            pcall(function() mh.AssemblyAngularVelocity = Vector3.zero end)
-            mh.Velocity = Vector3.zero
-            mh.RotVelocity = Vector3.zero
+            zeroVel(mhf)
             local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
             if hum then pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end) end
-            mh.Anchored = false
+            mhf.Anchored = false
         end
     end)
 end
