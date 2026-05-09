@@ -249,8 +249,11 @@ local function fling(target)
         flingActive = false
         log(flung and "fling success" or "fling done")
         if flung then
+            whisper("Successfully flinged " .. target.DisplayName)
             task.wait(0.2)
             tpHome()
+        else
+            whisper("fling failed for " .. target.DisplayName)
         end
     end)
 end
@@ -271,11 +274,10 @@ local function handleCommand(p, msg)
     end
     if not session.ownerId or p.UserId ~= session.ownerId then return end
     if cmd == "fling" then
-        log("fling cmd: query=" .. tostring(args[2]) .. " active=" .. tostring(flingActive))
-        if flingActive then log("fling already active") return end
+        if flingActive then whisper("already flinging someone") return end
         local t = findPlayer(args[2])
-        log("fling target: " .. (t and t.DisplayName or "nil"))
-        if t then fling(t) else log("no fling target found") end
+        if not t then whisper("no player found: " .. tostring(args[2])) return end
+        fling(t)
         return
     end
     if flingActive then flingActive = false end
@@ -294,14 +296,22 @@ local function handleCommand(p, msg)
         whisper("Murder: " .. mL)
         task.wait(0.3)
         whisper("Sheriff: " .. sL)
-    elseif cmd == "tp" then tpTo(findPlayer(args[2]) or findOwner())
-    elseif cmd == "tpmurd" and m then tpTo(m)
-    elseif cmd == "tpsher" and s then tpTo(s)
-    elseif cmd == "gun" then bringGun(findPlayer(args[2]) or findOwner())
+    elseif cmd == "tp" then
+        local t = findPlayer(args[2]) or findOwner()
+        if t then tpTo(t) else whisper("no player found: " .. tostring(args[2])) end
+    elseif cmd == "tpmurd" then
+        if m then tpTo(m) else whisper("no murderer found") end
+    elseif cmd == "tpsher" then
+        if s then tpTo(s) else whisper("no sheriff found") end
+    elseif cmd == "gun" then
+        local t = findPlayer(args[2]) or findOwner()
+        if not t then whisper("no player found: " .. tostring(args[2])) return end
+        if not (botHasGun() or findDroppedGun()) then whisper("no gun available") return end
+        bringGun(t)
     elseif cmd == "home" then tpHome()
     elseif cmd == "reset" then reset()
-    elseif cmd == "togglerole" then toggleRole = not toggleRole; whisper("role announce: " .. (toggleRole and "ON" or "OFF"))
-    elseif cmd == "togglegun" then toggleGun = not toggleGun; whisper("auto gun: " .. (toggleGun and "ON" or "OFF"))
+    elseif cmd == "togglerole" then toggleRole = not toggleRole; whisper("Toggled auto-roles " .. (toggleRole and "on" or "off"))
+    elseif cmd == "togglegun" then toggleGun = not toggleGun; whisper("Toggled auto-gun " .. (toggleGun and "on" or "off"))
     elseif cmd == "help" then whisper(HELP) end
 end
 local function tryAutoClaimFraud(p)
