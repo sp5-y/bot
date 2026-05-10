@@ -231,8 +231,16 @@ local function tpHome()
     end
 end
 local function reset()
-    local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
-    if hum then hum.Health = 0 end
+    local char = me.Character
+    if not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        pcall(function() hum.Health = 0 end)
+        pcall(function() hum:TakeDamage(hum.MaxHealth * 2) end)
+        pcall(function() hum:ChangeState(Enum.HumanoidStateType.Dead) end)
+    end
+    pcall(function() char:BreakJoints() end)
+    pcall(function() me:LoadCharacter() end)
 end
 local function dropGunAt(target)
     if not isAlive(target) then return false end
@@ -296,30 +304,73 @@ local function fling(target)
         flingActive = false
         log(flung and "fling success" or "fling done")
         whisper("Successfully flinged " .. target.DisplayName)
-        local char = me.Character
-        if char and SPAWN_CFRAME then
-            local parts = {}
-            for _, d in ipairs(char:GetDescendants()) do
-                if d:IsA("BasePart") then
-                    table.insert(parts, d)
-                    d.Anchored = true
-                    zeroVel(d)
-                end
-            end
-            pcall(function() char:PivotTo(SPAWN_CFRAME) end)
-            task.wait(0.25)
-            for _, p in ipairs(parts) do zeroVel(p) end
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum then pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end) end
-            for _, p in ipairs(parts) do
-                if p.Parent then p.Anchored = false end
-            end
+        for i = 1, 3 do
+            tpHome()
+            task.wait(0.3)
         end
     end)
 end
 
+--[[ Follow ]]--
+local followTarget = nil
+local function startFollowLoop()
+    task.spawn(function()
+        while followTarget and session.active do
+            local target = followTarget
+            if target and isAlive(target) and isAlive(me) then
+                local thrp = target.Character:FindFirstChild("HumanoidRootPart")
+                local hum = me.Character:FindFirstChildOfClass("Humanoid")
+                if thrp and hum then hum:MoveTo(thrp.Position) end
+            end
+            task.wait(0.3)
+        end
+    end)
+end
+
+--[[ Kill Murderer ]]--
+local function getGun()
+    local backpack = me:FindFirstChildOfClass("Backpack")
+    return (me.Character and (me.Character:FindFirstChild("Gun") or me.Character:FindFirstChild("Revolver")))
+        or (backpack and (backpack:FindFirstChild("Gun") or backpack:FindFirstChild("Revolver")))
+end
+local function killMurd()
+    local murd = findHolder({"Knife"})
+    if not murd then whisper("no murderer found") return end
+    local gun = getGun()
+    if not gun then
+        local g, h = findDroppedGun(), hrp()
+        if not (g and h) then whisper("no gun available") return end
+        whisper("picking up dropped gun")
+        g.CFrame = h.CFrame
+        for _ = 1, 20 do
+            task.wait(0.1)
+            gun = getGun()
+            if gun then break end
+        end
+        if not gun then whisper("failed to pick up gun") return end
+    end
+    local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+    if hum and gun.Parent ~= me.Character then
+        pcall(function() hum:EquipTool(gun) end)
+        task.wait(0.15)
+    end
+    tpTo(murd)
+    task.wait(0.2)
+    pcall(function() gun:Activate() end)
+    for _, c in ipairs(gun:GetDescendants()) do
+        if c:IsA("RemoteEvent") then
+            local mhrp = murd.Character and murd.Character:FindFirstChild("HumanoidRootPart")
+            if mhrp then
+                pcall(function() c:FireServer(mhrp.Position) end)
+                pcall(function() c:FireServer(murd.Character) end)
+            end
+        end
+    end
+    whisper("attempted kill on " .. murd.DisplayName)
+end
+
 --[[ Commands ]]--
-local HELP = "!owner !dethrone !gun [name] !fling <name> !who !chat <msg> !tp [name] !tpmurd !tpsher !togglerole !togglegun !home !reset !help"
+local HELP = "!owner !dethrone !gun [name] !fling <name> !killmurd !follow [name] !unfollow !who !chat <msg> !tp [name] !tpmurd !tpsher !togglerole !togglegun !home !reset !help"
 local function handleCommand(p, msg)
     if msg:sub(1, 1) ~= "!" then return end
     local args = msg:split(" ")
@@ -372,6 +423,19 @@ local function handleCommand(p, msg)
     elseif cmd == "reset" then reset()
     elseif cmd == "togglerole" then toggleRole = not toggleRole; whisper("Toggled auto-roles " .. (toggleRole and "on" or "off"))
     elseif cmd == "togglegun" then toggleGun = not toggleGun; whisper("Toggled auto-gun " .. (toggleGun and "on" or "off"))
+    elseif cmd == "killmurd" then killMurd()
+    elseif cmd == "follow" then
+        local t = findPlayer(args[2]) or findOwner()
+        if not t then whisper("That user doesnt exist") return end
+        local wasActive = followTarget ~= nil
+        followTarget = t
+        whisper("Following " .. t.DisplayName)
+        if not wasActive then startFollowLoop() end
+    elseif cmd == "unfollow" then
+        if followTarget then
+            whisper("Stopped following " .. followTarget.DisplayName)
+            followTarget = nil
+        end
     elseif cmd == "help" then whisper(HELP) end
 end
 local function tryAutoClaimFraud(p)
