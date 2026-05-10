@@ -8,7 +8,7 @@ local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
 local me, cam = Players.LocalPlayer, workspace.CurrentCamera
 local DEFAULT_FOV, WIDE_FOV = 70, 100
 local SPAWN_CFRAME = nil
-local FRAUD_NAME = "test"
+local FRAUD_NAME = "yest"
 local toggleRole = true
 local toggleGun = false
 local toggleAlerts = false
@@ -232,12 +232,8 @@ local function tpHome()
     end
 end
 local function reset()
-    log("reset called")
     local char = me.Character
-    if not char then
-        pcall(function() me:LoadCharacter() end)
-        return
-    end
+    if not char then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then
         pcall(function() hum.Health = 0 end)
@@ -245,13 +241,7 @@ local function reset()
         pcall(function() hum:ChangeState(Enum.HumanoidStateType.Dead) end)
     end
     pcall(function() char:BreakJoints() end)
-    for _, p in ipairs(char:GetDescendants()) do
-        if p:IsA("BasePart") then
-            pcall(function() p:Destroy() end)
-        end
-    end
     pcall(function() me:LoadCharacter() end)
-    pcall(function() char:Destroy() end)
 end
 local function dropGunAt(target)
     if not isAlive(target) then return false end
@@ -345,41 +335,62 @@ local function getGun()
         or (backpack and (backpack:FindFirstChild("Gun") or backpack:FindFirstChild("Revolver")))
 end
 local function killMurd()
-    log("killMurd called")
     local murd = findHolder({"Knife"})
-    log("murderer: " .. (murd and murd.DisplayName or "none"))
-    if not murd then whisper("no murderer found") return end
+    if not murd then whisper("No murderer found") return end
     local gun = getGun()
     if not gun then
         local g, h = findDroppedGun(), hrp()
-        if not (g and h) then whisper("no gun available") return end
-        whisper("picking up dropped gun")
+        if not (g and h) then whisper("No gun available") return end
+        whisper("Picking up dropped gun")
         g.CFrame = h.CFrame
         for _ = 1, 20 do
             task.wait(0.1)
             gun = getGun()
             if gun then break end
         end
-        if not gun then whisper("failed to pick up gun") return end
+        if not gun then whisper("Failed to pick up gun") return end
     end
     local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
     if hum and gun.Parent ~= me.Character then
         pcall(function() hum:EquipTool(gun) end)
         task.wait(0.15)
     end
-    tpTo(murd)
-    task.wait(0.2)
-    pcall(function() gun:Activate() end)
-    for _, c in ipairs(gun:GetDescendants()) do
-        if c:IsA("RemoteEvent") then
-            local mhrp = murd.Character and murd.Character:FindFirstChild("HumanoidRootPart")
-            if mhrp then
-                pcall(function() c:FireServer(mhrp.Position) end)
+    local mhrp = murd.Character and murd.Character:FindFirstChild("HumanoidRootPart")
+    local myh = hrp()
+    if not (mhrp and myh) then whisper("Murderer position unknown") return end
+    myh.CFrame = mhrp.CFrame
+    task.wait(0.1)
+    local oldType = cam.CameraType
+    pcall(function()
+        cam.CameraType = Enum.CameraType.Scriptable
+        cam.CFrame = CFrame.new(myh.Position + Vector3.new(0, 2, 0), mhrp.Position)
+    end)
+    task.wait(0.1)
+    for i = 1, 6 do
+        if not isAlive(murd) then break end
+        local cur_mhrp = murd.Character and murd.Character:FindFirstChild("HumanoidRootPart")
+        local cur_myh = hrp()
+        if cur_mhrp and cur_myh then
+            cur_myh.CFrame = cur_mhrp.CFrame
+            pcall(function() cam.CFrame = CFrame.new(cur_myh.Position + Vector3.new(0, 2, 0), cur_mhrp.Position) end)
+        end
+        pcall(function() gun:Activate() end)
+        for _, c in ipairs(gun:GetDescendants()) do
+            if c:IsA("RemoteEvent") and cur_mhrp then
+                pcall(function() c:FireServer(cur_mhrp.Position) end)
+                pcall(function() c:FireServer(cur_mhrp.Position, cur_mhrp) end)
                 pcall(function() c:FireServer(murd.Character) end)
+                pcall(function() c:FireServer(murd) end)
             end
         end
+        task.wait(0.08)
     end
-    whisper("attempted kill on " .. murd.DisplayName)
+    pcall(function() cam.CameraType = oldType end)
+    if isAlive(murd) then
+        whisper("Shot at " .. murd.DisplayName)
+    else
+        whisper("Killed " .. murd.DisplayName)
+    end
 end
 
 --[[ Commands ]]--
@@ -410,9 +421,11 @@ local function handleCommand(p, msg)
         if p.Name:lower() == FRAUD_NAME then fraudOptedOut = true end
         session.ownerId = nil
         toggleRole, toggleGun, toggleAlerts = true, false, false
-        sendChat('owner released — type "!owner" to claim')
+        sendChat('Owner released — type "!owner" to claim')
         return
-    elseif cmd == "chat" then sendChat(rest)
+    elseif cmd == "chat" then
+        sendChat(rest)
+        whisper("Sent: " .. rest)
     elseif cmd == "who" then
         local botM, botS = botHasKnife(), botHasGun()
         local mL = botM and "Me" or (m and shortName(m)) or "?"
@@ -422,21 +435,38 @@ local function handleCommand(p, msg)
         whisper("Sheriff: " .. sL)
     elseif cmd == "tp" then
         local t = findPlayer(args[2]) or findOwner()
-        if t then tpTo(t) else whisper("That user doesnt exist") end
+        if not t then whisper("That user doesnt exist") return end
+        tpTo(t)
+        whisper("Teleported to " .. t.DisplayName)
     elseif cmd == "tpmurd" then
-        if m then tpTo(m) else whisper("no murderer found") end
+        if not m then whisper("No murderer found") return end
+        tpTo(m)
+        whisper("Teleported to murderer")
     elseif cmd == "tpsher" then
-        if s then tpTo(s) else whisper("no sheriff found") end
+        if not s then whisper("No sheriff found") return end
+        tpTo(s)
+        whisper("Teleported to sheriff")
     elseif cmd == "gun" then
         local t = findPlayer(args[2]) or findOwner()
         if not t then whisper("That user doesnt exist") return end
-        if not (botHasGun() or findDroppedGun()) then whisper("no gun available") return end
+        if not (botHasGun() or findDroppedGun()) then whisper("No gun available") return end
         bringGun(t)
-    elseif cmd == "home" then tpHome()
-    elseif cmd == "reset" then reset()
-    elseif cmd == "togglerole" then toggleRole = not toggleRole; whisper("Toggled auto-roles " .. (toggleRole and "on" or "off"))
-    elseif cmd == "togglegun" then toggleGun = not toggleGun; whisper("Toggled auto-gun " .. (toggleGun and "on" or "off"))
-    elseif cmd == "togglealerts" then toggleAlerts = not toggleAlerts; whisper("Toggled alerts " .. (toggleAlerts and "on" or "off"))
+        whisper("Delivered gun to " .. t.DisplayName)
+    elseif cmd == "home" then
+        tpHome()
+        whisper("Teleported home")
+    elseif cmd == "reset" then
+        whisper("Resetting bot")
+        reset()
+    elseif cmd == "togglerole" then
+        toggleRole = not toggleRole
+        whisper("Toggled auto-roles " .. (toggleRole and "on" or "off"))
+    elseif cmd == "togglegun" then
+        toggleGun = not toggleGun
+        whisper("Toggled auto-gun " .. (toggleGun and "on" or "off"))
+    elseif cmd == "togglealerts" then
+        toggleAlerts = not toggleAlerts
+        whisper("Toggled alerts " .. (toggleAlerts and "on" or "off"))
     elseif cmd == "killmurd" then killMurd()
     elseif cmd == "follow" then
         local t = findPlayer(args[2]) or findOwner()
@@ -448,10 +478,10 @@ local function handleCommand(p, msg)
         whisper("Following " .. t.DisplayName)
         if not wasActive then startFollowLoop() end
     elseif cmd == "unfollow" then
-        if followTarget then
-            whisper("Stopped following " .. followTarget.DisplayName)
-            followTarget = nil
-        end
+        if not followTarget then whisper("Not following anyone") return end
+        local name = followTarget.DisplayName
+        followTarget = nil
+        whisper("Stopped following " .. name)
     elseif cmd == "help" then whisper(HELP) end
 end
 local function tryAutoClaimFraud(p)
@@ -472,7 +502,7 @@ Players.PlayerRemoving:Connect(function(p)
     if session.ownerId and p.UserId == session.ownerId then
         session.ownerId = nil
         toggleRole, toggleGun, toggleAlerts = true, false, false
-        sendChat('owner left — type "!owner" to claim')
+        sendChat('Owner left — type "!owner" to claim')
     end
 end)
 
@@ -488,14 +518,12 @@ task.spawn(function()
                 local targetId = owner.UserId
                 task.spawn(function()
                     task.wait(2)
-                    log("burn step (" .. session.ownerId .. " vs " .. targetId .. ")")
-                    if session.ownerId ~= targetId then log("burn skip: owner changed") return end
+                    if session.ownerId ~= targetId then return end
                     whisper("Loading new owner...", target)
                 end)
                 task.spawn(function()
                     task.wait(5)
-                    log("HELP step (" .. tostring(session.ownerId) .. " vs " .. targetId .. ")")
-                    if session.ownerId ~= targetId then log("HELP skip: owner changed") return end
+                    if session.ownerId ~= targetId then return end
                     whisper(HELP, target)
                 end)
             end
@@ -508,38 +536,44 @@ end)
 
 --[[ Alerts watcher ]]--
 task.spawn(function()
-    local prevAlive = {}
-    local prevMurdId = nil
-    local prevSherId = nil
+    local alivePrev = {}
+    local knifeIdPrev, gunIdPrev = nil, nil
     while session.active do
+        local kHolder = findHolder({"Knife"})
+        local gHolder = findHolder({"Gun", "Revolver"})
+        local kid = kHolder and kHolder.UserId
+        local gid = gHolder and gHolder.UserId
         if toggleAlerts and session.ownerId then
-            local m = findHolder({"Knife"})
-            local s = findHolder({"Gun", "Revolver"})
-            local curAlive = {}
             for _, p in ipairs(Players:GetPlayers()) do
-                if p ~= me and isAlive(p) then curAlive[p.UserId] = p end
-            end
-            for uid, p in pairs(prevAlive) do
-                if not curAlive[uid] then
-                    if uid == prevSherId then
-                        whisper("Murder killed " .. p.DisplayName)
-                        task.wait(0.3)
-                        whisper("Sheriff dropped gun")
-                    elseif uid == prevMurdId then
-                        whisper("Sheriff shot " .. p.DisplayName)
-                    else
-                        whisper("Murder killed " .. p.DisplayName)
+                if p ~= me then
+                    local nowAlive = isAlive(p)
+                    local wasAlive = alivePrev[p.UserId]
+                    if wasAlive and not nowAlive then
+                        if p.UserId == knifeIdPrev then
+                            whisper("Sheriff shot " .. p.DisplayName)
+                        elseif p.UserId == gunIdPrev then
+                            whisper("Murder killed " .. p.DisplayName)
+                        elseif knifeIdPrev then
+                            whisper("Murder killed " .. p.DisplayName)
+                        elseif gunIdPrev then
+                            whisper("Sheriff shot " .. p.DisplayName)
+                        end
                     end
                 end
             end
-            prevAlive = curAlive
-            prevMurdId = m and m.UserId or nil
-            prevSherId = s and s.UserId or nil
-        else
-            prevAlive = {}
-            prevMurdId, prevSherId = nil, nil
+            if gunIdPrev and not gid then
+                local prev = Players:GetPlayerByUserId(gunIdPrev)
+                if prev and isAlive(prev) then
+                    whisper("Sheriff dropped gun")
+                end
+            end
         end
-        task.wait(0.5)
+        for _, p in ipairs(Players:GetPlayers()) do
+            alivePrev[p.UserId] = isAlive(p)
+        end
+        knifeIdPrev = kid
+        gunIdPrev = gid
+        task.wait(0.3)
     end
 end)
 
