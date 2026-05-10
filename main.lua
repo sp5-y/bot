@@ -9,7 +9,6 @@ local me, cam = Players.LocalPlayer, workspace.CurrentCamera
 local DEFAULT_FOV, WIDE_FOV = 70, 100
 local SPAWN_CFRAME = nil
 local FRAUD_NAME = "yest"
-local toggleRole = true
 local toggleGun = false
 local toggleAlerts = false
 local fraudOptedOut = false
@@ -156,8 +155,6 @@ local function findOwner()
     local p = Players:GetPlayerByUserId(session.ownerId)
     if p and p ~= me then return p end
 end
-local function shortName(p) return p.Name:sub(1, 4) .. "..." end
-
 --[[ Chat / Whisper ]]--
 local function sendChat(msg)
     if not msg or msg == "" then return end
@@ -234,6 +231,10 @@ end
 local function reset()
     local char = me.Character
     if not char then return end
+    local h = char:FindFirstChild("HumanoidRootPart")
+    if h then
+        pcall(function() h.CFrame = CFrame.new(0, -10000, 0) end)
+    end
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then
         pcall(function() hum.Health = 0 end)
@@ -328,73 +329,8 @@ local function startFollowLoop()
     end)
 end
 
---[[ Kill Murderer ]]--
-local function getGun()
-    local backpack = me:FindFirstChildOfClass("Backpack")
-    return (me.Character and (me.Character:FindFirstChild("Gun") or me.Character:FindFirstChild("Revolver")))
-        or (backpack and (backpack:FindFirstChild("Gun") or backpack:FindFirstChild("Revolver")))
-end
-local function killMurd()
-    local murd = findHolder({"Knife"})
-    if not murd then whisper("No murderer found") return end
-    local gun = getGun()
-    if not gun then
-        local g, h = findDroppedGun(), hrp()
-        if not (g and h) then whisper("No gun available") return end
-        whisper("Picking up dropped gun")
-        g.CFrame = h.CFrame
-        for _ = 1, 20 do
-            task.wait(0.1)
-            gun = getGun()
-            if gun then break end
-        end
-        if not gun then whisper("Failed to pick up gun") return end
-    end
-    local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
-    if hum and gun.Parent ~= me.Character then
-        pcall(function() hum:EquipTool(gun) end)
-        task.wait(0.15)
-    end
-    local mhrp = murd.Character and murd.Character:FindFirstChild("HumanoidRootPart")
-    local myh = hrp()
-    if not (mhrp and myh) then whisper("Murderer position unknown") return end
-    myh.CFrame = mhrp.CFrame
-    task.wait(0.1)
-    local oldType = cam.CameraType
-    pcall(function()
-        cam.CameraType = Enum.CameraType.Scriptable
-        cam.CFrame = CFrame.new(myh.Position + Vector3.new(0, 2, 0), mhrp.Position)
-    end)
-    task.wait(0.1)
-    for i = 1, 6 do
-        if not isAlive(murd) then break end
-        local cur_mhrp = murd.Character and murd.Character:FindFirstChild("HumanoidRootPart")
-        local cur_myh = hrp()
-        if cur_mhrp and cur_myh then
-            cur_myh.CFrame = cur_mhrp.CFrame
-            pcall(function() cam.CFrame = CFrame.new(cur_myh.Position + Vector3.new(0, 2, 0), cur_mhrp.Position) end)
-        end
-        pcall(function() gun:Activate() end)
-        for _, c in ipairs(gun:GetDescendants()) do
-            if c:IsA("RemoteEvent") and cur_mhrp then
-                pcall(function() c:FireServer(cur_mhrp.Position) end)
-                pcall(function() c:FireServer(cur_mhrp.Position, cur_mhrp) end)
-                pcall(function() c:FireServer(murd.Character) end)
-                pcall(function() c:FireServer(murd) end)
-            end
-        end
-        task.wait(0.08)
-    end
-    pcall(function() cam.CameraType = oldType end)
-    if isAlive(murd) then
-        whisper("Shot at " .. murd.DisplayName)
-    else
-        whisper("Killed " .. murd.DisplayName)
-    end
-end
-
 --[[ Commands ]]--
-local HELP = "!owner !dethrone !gun [name] !fling <name> !killmurd !follow [name] !unfollow !who !chat <msg> !tp [name] !tpmurd !tpsher !togglerole !togglegun !togglealerts !home !reset !help"
+local HELP = "!owner !dethrone !gun [name] !fling <name> !follow [name] !unfollow !who !chat <msg> !tp [name] !tpmurd !tpsher !togglegun !togglealerts !home !reset !help"
 local function handleCommand(p, msg)
     if msg:sub(1, 1) ~= "!" then return end
     local args = msg:split(" ")
@@ -420,7 +356,7 @@ local function handleCommand(p, msg)
     if cmd == "dethrone" then
         if p.Name:lower() == FRAUD_NAME then fraudOptedOut = true end
         session.ownerId = nil
-        toggleRole, toggleGun, toggleAlerts = true, false, false
+        toggleGun, toggleAlerts = false, false
         sendChat('Owner released — type "!owner" to claim')
         return
     elseif cmd == "chat" then
@@ -428,8 +364,8 @@ local function handleCommand(p, msg)
         whisper("Sent: " .. rest)
     elseif cmd == "who" then
         local botM, botS = botHasKnife(), botHasGun()
-        local mL = botM and "Me" or (m and shortName(m)) or "?"
-        local sL = botS and "Me" or (s and shortName(s)) or "?"
+        local mL = botM and "Me" or (m and m.DisplayName) or "?"
+        local sL = botS and "Me" or (s and s.DisplayName) or "?"
         whisper("Murder: " .. mL)
         task.wait(0.3)
         whisper("Sheriff: " .. sL)
@@ -458,16 +394,12 @@ local function handleCommand(p, msg)
     elseif cmd == "reset" then
         whisper("Resetting bot")
         reset()
-    elseif cmd == "togglerole" then
-        toggleRole = not toggleRole
-        whisper("Toggled auto-roles " .. (toggleRole and "on" or "off"))
     elseif cmd == "togglegun" then
         toggleGun = not toggleGun
         whisper("Toggled auto-gun " .. (toggleGun and "on" or "off"))
     elseif cmd == "togglealerts" then
         toggleAlerts = not toggleAlerts
         whisper("Toggled alerts " .. (toggleAlerts and "on" or "off"))
-    elseif cmd == "killmurd" then killMurd()
     elseif cmd == "follow" then
         local t = findPlayer(args[2]) or findOwner()
         if not t then whisper("That user doesnt exist") return end
@@ -501,7 +433,7 @@ Players.PlayerAdded:Connect(hookSpeaker)
 Players.PlayerRemoving:Connect(function(p)
     if session.ownerId and p.UserId == session.ownerId then
         session.ownerId = nil
-        toggleRole, toggleGun, toggleAlerts = true, false, false
+        toggleGun, toggleAlerts = false, false
         sendChat('Owner left — type "!owner" to claim')
     end
 end)
@@ -538,23 +470,25 @@ end)
 task.spawn(function()
     local alivePrev = {}
     local knifeIdPrev, gunIdPrev = nil, nil
+    local droppedGunPrev = false
     while session.active do
         local kHolder = findHolder({"Knife"})
         local gHolder = findHolder({"Gun", "Revolver"})
         local kid = kHolder and kHolder.UserId
         local gid = gHolder and gHolder.UserId
+        local droppedGun = findDroppedGun() ~= nil
         if toggleAlerts and session.ownerId then
             for _, p in ipairs(Players:GetPlayers()) do
                 if p ~= me then
-                    local nowAlive = isAlive(p)
-                    local wasAlive = alivePrev[p.UserId]
+                    local nowAlive = isAlive(p) == true
+                    local wasAlive = alivePrev[p.UserId] == true
                     if wasAlive and not nowAlive then
                         if p.UserId == knifeIdPrev then
-                            whisper("Sheriff shot " .. p.DisplayName)
+                            whisper("Sheriff shot Murderer")
                         elseif p.UserId == gunIdPrev then
-                            whisper("Murder killed " .. p.DisplayName)
+                            whisper("Murderer killed Sheriff")
                         elseif knifeIdPrev then
-                            whisper("Murder killed " .. p.DisplayName)
+                            whisper("Murderer killed " .. p.DisplayName)
                         elseif gunIdPrev then
                             whisper("Sheriff shot " .. p.DisplayName)
                         end
@@ -567,13 +501,17 @@ task.spawn(function()
                     whisper("Sheriff dropped gun")
                 end
             end
+            if not gunIdPrev and gid and droppedGunPrev and gHolder then
+                whisper(gHolder.DisplayName .. " picked up gun")
+            end
         end
         for _, p in ipairs(Players:GetPlayers()) do
-            alivePrev[p.UserId] = isAlive(p)
+            alivePrev[p.UserId] = isAlive(p) == true
         end
         knifeIdPrev = kid
         gunIdPrev = gid
-        task.wait(0.3)
+        droppedGunPrev = droppedGun
+        task.wait(0.25)
     end
 end)
 
@@ -614,20 +552,26 @@ while session.active and gui.Parent do
         announced = true
         local owner = findOwner()
         local sN = findHolder({"Gun", "Revolver"})
-        if botM then
-            if owner and sN and owner.UserId == sN.UserId then tpTo(owner) end
-        else
-            if m and owner and owner.UserId == m.UserId then
-                tpTo(owner)
-            else
-                tpHome()
-            end
-        end
         task.spawn(function()
-            task.wait(1)
-            if toggleRole then
-                local mLabel = botM and "Me" or (m and shortName(m)) or "?"
-                local sLabel = botS and "Me" or (sN and shortName(sN)) or "?"
+            task.wait(1.5)
+            if botM then
+                if owner and sN and owner.UserId == sN.UserId then tpTo(owner) end
+            else
+                if m and owner and owner.UserId == m.UserId then
+                    tpTo(owner)
+                else
+                    for i = 1, 3 do
+                        tpHome()
+                        task.wait(0.6)
+                    end
+                end
+            end
+        end)
+        task.spawn(function()
+            task.wait(2.5)
+            if toggleAlerts or not session.ownerId then
+                local mLabel = botM and "Me" or (m and m.DisplayName) or "?"
+                local sLabel = botS and "Me" or (sN and sN.DisplayName) or "?"
                 if session.ownerId then
                     whisper("Murder: " .. mLabel)
                     task.wait(0.3)
