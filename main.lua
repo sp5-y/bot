@@ -331,8 +331,103 @@ local function startFollowLoop()
     end)
 end
 
+--[[ Silent Aim (hooks once across re-executions) ]]--
+if hookmetamethod and not getgenv().MM_SilentAim then
+    local state = {target = nil}
+    getgenv().MM_SilentAim = state
+    local M = me:GetMouse()
+    local function getPart()
+        local t = state.target
+        if not t then return end
+        local c = t.Character
+        return c and (c:FindFirstChild("Head") or c:FindFirstChild("HumanoidRootPart"))
+    end
+    local oldNc
+    oldNc = hookmetamethod(game, "__namecall", newcclosure(function(...)
+        local args = {...}
+        if args[1] == workspace and not checkcaller() and state.target then
+            local part = getPart()
+            if part then
+                local m = getnamecallmethod()
+                if m == "Raycast" then
+                    args[3] = (part.Position - args[2]).Unit * 1000
+                    return oldNc(unpack(args))
+                elseif m == "FindPartOnRayWithIgnoreList" or m == "FindPartOnRayWithWhitelist" or m == "FindPartOnRay" then
+                    local o = args[2].Origin
+                    args[2] = Ray.new(o, (part.Position - o).Unit * 1000)
+                    return oldNc(unpack(args))
+                end
+            end
+        end
+        return oldNc(...)
+    end))
+    local oldIdx
+    oldIdx = hookmetamethod(game, "__index", newcclosure(function(self, idx)
+        if self == M and not checkcaller() and state.target then
+            local part = getPart()
+            if part then
+                if idx == "Hit" or idx == "hit" then return part.CFrame
+                elseif idx == "Target" or idx == "target" then return part end
+            end
+        end
+        return oldIdx(self, idx)
+    end))
+end
+local SA = getgenv().MM_SilentAim
+
+--[[ Shoot ]]--
+local function equipGun()
+    local char = me.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local bp = me:FindFirstChildOfClass("Backpack")
+    for _, name in ipairs({"Gun", "Revolver"}) do
+        local t = (char and char:FindFirstChild(name)) or (bp and bp:FindFirstChild(name))
+        if t then
+            if hum and t.Parent ~= char then pcall(function() hum:EquipTool(t) end) end
+            return t
+        end
+    end
+end
+local function shootPlayer(target)
+    if not isAlive(target) or not isAlive(me) then return false, "Target dead" end
+    if not botHasGun() then
+        local g = findDroppedGun()
+        if not g then return false, "No gun available" end
+        local h = hrp(); if not h then return false, "Bot has no body" end
+        g.CFrame = h.CFrame
+        for _ = 1, 25 do
+            if botHasGun() then break end
+            task.wait(0.1)
+        end
+        if not botHasGun() then return false, "Failed to grab gun" end
+    end
+    local gun = equipGun()
+    if not gun then return false, "Cant equip gun" end
+    task.wait(0.15)
+    local h = hrp()
+    local thrp = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    if not (h and thrp) then return false, "Cant locate target" end
+    zeroVel(h)
+    h.CFrame = thrp.CFrame + Vector3.new(0, 18, 0)
+    zeroVel(h)
+    task.wait(0.15)
+    if SA then SA.target = target end
+    task.wait(0.1)
+    pcall(function() gun:Activate() end)
+    pcall(function()
+        if mouse1press and mouse1release then
+            mouse1press(); task.wait(0.1); mouse1release()
+        end
+    end)
+    task.wait(0.3)
+    if SA then SA.target = nil end
+    task.wait(0.2)
+    for _ = 1, 3 do tpHome(); task.wait(0.4) end
+    return true
+end
+
 --[[ Commands ]]--
-local HELP = "!owner !dethrone !gun [name] !fling <name> !follow [name] !unfollow !who !chat <msg> !tp [name] !tpmurd !tpsher !togglegun !togglewho !home !reset !help"
+local HELP = "!owner !dethrone !gun [name] !shoot <name> !fling <name> !follow [name] !unfollow !who !chat <msg> !tp [name] !tpmurd !tpsher !togglegun !togglewho !home !reset !help"
 local function handleCommand(p, msg)
     if msg:sub(1, 1) ~= "!" then return end
     local args = msg:split(" ")
@@ -351,6 +446,17 @@ local function handleCommand(p, msg)
         local t = findPlayer(args[2])
         if not t then whisper("That user doesnt exist") return end
         fling(t)
+        return
+    end
+    if cmd == "shoot" then
+        local t = findPlayer(args[2])
+        if not t then whisper("That user doesnt exist") return end
+        if not (botHasGun() or findDroppedGun()) then whisper("No gun available") return end
+        task.spawn(function()
+            local ok, err = shootPlayer(t)
+            if ok then whisper("Shot " .. shortName(t))
+            else whisper(err or "Shoot failed") end
+        end)
         return
     end
     if flingActive then flingActive = false end
