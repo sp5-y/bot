@@ -13,6 +13,8 @@ local toggleGun = false
 local toggleAlerts = false
 local toggleWho = true
 local fraudOptedOut = false
+local gunTargetId = nil
+local gunDelivered = false
 
 --[[ Session ]]--
 if getgenv and getgenv().MM_Session then getgenv().MM_Session.active = false end
@@ -331,144 +333,8 @@ local function startFollowLoop()
     end)
 end
 
---[[ Silent Aim (hooks once across re-executions) ]]--
-if hookmetamethod and not getgenv().MM_SilentAim then
-    local state = {target = nil}
-    getgenv().MM_SilentAim = state
-    local M = me:GetMouse()
-    local function getPart()
-        local t = state.target
-        if not t then return end
-        local c = t.Character
-        return c and (c:FindFirstChild("Head") or c:FindFirstChild("HumanoidRootPart"))
-    end
-    local oldNc
-    oldNc = hookmetamethod(game, "__namecall", newcclosure(function(...)
-        local args = {...}
-        if args[1] == workspace and not checkcaller() and state.target then
-            local part = getPart()
-            if part then
-                local m = getnamecallmethod()
-                if m == "Raycast" then
-                    args[3] = (part.Position - args[2]).Unit * 1000
-                    return oldNc(unpack(args))
-                elseif m == "FindPartOnRayWithIgnoreList" or m == "FindPartOnRayWithWhitelist" or m == "FindPartOnRay" then
-                    local o = args[2].Origin
-                    args[2] = Ray.new(o, (part.Position - o).Unit * 1000)
-                    return oldNc(unpack(args))
-                end
-            end
-        end
-        return oldNc(...)
-    end))
-    local oldIdx
-    oldIdx = hookmetamethod(game, "__index", newcclosure(function(self, idx)
-        if self == M and not checkcaller() and state.target then
-            local part = getPart()
-            if part then
-                if idx == "Hit" or idx == "hit" then return part.CFrame
-                elseif idx == "Target" or idx == "target" then return part end
-            end
-        end
-        return oldIdx(self, idx)
-    end))
-end
-local SA = getgenv().MM_SilentAim
-
---[[ Shoot ]]--
-local function equipGun()
-    local char = me.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    local bp = me:FindFirstChildOfClass("Backpack")
-    for _, name in ipairs({"Gun", "Revolver"}) do
-        local t = (char and char:FindFirstChild(name)) or (bp and bp:FindFirstChild(name))
-        if t then
-            if hum and t.Parent ~= char then
-                pcall(function() hum:EquipTool(t) end)
-                for _ = 1, 15 do
-                    if t.Parent == char then break end
-                    task.wait(0.05)
-                end
-            end
-            return t
-        end
-    end
-end
-local function fireGun(gun, part)
-    local pos = part and part.Position
-    if pos and part then
-        for _, c in ipairs(gun:GetDescendants()) do
-            if c:IsA("RemoteFunction") then
-                pcall(function() c:InvokeServer(pos, part, "AH") end)
-                pcall(function() c:InvokeServer(pos, part) end)
-                pcall(function() c:InvokeServer(part.CFrame) end)
-            elseif c:IsA("RemoteEvent") then
-                pcall(function() c:FireServer(pos, part, "AH") end)
-                pcall(function() c:FireServer(pos, part) end)
-                pcall(function() c:FireServer(part.CFrame) end)
-            end
-        end
-    end
-    pcall(function() gun:Activate() end)
-    if getconnections then
-        pcall(function()
-            for _, c in pairs(getconnections(gun.Activated)) do
-                local fn = c.Function or (c.GetFunction and c:GetFunction())
-                if fn then pcall(fn) end
-            end
-        end)
-    end
-    pcall(function()
-        if mouse1press and mouse1release then
-            mouse1press(); task.wait(0.04); mouse1release()
-        end
-    end)
-end
-local function shootPlayer(target)
-    if not isAlive(target) or not isAlive(me) then return false, "Target dead" end
-    if not botHasGun() then
-        local g = findDroppedGun()
-        if not g then return false, "No gun available" end
-        local h = hrp(); if not h then return false, "Bot has no body" end
-        g.CFrame = h.CFrame
-        for _ = 1, 25 do
-            if botHasGun() then break end
-            task.wait(0.1)
-        end
-        if not botHasGun() then return false, "Failed to grab gun" end
-    end
-    local gun = equipGun()
-    if not gun then return false, "Cant equip gun" end
-    log("shoot: gun=" .. gun.Name .. " parent=" .. (gun.Parent and gun.Parent.Name or "nil"))
-    for _, c in ipairs(gun:GetDescendants()) do
-        if c:IsA("RemoteEvent") or c:IsA("RemoteFunction") then
-            log("  remote: " .. c:GetFullName())
-        end
-    end
-    local h = hrp()
-    local tchar = target.Character
-    local thrp = tchar and tchar:FindFirstChild("HumanoidRootPart")
-    local thead = tchar and tchar:FindFirstChild("Head")
-    local part = thead or thrp
-    if not (h and thrp and part) then return false, "Cant locate target" end
-    h.CFrame = thrp.CFrame * CFrame.new(0, 0, -8)
-    zeroVel(h)
-    task.wait(0.1)
-    if SA then SA.target = target end
-    log("shoot: firing at " .. shortName(target))
-    for i = 1, 8 do
-        if not isAlive(target) then log("shoot: target dead after " .. i .. " shots") break end
-        fireGun(gun, part)
-        task.wait(0.1)
-    end
-    if SA then SA.target = nil end
-    task.wait(0.15)
-    for _ = 1, 3 do tpHome(); task.wait(0.4) end
-    return true
-end
-
 --[[ Commands ]]--
-local HELP = "!owner !dethrone !gun [name] !shoot <name> !fling <name> !follow [name] !unfollow !who !chat <msg> !tp [name] !tpmurd !tpsher !togglegun !togglewho !home !reset !help"
+local HELP = "!owner !dethrone !gun [name] !fling <name> !follow [name] !unfollow !who !chat <msg> !tp [name] !tpmurd !tpsher !togglegun [name] !togglewho !home !reset !help"
 local function handleCommand(p, msg)
     if msg:sub(1, 1) ~= "!" then return end
     local args = msg:split(" ")
@@ -489,23 +355,13 @@ local function handleCommand(p, msg)
         fling(t)
         return
     end
-    if cmd == "shoot" then
-        local t = findPlayer(args[2])
-        if not t then whisper("That user doesnt exist") return end
-        if not (botHasGun() or findDroppedGun()) then whisper("No gun available") return end
-        task.spawn(function()
-            local ok, err = shootPlayer(t)
-            if ok then whisper("Shot " .. shortName(t))
-            else whisper(err or "Shoot failed") end
-        end)
-        return
-    end
     if flingActive then flingActive = false end
     local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
     if cmd == "dethrone" then
         if p.Name:lower() == FRAUD_NAME then fraudOptedOut = true end
         session.ownerId = nil
         toggleGun, toggleAlerts, toggleWho = false, false, true
+        gunTargetId, gunDelivered = nil, false
         sendChat('Owner released — type "!owner" to claim')
         return
     elseif cmd == "chat" then
@@ -544,8 +400,16 @@ local function handleCommand(p, msg)
         whisper("Resetting bot")
         reset()
     elseif cmd == "togglegun" then
-        toggleGun = not toggleGun
-        whisper("Toggled auto-gun " .. (toggleGun and "on" or "off"))
+        if args[2] then
+            local t = findPlayer(args[2])
+            if not t then whisper("That user doesnt exist") return end
+            toggleGun, gunTargetId, gunDelivered = true, t.UserId, false
+            whisper("Toggled auto-gun on -> " .. shortName(t))
+        else
+            toggleGun = not toggleGun
+            gunTargetId, gunDelivered = nil, false
+            whisper("Toggled auto-gun " .. (toggleGun and "on (owner)" or "off"))
+        end
     elseif cmd == "togglealerts" then
         toggleAlerts = not toggleAlerts
         whisper("Toggled alerts " .. (toggleAlerts and "on" or "off"))
@@ -586,6 +450,7 @@ Players.PlayerRemoving:Connect(function(p)
     if session.ownerId and p.UserId == session.ownerId then
         session.ownerId = nil
         toggleGun, toggleAlerts, toggleWho = false, false, true
+        gunTargetId, gunDelivered = nil, false
         sendChat('Owner left — type "!owner" to claim')
     end
 end)
@@ -696,7 +561,7 @@ end)
 log("bot online")
 
 --[[ Main loop ]]--
-local lastMurderId, announced, gunDelivered, aloneTpDone
+local lastMurderId, announced, aloneTpDone
 while session.active and gui.Parent do
     local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
     local botM, botS = botHasKnife(), botHasGun()
@@ -763,12 +628,13 @@ while session.active and gui.Parent do
         if alive == 1 then aloneTpDone = true; tpTo(m) end
     end
 
+    local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or findOwner()
     if toggleGun and not gunDelivered and not _G.MM_GunBusy and me.Character
-       and session.ownerId and isAlive(findOwner())
+       and gunTarget and gunTarget ~= me and isAlive(gunTarget)
        and (botHasGun() or findDroppedGun()) then
         gunDelivered = true
         _G.MM_GunBusy = true
-        task.spawn(function() bringGun(); task.wait(3); _G.MM_GunBusy = false end)
+        task.spawn(function() bringGun(gunTarget); task.wait(3); _G.MM_GunBusy = false end)
     end
 
     local subject = (s and s.Character and s.Character:FindFirstChildOfClass("Humanoid"))
