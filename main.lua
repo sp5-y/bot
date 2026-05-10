@@ -156,6 +156,7 @@ local function findOwner()
     local p = Players:GetPlayerByUserId(session.ownerId)
     if p and p ~= me then return p end
 end
+local function shortName(p) return p.Name:sub(1, 4) .. "..." end
 --[[ Chat / Whisper ]]--
 local function sendChat(msg)
     if not msg or msg == "" then return end
@@ -306,7 +307,7 @@ local function fling(target)
         end
         flingActive = false
         log(flung and "fling success" or "fling done")
-        whisper("Successfully flinged " .. target.DisplayName)
+        whisper("Successfully flinged " .. shortName(target))
         for i = 1, 3 do
             tpHome()
             task.wait(0.3)
@@ -365,8 +366,8 @@ local function handleCommand(p, msg)
         whisper("Sent: " .. rest)
     elseif cmd == "who" then
         local botM, botS = botHasKnife(), botHasGun()
-        local mL = botM and "Me" or (m and m.DisplayName) or "?"
-        local sL = botS and "Me" or (s and s.DisplayName) or "?"
+        local mL = botM and "Me" or (m and shortName(m)) or "?"
+        local sL = botS and "Me" or (s and shortName(s)) or "?"
         whisper("Murder: " .. mL)
         task.wait(0.3)
         whisper("Sheriff: " .. sL)
@@ -374,7 +375,7 @@ local function handleCommand(p, msg)
         local t = findPlayer(args[2]) or findOwner()
         if not t then whisper("That user doesnt exist") return end
         tpTo(t)
-        whisper("Teleported to " .. t.DisplayName)
+        whisper("Teleported to " .. shortName(t))
     elseif cmd == "tpmurd" then
         if not m then whisper("No murderer found") return end
         tpTo(m)
@@ -388,7 +389,7 @@ local function handleCommand(p, msg)
         if not t then whisper("That user doesnt exist") return end
         if not (botHasGun() or findDroppedGun()) then whisper("No gun available") return end
         bringGun(t)
-        whisper("Delivered gun to " .. t.DisplayName)
+        whisper("Delivered gun to " .. shortName(t))
     elseif cmd == "home" then
         tpHome()
         whisper("Teleported home")
@@ -411,11 +412,11 @@ local function handleCommand(p, msg)
         local switching = followTarget ~= t
         followTarget = t
         if switching then tpTo(t) end
-        whisper("Following " .. t.DisplayName)
+        whisper("Following " .. shortName(t))
         if not wasActive then startFollowLoop() end
     elseif cmd == "unfollow" then
         if not followTarget then whisper("Not following anyone") return end
-        local name = followTarget.DisplayName
+        local name = shortName(followTarget)
         followTarget = nil
         whisper("Stopped following " .. name)
     elseif cmd == "help" then whisper(HELP) end
@@ -482,6 +483,7 @@ task.spawn(function()
     local alivePrev = {}
     local knifeIdPrev, gunIdPrev = nil, nil
     local droppedGunPrev = false
+    local lastMurdKill = 0
     while session.active do
         local kHolder = findHolder({"Knife"})
         local gHolder = findHolder({"Gun", "Revolver"})
@@ -496,24 +498,25 @@ task.spawn(function()
                     if prev == true and cur == false then
                         if p.UserId == knifeIdPrev then
                             whisper("Sheriff shot Murderer")
+                            lastMurdKill = tick()
                         elseif p.UserId == gunIdPrev then
                             whisper("Murderer killed Sheriff")
                         elseif knifeIdPrev then
-                            whisper("Murderer killed " .. p.DisplayName)
+                            whisper("Murderer killed " .. shortName(p))
                         elseif gunIdPrev then
-                            whisper("Sheriff shot " .. p.DisplayName)
+                            whisper("Sheriff shot " .. shortName(p))
                         end
                     end
                 end
             end
-            if gunIdPrev and not gid then
+            if gunIdPrev and not gid and tick() - lastMurdKill > 3 then
                 local prev = Players:GetPlayerByUserId(gunIdPrev)
                 if prev and aliveState(prev) == true then
                     whisper("Sheriff dropped gun")
                 end
             end
             if not gunIdPrev and gid and droppedGunPrev and gHolder then
-                whisper(gHolder.DisplayName .. " picked up gun")
+                whisper(shortName(gHolder) .. " picked up gun")
             end
         end
         for _, p in ipairs(Players:GetPlayers()) do
@@ -582,8 +585,8 @@ while session.active and gui.Parent do
         task.spawn(function()
             task.wait(2.5)
             if toggleWho or not session.ownerId then
-                local mLabel = botM and "Me" or (m and m.DisplayName) or "?"
-                local sLabel = botS and "Me" or (sN and sN.DisplayName) or "?"
+                local mLabel = botM and "Me" or (m and shortName(m)) or "?"
+                local sLabel = botS and "Me" or (sN and shortName(sN)) or "?"
                 if session.ownerId then
                     whisper("Murder: " .. mLabel)
                     task.wait(0.3)
