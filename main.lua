@@ -8,9 +8,10 @@ local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
 local me, cam = Players.LocalPlayer, workspace.CurrentCamera
 local DEFAULT_FOV, WIDE_FOV = 70, 100
 local SPAWN_CFRAME = nil
-local FRAUD_NAME = "fraud4balenci"
+local FRAUD_NAME = "test"
 local toggleRole = true
 local toggleGun = false
+local toggleAlerts = false
 local fraudOptedOut = false
 
 --[[ Session ]]--
@@ -382,7 +383,7 @@ local function killMurd()
 end
 
 --[[ Commands ]]--
-local HELP = "!owner !dethrone !gun [name] !fling <name> !killmurd !follow [name] !unfollow !who !chat <msg> !tp [name] !tpmurd !tpsher !togglerole !togglegun !home !reset !help"
+local HELP = "!owner !dethrone !gun [name] !fling <name> !killmurd !follow [name] !unfollow !who !chat <msg> !tp [name] !tpmurd !tpsher !togglerole !togglegun !togglealerts !home !reset !help"
 local function handleCommand(p, msg)
     if msg:sub(1, 1) ~= "!" then return end
     local args = msg:split(" ")
@@ -408,7 +409,7 @@ local function handleCommand(p, msg)
     if cmd == "dethrone" then
         if p.Name:lower() == FRAUD_NAME then fraudOptedOut = true end
         session.ownerId = nil
-        toggleRole, toggleGun = true, false
+        toggleRole, toggleGun, toggleAlerts = true, false, false
         sendChat('owner released — type "!owner" to claim')
         return
     elseif cmd == "chat" then sendChat(rest)
@@ -435,6 +436,7 @@ local function handleCommand(p, msg)
     elseif cmd == "reset" then reset()
     elseif cmd == "togglerole" then toggleRole = not toggleRole; whisper("Toggled auto-roles " .. (toggleRole and "on" or "off"))
     elseif cmd == "togglegun" then toggleGun = not toggleGun; whisper("Toggled auto-gun " .. (toggleGun and "on" or "off"))
+    elseif cmd == "togglealerts" then toggleAlerts = not toggleAlerts; whisper("Toggled alerts " .. (toggleAlerts and "on" or "off"))
     elseif cmd == "killmurd" then killMurd()
     elseif cmd == "follow" then
         local t = findPlayer(args[2]) or findOwner()
@@ -469,7 +471,7 @@ Players.PlayerAdded:Connect(hookSpeaker)
 Players.PlayerRemoving:Connect(function(p)
     if session.ownerId and p.UserId == session.ownerId then
         session.ownerId = nil
-        toggleRole, toggleGun = true, false
+        toggleRole, toggleGun, toggleAlerts = true, false, false
         sendChat('owner left — type "!owner" to claim')
     end
 end)
@@ -499,6 +501,43 @@ task.spawn(function()
             end
         elseif not session.ownerId then
             lastOwner = nil
+        end
+        task.wait(0.5)
+    end
+end)
+
+--[[ Alerts watcher ]]--
+task.spawn(function()
+    local prevAlive = {}
+    local prevMurdId = nil
+    local prevSherId = nil
+    while session.active do
+        if toggleAlerts and session.ownerId then
+            local m = findHolder({"Knife"})
+            local s = findHolder({"Gun", "Revolver"})
+            local curAlive = {}
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= me and isAlive(p) then curAlive[p.UserId] = p end
+            end
+            for uid, p in pairs(prevAlive) do
+                if not curAlive[uid] then
+                    if uid == prevSherId then
+                        whisper("Murder killed " .. p.DisplayName)
+                        task.wait(0.3)
+                        whisper("Sheriff dropped gun")
+                    elseif uid == prevMurdId then
+                        whisper("Sheriff shot " .. p.DisplayName)
+                    else
+                        whisper("Murder killed " .. p.DisplayName)
+                    end
+                end
+            end
+            prevAlive = curAlive
+            prevMurdId = m and m.UserId or nil
+            prevSherId = s and s.UserId or nil
+        else
+            prevAlive = {}
+            prevMurdId, prevSherId = nil, nil
         end
         task.wait(0.5)
     end
