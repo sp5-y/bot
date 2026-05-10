@@ -394,15 +394,27 @@ local function equipGun()
         end
     end
 end
-local function fireGun(gun, targetPart)
-    local cf = targetPart and targetPart.CFrame
+local function fireGun(gun, part)
+    local pos = part and part.Position
+    if pos and part then
+        for _, c in ipairs(gun:GetDescendants()) do
+            if c:IsA("RemoteFunction") then
+                pcall(function() c:InvokeServer(pos, part, "AH") end)
+                pcall(function() c:InvokeServer(pos, part) end)
+                pcall(function() c:InvokeServer(part.CFrame) end)
+            elseif c:IsA("RemoteEvent") then
+                pcall(function() c:FireServer(pos, part, "AH") end)
+                pcall(function() c:FireServer(pos, part) end)
+                pcall(function() c:FireServer(part.CFrame) end)
+            end
+        end
+    end
     pcall(function() gun:Activate() end)
     if getconnections then
         pcall(function()
             for _, c in pairs(getconnections(gun.Activated)) do
                 local fn = c.Function or (c.GetFunction and c:GetFunction())
                 if fn then pcall(fn) end
-                if c.Fire then pcall(function() c:Fire() end) end
             end
         end)
     end
@@ -411,24 +423,6 @@ local function fireGun(gun, targetPart)
             mouse1press(); task.wait(0.04); mouse1release()
         end
     end)
-    pcall(function()
-        local VIM = game:GetService("VirtualInputManager")
-        VIM:SendMouseButtonEvent(0, 0, 0, true, game, 1)
-        task.wait(0.04)
-        VIM:SendMouseButtonEvent(0, 0, 0, false, game, 1)
-    end)
-    if cf then
-        for _, child in ipairs(gun:GetDescendants()) do
-            if child:IsA("RemoteEvent") then
-                pcall(function() child:FireServer(cf) end)
-                pcall(function() child:FireServer(cf, "AH") end)
-                pcall(function() child:FireServer(cf.Position) end)
-            elseif child:IsA("RemoteFunction") then
-                pcall(function() child:InvokeServer(cf) end)
-                pcall(function() child:InvokeServer(cf, "AH") end)
-            end
-        end
-    end
 end
 local function shootPlayer(target)
     if not isAlive(target) or not isAlive(me) then return false, "Target dead" end
@@ -446,27 +440,28 @@ local function shootPlayer(target)
     local gun = equipGun()
     if not gun then return false, "Cant equip gun" end
     log("shoot: gun=" .. gun.Name .. " parent=" .. (gun.Parent and gun.Parent.Name or "nil"))
+    for _, c in ipairs(gun:GetDescendants()) do
+        if c:IsA("RemoteEvent") or c:IsA("RemoteFunction") then
+            log("  remote: " .. c:GetFullName())
+        end
+    end
     local h = hrp()
     local tchar = target.Character
     local thrp = tchar and tchar:FindFirstChild("HumanoidRootPart")
     local thead = tchar and tchar:FindFirstChild("Head")
     local part = thead or thrp
     if not (h and thrp and part) then return false, "Cant locate target" end
-    h.Anchored = true
+    h.CFrame = thrp.CFrame * CFrame.new(0, 0, -8)
     zeroVel(h)
-    h.CFrame = thrp.CFrame + Vector3.new(0, 25, 0)
-    zeroVel(h)
-    task.wait(0.15)
+    task.wait(0.1)
     if SA then SA.target = target end
-    task.wait(0.05)
     log("shoot: firing at " .. shortName(target))
-    for i = 1, 5 do
+    for i = 1, 8 do
         if not isAlive(target) then log("shoot: target dead after " .. i .. " shots") break end
         fireGun(gun, part)
         task.wait(0.1)
     end
     if SA then SA.target = nil end
-    h.Anchored = false
     task.wait(0.15)
     for _ = 1, 3 do tpHome(); task.wait(0.4) end
     return true
