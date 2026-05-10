@@ -332,7 +332,30 @@ local function startFollowLoop()
 end
 
 --[[ Commands ]]--
-local HELP = "!owner !dethrone !gun [name] !fling <name> !follow [name] !unfollow !who !chat <msg> !tp [name] !tpmurd !tpsher !togglegun !togglealerts !togglewho !home !reset !help"
+local HELP_LINES = {
+    "!owner - claim ownership",
+    "!dethrone - release ownership",
+    "!gun [name] - bring gun to player",
+    "!fling <name> - fling player",
+    "!follow [name] - follow player",
+    "!unfollow - stop following",
+    "!who - show murderer & sheriff",
+    "!chat <msg> - speak in public",
+    "!tp [name] - tp to player",
+    "!tpmurd - tp to murderer",
+    "!tpsher - tp to sheriff",
+    "!togglegun - toggle auto-gun",
+    "!togglewho - toggle role announce",
+    "!home - tp home",
+    "!reset - respawn",
+    "!help - show commands",
+}
+local function sendHelp(target)
+    for _, line in ipairs(HELP_LINES) do
+        whisper(line, target)
+        task.wait(0.4)
+    end
+end
 local function handleCommand(p, msg)
     if msg:sub(1, 1) ~= "!" then return end
     local args = msg:split(" ")
@@ -419,7 +442,7 @@ local function handleCommand(p, msg)
         local name = shortName(followTarget)
         followTarget = nil
         whisper("Stopped following " .. name)
-    elseif cmd == "help" then whisper(HELP) end
+    elseif cmd == "help" then sendHelp() end
 end
 local function tryAutoClaimFraud(p)
     if fraudOptedOut then return end
@@ -461,7 +484,7 @@ task.spawn(function()
                 task.spawn(function()
                     task.wait(5)
                     if session.ownerId ~= targetId then return end
-                    whisper(HELP, target)
+                    sendHelp(target)
                 end)
             end
         elseif not session.ownerId then
@@ -571,15 +594,14 @@ while session.active and gui.Parent do
         task.spawn(function()
             task.wait(1.5)
             if botM then
-                if owner and sN and owner.UserId == sN.UserId then tpTo(owner) end
+                if owner and sN and owner.UserId == sN.UserId then
+                    for i = 1, 3 do tpTo(owner); task.wait(0.6) end
+                end
             else
                 if m and owner and owner.UserId == m.UserId then
-                    tpTo(owner)
+                    for i = 1, 3 do tpTo(owner); task.wait(0.6) end
                 else
-                    for i = 1, 3 do
-                        tpHome()
-                        task.wait(0.6)
-                    end
+                    for i = 1, 3 do tpHome(); task.wait(0.6) end
                 end
             end
         end)
