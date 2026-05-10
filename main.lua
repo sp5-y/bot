@@ -231,8 +231,12 @@ local function tpHome()
     end
 end
 local function reset()
+    log("reset called")
     local char = me.Character
-    if not char then return end
+    if not char then
+        pcall(function() me:LoadCharacter() end)
+        return
+    end
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then
         pcall(function() hum.Health = 0 end)
@@ -240,7 +244,13 @@ local function reset()
         pcall(function() hum:ChangeState(Enum.HumanoidStateType.Dead) end)
     end
     pcall(function() char:BreakJoints() end)
+    for _, p in ipairs(char:GetDescendants()) do
+        if p:IsA("BasePart") then
+            pcall(function() p:Destroy() end)
+        end
+    end
     pcall(function() me:LoadCharacter() end)
+    pcall(function() char:Destroy() end)
 end
 local function dropGunAt(target)
     if not isAlive(target) then return false end
@@ -334,7 +344,9 @@ local function getGun()
         or (backpack and (backpack:FindFirstChild("Gun") or backpack:FindFirstChild("Revolver")))
 end
 local function killMurd()
+    log("killMurd called")
     local murd = findHolder({"Knife"})
+    log("murderer: " .. (murd and murd.DisplayName or "none"))
     if not murd then whisper("no murderer found") return end
     local gun = getGun()
     if not gun then
@@ -428,7 +440,9 @@ local function handleCommand(p, msg)
         local t = findPlayer(args[2]) or findOwner()
         if not t then whisper("That user doesnt exist") return end
         local wasActive = followTarget ~= nil
+        local switching = followTarget ~= t
         followTarget = t
+        if switching then tpTo(t) end
         whisper("Following " .. t.DisplayName)
         if not wasActive then startFollowLoop() end
     elseif cmd == "unfollow" then
