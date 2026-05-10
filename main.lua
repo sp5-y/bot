@@ -20,7 +20,7 @@ if game.CoreGui:FindFirstChild("MM") then game.CoreGui.MM:Destroy() end
 local session = {active = true, ownerId = nil}
 if getgenv then getgenv().MM_Session = session end
 cam.FieldOfView = DEFAULT_FOV
-do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid") 
    if h then cam.CameraSubject = h end end
 
 --[[ Background mode (low CPU, muted, no 3D) ]]--
@@ -332,35 +332,7 @@ local function startFollowLoop()
 end
 
 --[[ Commands ]]--
-local HELP_LIST = {
-    {"!owner", "gain ownership"},
-    {"!dethrone", "release ownership"},
-    {"!gun [name]", "deliver gun (defaults to owner)"},
-    {"!fling <name>", "fling a player"},
-    {"!follow [name]", "follow player or owner"},
-    {"!unfollow", "stop following"},
-    {"!who", "show murderer & sheriff"},
-    {"!chat <msg>", "say msg in public chat"},
-    {"!tp [name]", "teleport bot to player or owner"},
-    {"!tpmurd", "teleport bot to murderer"},
-    {"!tpsher", "teleport bot to sheriff"},
-    {"!togglegun", "toggle auto-gun delivery"},
-    {"!togglewho", "toggle round-start announce"},
-    {"!home", "teleport bot to lobby"},
-    {"!reset", "respawn bot"},
-    {"!help", "show this list"},
-}
-local lastHelp = 0
-local function sendHelp(target)
-    if tick() - lastHelp < 5 then return end
-    lastHelp = tick()
-    task.spawn(function()
-        for _, h in ipairs(HELP_LIST) do
-            whisper(h[1] .. " - " .. h[2], target)
-            task.wait(0.3)
-        end
-    end)
-end
+local HELP = "!owner !dethrone !gun [name] !fling <name> !follow [name] !unfollow !who !chat <msg> !tp [name] !tpmurd !tpsher !togglegun !togglewho !home !reset !help"
 local function handleCommand(p, msg)
     if msg:sub(1, 1) ~= "!" then return end
     local args = msg:split(" ")
@@ -447,7 +419,7 @@ local function handleCommand(p, msg)
         local name = shortName(followTarget)
         followTarget = nil
         whisper("Stopped following " .. name)
-    elseif cmd == "help" then sendHelp(p) end
+    elseif cmd == "help" then whisper(HELP) end
 end
 local function tryAutoClaimFraud(p)
     if fraudOptedOut then return end
@@ -489,7 +461,7 @@ task.spawn(function()
                 task.spawn(function()
                     task.wait(5)
                     if session.ownerId ~= targetId then return end
-                    sendHelp(target)
+                    whisper(HELP, target)
                 end)
             end
         elseif not session.ownerId then
