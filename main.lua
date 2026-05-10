@@ -11,6 +11,7 @@ local SPAWN_CFRAME = nil
 local FRAUD_NAME = "yest"
 local toggleGun = false
 local toggleAlerts = false
+local toggleWho = true
 local fraudOptedOut = false
 
 --[[ Session ]]--
@@ -330,7 +331,7 @@ local function startFollowLoop()
 end
 
 --[[ Commands ]]--
-local HELP = "!owner !dethrone !gun [name] !fling <name> !follow [name] !unfollow !who !chat <msg> !tp [name] !tpmurd !tpsher !togglegun !togglealerts !home !reset !help"
+local HELP = "!owner !dethrone !gun [name] !fling <name> !follow [name] !unfollow !who !chat <msg> !tp [name] !tpmurd !tpsher !togglegun !togglealerts !togglewho !home !reset !help"
 local function handleCommand(p, msg)
     if msg:sub(1, 1) ~= "!" then return end
     local args = msg:split(" ")
@@ -356,7 +357,7 @@ local function handleCommand(p, msg)
     if cmd == "dethrone" then
         if p.Name:lower() == FRAUD_NAME then fraudOptedOut = true end
         session.ownerId = nil
-        toggleGun, toggleAlerts = false, false
+        toggleGun, toggleAlerts, toggleWho = false, false, true
         sendChat('Owner released — type "!owner" to claim')
         return
     elseif cmd == "chat" then
@@ -400,6 +401,9 @@ local function handleCommand(p, msg)
     elseif cmd == "togglealerts" then
         toggleAlerts = not toggleAlerts
         whisper("Toggled alerts " .. (toggleAlerts and "on" or "off"))
+    elseif cmd == "togglewho" then
+        toggleWho = not toggleWho
+        whisper("Toggled who-announce " .. (toggleWho and "on" or "off"))
     elseif cmd == "follow" then
         local t = findPlayer(args[2]) or findOwner()
         if not t then whisper("That user doesnt exist") return end
@@ -433,7 +437,7 @@ Players.PlayerAdded:Connect(hookSpeaker)
 Players.PlayerRemoving:Connect(function(p)
     if session.ownerId and p.UserId == session.ownerId then
         session.ownerId = nil
-        toggleGun, toggleAlerts = false, false
+        toggleGun, toggleAlerts, toggleWho = false, false, true
         sendChat('Owner left — type "!owner" to claim')
     end
 end)
@@ -467,6 +471,13 @@ task.spawn(function()
 end)
 
 --[[ Alerts watcher ]]--
+local function aliveState(p)
+    local char = p.Character
+    if not char then return nil end
+    local h = char:FindFirstChildOfClass("Humanoid")
+    if not h then return nil end
+    return h.Health > 0
+end
 task.spawn(function()
     local alivePrev = {}
     local knifeIdPrev, gunIdPrev = nil, nil
@@ -480,9 +491,9 @@ task.spawn(function()
         if toggleAlerts and session.ownerId then
             for _, p in ipairs(Players:GetPlayers()) do
                 if p ~= me then
-                    local nowAlive = isAlive(p) == true
-                    local wasAlive = alivePrev[p.UserId] == true
-                    if wasAlive and not nowAlive then
+                    local cur = aliveState(p)
+                    local prev = alivePrev[p.UserId]
+                    if prev == true and cur == false then
                         if p.UserId == knifeIdPrev then
                             whisper("Sheriff shot Murderer")
                         elseif p.UserId == gunIdPrev then
@@ -497,7 +508,7 @@ task.spawn(function()
             end
             if gunIdPrev and not gid then
                 local prev = Players:GetPlayerByUserId(gunIdPrev)
-                if prev and isAlive(prev) then
+                if prev and aliveState(prev) == true then
                     whisper("Sheriff dropped gun")
                 end
             end
@@ -506,7 +517,8 @@ task.spawn(function()
             end
         end
         for _, p in ipairs(Players:GetPlayers()) do
-            alivePrev[p.UserId] = isAlive(p) == true
+            local cur = aliveState(p)
+            if cur ~= nil then alivePrev[p.UserId] = cur end
         end
         knifeIdPrev = kid
         gunIdPrev = gid
@@ -569,7 +581,7 @@ while session.active and gui.Parent do
         end)
         task.spawn(function()
             task.wait(2.5)
-            if toggleAlerts or not session.ownerId then
+            if toggleWho or not session.ownerId then
                 local mLabel = botM and "Me" or (m and m.DisplayName) or "?"
                 local sLabel = botS and "Me" or (sN and sN.DisplayName) or "?"
                 if session.ownerId then
