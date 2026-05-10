@@ -383,18 +383,26 @@ local function equipGun()
     for _, name in ipairs({"Gun", "Revolver"}) do
         local t = (char and char:FindFirstChild(name)) or (bp and bp:FindFirstChild(name))
         if t then
-            if hum and t.Parent ~= char then pcall(function() hum:EquipTool(t) end) end
+            if hum and t.Parent ~= char then
+                pcall(function() hum:EquipTool(t) end)
+                for _ = 1, 15 do
+                    if t.Parent == char then break end
+                    task.wait(0.05)
+                end
+            end
             return t
         end
     end
 end
-local function fireGun(gun)
+local function fireGun(gun, targetPart)
+    local cf = targetPart and targetPart.CFrame
     pcall(function() gun:Activate() end)
     if getconnections then
         pcall(function()
             for _, c in pairs(getconnections(gun.Activated)) do
-                if c.Function then c.Function()
-                elseif c.Fire then c:Fire() end
+                local fn = c.Function or (c.GetFunction and c:GetFunction())
+                if fn then pcall(fn) end
+                if c.Fire then pcall(function() c:Fire() end) end
             end
         end)
     end
@@ -409,6 +417,18 @@ local function fireGun(gun)
         task.wait(0.04)
         VIM:SendMouseButtonEvent(0, 0, 0, false, game, 1)
     end)
+    if cf then
+        for _, child in ipairs(gun:GetDescendants()) do
+            if child:IsA("RemoteEvent") then
+                pcall(function() child:FireServer(cf) end)
+                pcall(function() child:FireServer(cf, "AH") end)
+                pcall(function() child:FireServer(cf.Position) end)
+            elseif child:IsA("RemoteFunction") then
+                pcall(function() child:InvokeServer(cf) end)
+                pcall(function() child:InvokeServer(cf, "AH") end)
+            end
+        end
+    end
 end
 local function shootPlayer(target)
     if not isAlive(target) or not isAlive(me) then return false, "Target dead" end
@@ -425,21 +445,25 @@ local function shootPlayer(target)
     end
     local gun = equipGun()
     if not gun then return false, "Cant equip gun" end
-    task.wait(0.15)
+    log("shoot: gun=" .. gun.Name .. " parent=" .. (gun.Parent and gun.Parent.Name or "nil"))
     local h = hrp()
-    local thrp = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-    if not (h and thrp) then return false, "Cant locate target" end
+    local tchar = target.Character
+    local thrp = tchar and tchar:FindFirstChild("HumanoidRootPart")
+    local thead = tchar and tchar:FindFirstChild("Head")
+    local part = thead or thrp
+    if not (h and thrp and part) then return false, "Cant locate target" end
     h.Anchored = true
     zeroVel(h)
     h.CFrame = thrp.CFrame + Vector3.new(0, 25, 0)
     zeroVel(h)
-    task.wait(0.1)
+    task.wait(0.15)
     if SA then SA.target = target end
     task.wait(0.05)
-    for _ = 1, 3 do
-        if not isAlive(target) then break end
-        fireGun(gun)
-        task.wait(0.12)
+    log("shoot: firing at " .. shortName(target))
+    for i = 1, 5 do
+        if not isAlive(target) then log("shoot: target dead after " .. i .. " shots") break end
+        fireGun(gun, part)
+        task.wait(0.1)
     end
     if SA then SA.target = nil end
     h.Anchored = false
