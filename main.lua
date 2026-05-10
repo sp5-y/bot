@@ -388,6 +388,28 @@ local function equipGun()
         end
     end
 end
+local function fireGun(gun)
+    pcall(function() gun:Activate() end)
+    if getconnections then
+        pcall(function()
+            for _, c in pairs(getconnections(gun.Activated)) do
+                if c.Function then c.Function()
+                elseif c.Fire then c:Fire() end
+            end
+        end)
+    end
+    pcall(function()
+        if mouse1press and mouse1release then
+            mouse1press(); task.wait(0.04); mouse1release()
+        end
+    end)
+    pcall(function()
+        local VIM = game:GetService("VirtualInputManager")
+        VIM:SendMouseButtonEvent(0, 0, 0, true, game, 1)
+        task.wait(0.04)
+        VIM:SendMouseButtonEvent(0, 0, 0, false, game, 1)
+    end)
+end
 local function shootPlayer(target)
     if not isAlive(target) or not isAlive(me) then return false, "Target dead" end
     if not botHasGun() then
@@ -407,21 +429,21 @@ local function shootPlayer(target)
     local h = hrp()
     local thrp = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
     if not (h and thrp) then return false, "Cant locate target" end
+    h.Anchored = true
     zeroVel(h)
-    h.CFrame = thrp.CFrame + Vector3.new(0, 18, 0)
+    h.CFrame = thrp.CFrame + Vector3.new(0, 25, 0)
     zeroVel(h)
-    task.wait(0.15)
-    if SA then SA.target = target end
     task.wait(0.1)
-    pcall(function() gun:Activate() end)
-    pcall(function()
-        if mouse1press and mouse1release then
-            mouse1press(); task.wait(0.1); mouse1release()
-        end
-    end)
-    task.wait(0.3)
+    if SA then SA.target = target end
+    task.wait(0.05)
+    for _ = 1, 3 do
+        if not isAlive(target) then break end
+        fireGun(gun)
+        task.wait(0.12)
+    end
     if SA then SA.target = nil end
-    task.wait(0.2)
+    h.Anchored = false
+    task.wait(0.15)
     for _ = 1, 3 do tpHome(); task.wait(0.4) end
     return true
 end
@@ -704,6 +726,12 @@ while session.active and gui.Parent do
                     task.wait(0.6)
                     sendChat('Type "!owner" for private commands')
                 end
+            end
+            task.wait(1)
+            local goingToOwner = (botM and owner and sN and owner.UserId == sN.UserId)
+                              or (not botM and m and owner and owner.UserId == m.UserId)
+            if not goingToOwner then
+                for i = 1, 3 do tpHome(); task.wait(0.5) end
             end
         end)
     elseif not roundActive then announced, gunDelivered, aloneTpDone = false, false, false end
