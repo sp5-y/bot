@@ -483,13 +483,14 @@ task.spawn(function()
     local alivePrev = {}
     local knifeIdPrev, gunIdPrev = nil, nil
     local droppedGunPrev = false
-    local lastMurdKill = 0
+    local suppressDrop = false
     while session.active do
         local kHolder = findHolder({"Knife"})
         local gHolder = findHolder({"Gun", "Revolver"})
         local kid = kHolder and kHolder.UserId
         local gid = gHolder and gHolder.UserId
         local droppedGun = findDroppedGun() ~= nil
+        if kid and not knifeIdPrev then suppressDrop = false end
         if toggleAlerts and session.ownerId then
             for _, p in ipairs(Players:GetPlayers()) do
                 if p ~= me then
@@ -498,7 +499,7 @@ task.spawn(function()
                     if prev == true and cur == false then
                         if p.UserId == knifeIdPrev then
                             whisper("Sheriff shot Murderer")
-                            lastMurdKill = tick()
+                            suppressDrop = true
                         elseif p.UserId == gunIdPrev then
                             whisper("Murderer killed Sheriff")
                         elseif knifeIdPrev then
@@ -509,7 +510,7 @@ task.spawn(function()
                     end
                 end
             end
-            if gunIdPrev and not gid and tick() - lastMurdKill > 3 then
+            if gunIdPrev and not gid and not suppressDrop then
                 local prev = Players:GetPlayerByUserId(gunIdPrev)
                 if prev and aliveState(prev) == true then
                     whisper("Sheriff dropped gun")
