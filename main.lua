@@ -268,42 +268,6 @@ local function bringGun(target)
     dropGunAt(target)
 end
 
--- Owner is murderer: wait for sheriff gun to drop, pull it to bot, respawn at saved spawn so gun lands there.
-local function relocateGunDropToSpawnWhileOwnerMurderer(ownerUid)
-    task.spawn(function()
-        local waitBusy = tick()
-        while _G.MM_GunBusy and tick() - waitBusy < 12 do task.wait(0.25) end
-        if _G.MM_GunBusy then return end
-        _G.MM_GunBusy = true
-        local deadline = tick() + 300
-        while session.active and tick() < deadline do
-            if session.ownerId ~= ownerUid then break end
-            local owner = Players:GetPlayerByUserId(ownerUid)
-            local kHold = findHolder({"Knife"})
-            if not owner or not isAlive(owner) or not kHold or kHold.UserId ~= ownerUid then break end
-
-            local dg, h = findDroppedGun(), hrp()
-            if dg and h then
-                dg.CFrame = h.CFrame
-                local tPickup = tick()
-                while tick() - tPickup < 2.5 and session.active do
-                    if botHasGun() then break end
-                    task.wait(0.05)
-                end
-                if botHasGun() and SPAWN_CFRAME then
-                    for _ = 1, 2 do tpHome(); task.wait(0.15) end
-                    task.wait(0.1)
-                    reset()
-                end
-                break
-            end
-            task.wait(0.35)
-        end
-        task.wait(0.2)
-        _G.MM_GunBusy = false
-    end)
-end
-
 --[[ Fling ]]--
 local flingActive = false
 local function fling(target)
@@ -369,45 +333,27 @@ local function startFollowLoop()
     end)
 end
 
--- Bot uses tpTo + CFrame + Humanoid:MoveTo (same as follow) to wedge under owner toward a target (physics nudge).
-local movemeGen = 0
-local function startMoveme(owner, target, gen)
+-- !fly: snap bot under owner's feet each tick (CFrame + zeroVel) so physics can lift them; toggle off with !fly again.
+local flyGen = 0
+local flyOn = false
+local function startFly(owner, gen)
     task.spawn(function()
-        local deadline = tick() + 45
         followTarget = nil
         tpTo(owner)
-        task.wait(0.2)
-        while session.active and tick() < deadline and gen == movemeGen
-            and isAlive(me) and isAlive(owner) and isAlive(target) do
+        task.wait(0.18)
+        while session.active and gen == flyGen and isAlive(me) and isAlive(owner) do
             local oh = owner.Character and owner.Character:FindFirstChild("HumanoidRootPart")
-            local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-            local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
             local mh = hrp()
-            if not (oh and th and hum and mh) then break end
-
-            local flat = Vector3.new(th.Position.X - oh.Position.X, 0, th.Position.Z - oh.Position.Z)
-            if flat.Magnitude < 2 then
-                whisper("moveme: close to " .. shortName(target))
-                break
-            end
-            local dir = flat.Unit
-
-            local slot = oh.Position + Vector3.new(0, -2.8, 0) + dir * 2.2
-            local look = oh.Position + dir * 6
+            if not (oh and mh) then break end
+            local under = oh.CFrame * CFrame.new(0, -3.1, 0)
             zeroVel(mh)
-            mh.CFrame = CFrame.new(slot, Vector3.new(look.X, slot.Y, look.Z))
+            mh.CFrame = under
             zeroVel(mh)
-
-            hum:MoveTo(th.Position)
-
-            if (oh.Position - th.Position).Magnitude < 12 then
-                whisper("moveme: near " .. shortName(target))
-                break
-            end
-            task.wait(0.28)
+            task.wait(0.1)
         end
-        if gen == movemeGen then
-            whisper("moveme done")
+        if gen == flyGen then
+            flyOn = false
+            whisper("fly done")
             for i = 1, 2 do tpHome(); task.wait(0.2) end
         end
     end)
@@ -431,13 +377,13 @@ local COMMAND_HELP = {
     togglegun = "<player> - Auto-deliver gun to a player",
     chat = "<msg> - Make bot send a public chat message",
     fling = "<player> - Fling a target player",
-    moveme = "<player> - Bot wedges under you and walks toward them (physics)",
+    fly = "Bot under your feet to lift you (!fly again to stop)",
     help = "<cmd> - Show command list or explain one command",
 }
 local HELP_ORDER = {
     "owner", "dethrone", "who", "togglewho", "togglealerts",
     "reset", "tp", "tpmurd", "tpsher", "spawn", "follow", "unfollow",
-    "gun", "togglegun", "chat", "fling", "moveme", "help",
+    "gun", "togglegun", "chat", "fling", "fly", "help",
 }
 local function sendFullHelp(target)
     whisper('Type "!help gun" to see what a command does', target)
@@ -460,8 +406,9 @@ local function handleCommand(p, msg)
         return
     end
     if not session.ownerId or p.UserId ~= session.ownerId then return end
-    if cmd ~= "moveme" then
-        movemeGen = movemeGen + 1
+    if cmd ~= "fly" then
+        flyGen = flyGen + 1
+        flyOn = false
     end
     if cmd == "fling" then
         if flingActive then whisper("already flinging someone") return end
@@ -471,6 +418,24 @@ local function handleCommand(p, msg)
         return
     end
     if flingActive then flingActive = false end
+    if cmd == "fly" then
+        local owner = findOwner()
+        if not owner then whisper("No owner") return end
+        if flingActive then whisper("busy flinging") return end
+        if flyOn then
+            flyGen = flyGen + 1
+            flyOn = false
+            for i = 1, 2 do tpHome(); task.wait(0.2) end
+            whisper("fly off")
+            return
+        end
+        flyOn = true
+        flyGen = flyGen + 1
+        local gen = flyGen
+        whisper("fly on")
+        startFly(owner, gen)
+        return
+    end
     local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
     if cmd == "dethrone" then
         if p.Name:lower() == FRAUD_NAME then fraudOptedOut = true end
@@ -489,17 +454,6 @@ local function handleCommand(p, msg)
         whisper("Murder: " .. mL)
         task.wait(0.3)
         whisper("Sheriff: " .. sL)
-    elseif cmd == "moveme" then
-        local owner = findOwner()
-        local t = findPlayer(args[2])
-        if not owner then whisper("No owner") return end
-        if not t then whisper("That user doesnt exist") return end
-        if t == owner then whisper("Pick another player") return end
-        if flingActive then whisper("busy flinging") return end
-        movemeGen = movemeGen + 1
-        local gen = movemeGen
-        whisper("moveme -> " .. shortName(t))
-        startMoveme(owner, t, gen)
     elseif cmd == "tp" then
         local t = findPlayer(args[2]) or findOwner()
         if not t then whisper("That user doesnt exist") return end
@@ -697,6 +651,7 @@ log("bot online")
 --[[ Main loop ]]--
 local lastMurderId, announced, aloneTpDone
 local whoAnnouncePending = false
+local ownerMurdSheriffDropDone = false
 while session.active and gui.Parent do
     local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
     local botM, botS = botHasKnife(), botHasGun()
@@ -716,7 +671,6 @@ while session.active and gui.Parent do
         whoAnnouncePending = toggleWho or not session.ownerId
         local owner = findOwner()
         local sN = findHolder({"Gun", "Revolver"})
-        local ownerMurderThisRound = owner and not botM and m and owner.UserId == m.UserId
         task.spawn(function()
             task.wait(1.5)
             if botM then
@@ -724,11 +678,7 @@ while session.active and gui.Parent do
                     for i = 1, 3 do tpTo(owner); task.wait(0.6) end
                 end
             else
-                if ownerMurderThisRound then
-                    relocateGunDropToSpawnWhileOwnerMurderer(owner.UserId)
-                else
-                    for i = 1, 3 do tpHome(); task.wait(0.6) end
-                end
+                for i = 1, 3 do tpHome(); task.wait(0.6) end
             end
         end)
         task.spawn(function()
@@ -751,16 +701,33 @@ while session.active and gui.Parent do
             whoAnnouncePending = false
             task.wait(1)
             local curOwner = findOwner()
-            local curM = findHolder({"Knife"})
             local curBotM = botHasKnife()
             local curSN = findHolder({"Gun", "Revolver"})
-            local ownerMurder = curOwner and not curBotM and curM and curOwner.UserId == curM.UserId
             local goingToOwner = curBotM and curOwner and curSN and curOwner.UserId == curSN.UserId
-            if not ownerMurder and not goingToOwner then
+            if not goingToOwner then
                 for i = 1, 3 do tpHome(); task.wait(0.5) end
             end
         end)
-    elseif not roundActive then announced, gunDelivered, aloneTpDone, whoAnnouncePending = false, false, false, false end
+    elseif not roundActive then
+        announced, gunDelivered, aloneTpDone, whoAnnouncePending = false, false, false, false
+        ownerMurdSheriffDropDone = false
+    end
+
+    local ownerForDrop = findOwner()
+    local ownerIsMurd = ownerForDrop and m and not botM and ownerForDrop.UserId == m.UserId
+    if session.ownerId and ownerIsMurd and botHasGun() and SPAWN_CFRAME and not ownerMurdSheriffDropDone
+       and not whoAnnouncePending and isAlive(me) and not _G.MM_GunBusy then
+        ownerMurdSheriffDropDone = true
+        gunDelivered = true
+        _G.MM_GunBusy = true
+        task.spawn(function()
+            for i = 1, 2 do tpHome(); task.wait(0.15) end
+            task.wait(0.1)
+            reset()
+            task.wait(2.5)
+            _G.MM_GunBusy = false
+        end)
+    end
 
     if not session.ownerId and m and not aloneTpDone and isAlive(me) and isAlive(m) then
         local alive = 0
