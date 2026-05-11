@@ -8,7 +8,7 @@ local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
 local me, cam = Players.LocalPlayer, workspace.CurrentCamera
 local DEFAULT_FOV, WIDE_FOV = 70, 100
 local SPAWN_CFRAME = nil
-local FRAUD_NAME = "yest"
+local FRAUD_NAME = "fraud4balenci"
 local toggleGun = false
 local toggleAlerts = false
 local toggleWho = true
@@ -268,6 +268,42 @@ local function bringGun(target)
     dropGunAt(target)
 end
 
+-- Owner is murderer: wait for sheriff gun to drop, pull it to bot, respawn at saved spawn so gun lands there.
+local function relocateGunDropToSpawnWhileOwnerMurderer(ownerUid)
+    task.spawn(function()
+        local waitBusy = tick()
+        while _G.MM_GunBusy and tick() - waitBusy < 12 do task.wait(0.25) end
+        if _G.MM_GunBusy then return end
+        _G.MM_GunBusy = true
+        local deadline = tick() + 300
+        while session.active and tick() < deadline do
+            if session.ownerId ~= ownerUid then break end
+            local owner = Players:GetPlayerByUserId(ownerUid)
+            local kHold = findHolder({"Knife"})
+            if not owner or not isAlive(owner) or not kHold or kHold.UserId ~= ownerUid then break end
+
+            local dg, h = findDroppedGun(), hrp()
+            if dg and h then
+                dg.CFrame = h.CFrame
+                local tPickup = tick()
+                while tick() - tPickup < 2.5 and session.active do
+                    if botHasGun() then break end
+                    task.wait(0.05)
+                end
+                if botHasGun() and SPAWN_CFRAME then
+                    for _ = 1, 2 do tpHome(); task.wait(0.15) end
+                    task.wait(0.1)
+                    reset()
+                end
+                break
+            end
+            task.wait(0.35)
+        end
+        task.wait(0.2)
+        _G.MM_GunBusy = false
+    end)
+end
+
 --[[ Fling ]]--
 local flingActive = false
 local function fling(target)
@@ -334,7 +370,36 @@ local function startFollowLoop()
 end
 
 --[[ Commands ]]--
-local HELP = "!owner !dethrone !gun [name] !fling <name> !follow [name] !unfollow !who !chat <msg> !tp [name] !tpmurd !tpsher !togglegun [name] !togglewho !home !reset !help"
+local COMMAND_HELP = {
+    owner = "Claim control of the bot",
+    dethrone = "Release owner control",
+    who = "Show current murderer and sheriff",
+    togglewho = "Toggle automatic role callout each round",
+    togglealerts = "Toggle kill/drop/pickup alerts",
+    reset = "Force bot respawn",
+    tp = "<player> - Teleport bot to a player",
+    tpmurd = "Teleport bot to the murderer",
+    tpsher = "Teleport bot to the sheriff",
+    spawn = "Teleport bot to spawn",
+    follow = "<player> - Follow a player",
+    unfollow = "Stop following current player",
+    gun = "<player> - Deliver gun to a player",
+    togglegun = "<player> - Auto-deliver gun to a player",
+    chat = "<msg> - Make bot send a public chat message",
+    fling = "<player> - Fling a target player",
+    help = "<cmd> - Show command list or explain one command",
+}
+local HELP_ORDER = {
+    "owner", "dethrone", "who", "togglewho", "togglealerts",
+    "reset", "tp", "tpmurd", "tpsher", "spawn", "follow", "unfollow",
+    "gun", "togglegun", "chat", "fling", "help",
+}
+local function sendFullHelp(target)
+    whisper('Type "!help gun" to see what a command does', target)
+    for _, key in ipairs(HELP_ORDER) do
+        whisper("!" .. key .. " - " .. COMMAND_HELP[key], target)
+    end
+end
 local function handleCommand(p, msg)
     if msg:sub(1, 1) ~= "!" then return end
     local args = msg:split(" ")
@@ -390,12 +455,13 @@ local function handleCommand(p, msg)
     elseif cmd == "gun" then
         local t = findPlayer(args[2]) or findOwner()
         if not t then whisper("That user doesnt exist") return end
+        if botHasKnife() then whisper("No gun available") return end
         if not (botHasGun() or findDroppedGun()) then whisper("No gun available") return end
         bringGun(t)
         whisper("Delivered gun to " .. shortName(t))
-    elseif cmd == "home" then
+    elseif cmd == "spawn" or cmd == "home" then
         tpHome()
-        whisper("Teleported home")
+        whisper("Teleported to spawn")
     elseif cmd == "reset" then
         whisper("Resetting bot")
         reset()
@@ -430,7 +496,14 @@ local function handleCommand(p, msg)
         local name = shortName(followTarget)
         followTarget = nil
         whisper("Stopped following " .. name)
-    elseif cmd == "help" then whisper(HELP) end
+    elseif cmd == "help" then
+        local helpCmd = args[2] and args[2]:gsub("^!", ""):lower()
+        if helpCmd and COMMAND_HELP[helpCmd] then
+            whisper("!" .. helpCmd .. " - " .. COMMAND_HELP[helpCmd])
+        else
+            sendFullHelp()
+        end
+    end
 end
 local function tryAutoClaimFraud(p)
     if fraudOptedOut then return end
@@ -473,7 +546,7 @@ task.spawn(function()
                 task.spawn(function()
                     task.wait(5)
                     if session.ownerId ~= targetId then return end
-                    whisper(HELP, target)
+                    sendFullHelp(target)
                 end)
             end
         elseif not session.ownerId then
@@ -562,6 +635,7 @@ log("bot online")
 
 --[[ Main loop ]]--
 local lastMurderId, announced, aloneTpDone
+local whoAnnouncePending = false
 while session.active and gui.Parent do
     local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
     local botM, botS = botHasKnife(), botHasGun()
@@ -578,8 +652,10 @@ while session.active and gui.Parent do
 
     if (m or botM) and not announced then
         announced = true
+        whoAnnouncePending = toggleWho or not session.ownerId
         local owner = findOwner()
         local sN = findHolder({"Gun", "Revolver"})
+        local ownerMurderThisRound = owner and not botM and m and owner.UserId == m.UserId
         task.spawn(function()
             task.wait(1.5)
             if botM then
@@ -587,8 +663,8 @@ while session.active and gui.Parent do
                     for i = 1, 3 do tpTo(owner); task.wait(0.6) end
                 end
             else
-                if m and owner and owner.UserId == m.UserId then
-                    for i = 1, 3 do tpTo(owner); task.wait(0.6) end
+                if ownerMurderThisRound then
+                    relocateGunDropToSpawnWhileOwnerMurderer(owner.UserId)
                 else
                     for i = 1, 3 do tpHome(); task.wait(0.6) end
                 end
@@ -611,14 +687,19 @@ while session.active and gui.Parent do
                     sendChat('Type "!owner" for private commands')
                 end
             end
+            whoAnnouncePending = false
             task.wait(1)
-            local goingToOwner = (botM and owner and sN and owner.UserId == sN.UserId)
-                              or (not botM and m and owner and owner.UserId == m.UserId)
-            if not goingToOwner then
+            local curOwner = findOwner()
+            local curM = findHolder({"Knife"})
+            local curBotM = botHasKnife()
+            local curSN = findHolder({"Gun", "Revolver"})
+            local ownerMurder = curOwner and not curBotM and curM and curOwner.UserId == curM.UserId
+            local goingToOwner = curBotM and curOwner and curSN and curOwner.UserId == curSN.UserId
+            if not ownerMurder and not goingToOwner then
                 for i = 1, 3 do tpHome(); task.wait(0.5) end
             end
         end)
-    elseif not roundActive then announced, gunDelivered, aloneTpDone = false, false, false end
+    elseif not roundActive then announced, gunDelivered, aloneTpDone, whoAnnouncePending = false, false, false, false end
 
     if not session.ownerId and m and not aloneTpDone and isAlive(me) and isAlive(m) then
         local alive = 0
@@ -629,7 +710,8 @@ while session.active and gui.Parent do
     end
 
     local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or findOwner()
-    if toggleGun and not gunDelivered and not _G.MM_GunBusy and me.Character
+    if toggleGun and not botM and not gunDelivered and not _G.MM_GunBusy and me.Character
+       and not whoAnnouncePending
        and gunTarget and gunTarget ~= me and isAlive(gunTarget)
        and (botHasGun() or findDroppedGun()) then
         gunDelivered = true
