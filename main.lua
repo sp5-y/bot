@@ -8,7 +8,7 @@ local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
 local me, cam = Players.LocalPlayer, workspace.CurrentCamera
 local DEFAULT_FOV, WIDE_FOV = 70, 100
 local SPAWN_CFRAME = nil
-local FRAUD_NAME = "fraud4balenci"
+local FRAUD_NAME = "etst"
 local toggleGun = false
 local toggleAlerts = false
 local toggleWho = true
