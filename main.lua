@@ -4,17 +4,21 @@ local cref = cloneref or function(x) return x end
 local TCS = cref(game:GetService("TextChatService"))
 local Tween = game:GetService("TweenService")
 local RS = cref(game:GetService("ReplicatedStorage"))
+local Http = cref(game:GetService("HttpService"))
+local TeleportSvc = cref(game:GetService("TeleportService"))
+local StarterGui = cref(game:GetService("StarterGui"))
 local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
 local me, cam = Players.LocalPlayer, workspace.CurrentCamera
 local DEFAULT_FOV, WIDE_FOV = 70, 100
 local SPAWN_CFRAME = nil
-local FRAUD_NAME = "cDsx24c"
+local FRAUD_NAME = "fraud4balenci"
 local toggleGun = false
 local toggleAlerts = false
 local toggleWho = true
 local fraudOptedOut = false
 local gunTargetId = nil
 local gunDelivered = false
+local hopBusy = false
 
 --[[ Session ]]--
 if getgenv and getgenv().MM_Session then getgenv().MM_Session.active = false end
@@ -169,33 +173,142 @@ local function sendChat(msg)
     end)
 end
 local function findWhisperChannel(uid)
+    uid = tostring(uid)
     for _, ch in ipairs(TCS.TextChannels:GetChildren()) do
-        if ch.Name:match("RBXWhisper") then
-            if tostring(ch.Name):find(tostring(uid)) then
+        if ch:IsA("TextChannel") and ch.Name:match("RBXWhisper") then
+            if tostring(ch.Name):find(uid, 1, true) then
                 return ch
             end
         end
     end
+end
+local function pollWhisperChannel(uid, duration)
+    local t0 = tick()
+    while tick() - t0 < duration do
+        local ch = findWhisperChannel(uid)
+        if ch then return ch end
+        task.wait(0.08)
+    end
+    return findWhisperChannel(uid)
+end
+-- TextChatService often has no RBXWhisper channel until a /w line is sent on RBXGeneral first.
+local function ensureWhisperChannel(o)
+    local ch = findWhisperChannel(o.UserId)
+    if ch then return ch end
+    pcall(function()
+        TCS.TextChannels.RBXGeneral:SendAsync("/w " .. o.Name .. " .")
+    end)
+    ch = pollWhisperChannel(o.UserId, 2.2)
+    if ch then return ch end
+    local dn = o.DisplayName:gsub("^@", "")
+    pcall(function()
+        TCS.TextChannels.RBXGeneral:SendAsync("/w @" .. dn .. " .")
+    end)
+    return pollWhisperChannel(o.UserId, 2.2)
 end
 local function whisper(m, target)
     local o = target or findOwner()
     if not o then log("whisper: no target") return end
     log("-> " .. o.DisplayName .. ": " .. m)
     pcall(function()
-        if not isLegacy then
-            local ch = findWhisperChannel(o.UserId)
-            if ch then
-                ch:SendAsync(m)
-            else
-                TCS.TextChannels.RBXGeneral:SendAsync("/w " .. o.DisplayName .. " " .. m)
+        if isLegacy then
+            if not pcall(function()
+                RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer("/w " .. o.Name .. " " .. m, "All")
+            end) then
+                RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(
+                    "/w " .. o.DisplayName .. " " .. m,
+                    "All"
+                )
             end
-        else
-            RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(
-                "/w " .. o.DisplayName .. " " .. m,
-                "All"
-            )
+            return
         end
+        local ch = ensureWhisperChannel(o)
+        local function sendOnChannel(chan)
+            if not chan then return false end
+            return pcall(function() chan:SendAsync(m) end)
+        end
+        if sendOnChannel(ch) then return end
+        task.wait(0.22)
+        ch = findWhisperChannel(o.UserId) or ensureWhisperChannel(o)
+        if sendOnChannel(ch) then return end
+        pcall(function()
+            TCS.TextChannels.RBXGeneral:SendAsync("/w " .. o.Name .. " " .. m)
+        end)
     end)
+end
+
+local function sendFriendRequestTo(target)
+    if not target then return false, "No owner" end
+    local already = false
+    pcall(function() already = me:IsFriendsWith(target.UserId) end)
+    if already then return false, "Already friends with owner" end
+    if pcall(function() me:RequestFriendship(target) end) then
+        return true, "Sent friend request"
+    end
+    if pcall(function() StarterGui:SetCore("PromptSendFriendRequest", target) end) then
+        return true, "Opened friend request prompt"
+    end
+    if pcall(function() StarterGui:SetCore("PromptSendFriendRequest", target.UserId) end) then
+        return true, "Opened friend request prompt"
+    end
+    return false, "Couldn't send friend request"
+end
+
+local function httpGet(url)
+    local ok, body = pcall(function() return game:HttpGet(url) end)
+    if ok and body then return body end
+    local requestFn = (syn and syn.request) or (http and http.request) or http_request or request or (fluxus and fluxus.request)
+    if not requestFn then return end
+    ok, body = pcall(function()
+        return requestFn({Url = url, Method = "GET"})
+    end)
+    if not ok or not body then return end
+    return body.Body or body.body or body
+end
+
+local function findHopServer()
+    local cursor, fallback = nil, nil
+    for _ = 1, 5 do
+        local url = ("https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Desc&limit=100"):format(game.PlaceId)
+        if cursor and cursor ~= "" then
+            url = url .. "&cursor=" .. Http:UrlEncode(cursor)
+        end
+        local raw = httpGet(url)
+        if not raw then break end
+        local ok, page = pcall(function() return Http:JSONDecode(raw) end)
+        if not ok or type(page) ~= "table" then break end
+        for _, server in ipairs(page.data or {}) do
+            local playing = tonumber(server.playing) or 0
+            local maxPlayers = tonumber(server.maxPlayers) or 0
+            if server.id ~= game.JobId and playing < maxPlayers and playing > 0 then
+                if playing > 2 then return server.id end
+                if not fallback then fallback = server.id end
+            end
+        end
+        cursor = page.nextPageCursor
+        if not cursor or cursor == "" then break end
+    end
+    return fallback
+end
+
+local function hopServer(reason)
+    if hopBusy then return false end
+    hopBusy = true
+    log("server hop: " .. tostring(reason or "requested"))
+    local serverId = findHopServer()
+    if not serverId then
+        log("server hop: no server found")
+        hopBusy = false
+        return false
+    end
+    local ok = pcall(function()
+        TeleportSvc:TeleportToPlaceInstance(game.PlaceId, serverId, me)
+    end)
+    if not ok then
+        log("server hop failed")
+        hopBusy = false
+    end
+    return ok
 end
 
 --[[ Movement ]]--
@@ -363,6 +476,7 @@ end
 local COMMAND_HELP = {
     owner = "Claim control of the bot",
     dethrone = "Release owner control",
+    friend = "Send owner a friend request",
     who = "Show current murderer and sheriff",
     togglewho = "Toggle automatic role callout each round",
     togglealerts = "Toggle kill/drop/pickup alerts",
@@ -381,7 +495,7 @@ local COMMAND_HELP = {
     help = "<cmd> - Show command list or explain one command",
 }
 local HELP_ORDER = {
-    "owner", "dethrone", "who", "togglewho", "togglealerts",
+    "owner", "dethrone", "friend", "who", "togglewho", "togglealerts",
     "reset", "tp", "tpmurd", "tpsher", "spawn", "follow", "unfollow",
     "gun", "togglegun", "chat", "fling", "fly", "help",
 }
@@ -444,6 +558,9 @@ local function handleCommand(p, msg)
         gunTargetId, gunDelivered = nil, false
         sendChat('Owner released — type "!owner" to claim')
         return
+    elseif cmd == "friend" then
+        local _, status = sendFriendRequestTo(findOwner())
+        whisper(status)
     elseif cmd == "chat" then
         sendChat(rest)
         whisper("Sent: " .. rest)
@@ -540,6 +657,26 @@ Players.PlayerRemoving:Connect(function(p)
         toggleGun, toggleAlerts, toggleWho = false, false, true
         gunTargetId, gunDelivered = nil, false
         sendChat('Owner left — type "!owner" to claim')
+    end
+end)
+
+task.spawn(function()
+    local lowPopSince = nil
+    while session.active do
+        local count = #Players:GetPlayers()
+        if count <= 2 and not hopBusy then
+            lowPopSince = lowPopSince or tick()
+            if tick() - lowPopSince >= 15 then
+                local owner = findOwner()
+                if owner then whisper("Server low, hopping") end
+                if not hopServer("low population") then
+                    lowPopSince = tick() - 10
+                end
+            end
+        else
+            lowPopSince = nil
+        end
+        task.wait(5)
     end
 end)
 
