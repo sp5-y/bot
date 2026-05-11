@@ -369,6 +369,50 @@ local function startFollowLoop()
     end)
 end
 
+-- Bot uses tpTo + CFrame + Humanoid:MoveTo (same as follow) to wedge under owner toward a target (physics nudge).
+local movemeGen = 0
+local function startMoveme(owner, target, gen)
+    task.spawn(function()
+        local deadline = tick() + 45
+        followTarget = nil
+        tpTo(owner)
+        task.wait(0.2)
+        while session.active and tick() < deadline and gen == movemeGen
+            and isAlive(me) and isAlive(owner) and isAlive(target) do
+            local oh = owner.Character and owner.Character:FindFirstChild("HumanoidRootPart")
+            local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+            local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+            local mh = hrp()
+            if not (oh and th and hum and mh) then break end
+
+            local flat = Vector3.new(th.Position.X - oh.Position.X, 0, th.Position.Z - oh.Position.Z)
+            if flat.Magnitude < 2 then
+                whisper("moveme: close to " .. shortName(target))
+                break
+            end
+            local dir = flat.Unit
+
+            local slot = oh.Position + Vector3.new(0, -2.8, 0) + dir * 2.2
+            local look = oh.Position + dir * 6
+            zeroVel(mh)
+            mh.CFrame = CFrame.new(slot, Vector3.new(look.X, slot.Y, look.Z))
+            zeroVel(mh)
+
+            hum:MoveTo(th.Position)
+
+            if (oh.Position - th.Position).Magnitude < 12 then
+                whisper("moveme: near " .. shortName(target))
+                break
+            end
+            task.wait(0.28)
+        end
+        if gen == movemeGen then
+            whisper("moveme done")
+            for i = 1, 2 do tpHome(); task.wait(0.2) end
+        end
+    end)
+end
+
 --[[ Commands ]]--
 local COMMAND_HELP = {
     owner = "Claim control of the bot",
@@ -387,18 +431,21 @@ local COMMAND_HELP = {
     togglegun = "<player> - Auto-deliver gun to a player",
     chat = "<msg> - Make bot send a public chat message",
     fling = "<player> - Fling a target player",
+    moveme = "<player> - Bot wedges under you and walks toward them (physics)",
     help = "<cmd> - Show command list or explain one command",
 }
 local HELP_ORDER = {
     "owner", "dethrone", "who", "togglewho", "togglealerts",
     "reset", "tp", "tpmurd", "tpsher", "spawn", "follow", "unfollow",
-    "gun", "togglegun", "chat", "fling", "help",
+    "gun", "togglegun", "chat", "fling", "moveme", "help",
 }
 local function sendFullHelp(target)
     whisper('Type "!help gun" to see what a command does', target)
+    local parts = {}
     for _, key in ipairs(HELP_ORDER) do
-        whisper("!" .. key .. " - " .. COMMAND_HELP[key], target)
+        table.insert(parts, "!" .. key)
     end
+    whisper(table.concat(parts, " "), target)
 end
 local function handleCommand(p, msg)
     if msg:sub(1, 1) ~= "!" then return end
@@ -413,6 +460,9 @@ local function handleCommand(p, msg)
         return
     end
     if not session.ownerId or p.UserId ~= session.ownerId then return end
+    if cmd ~= "moveme" then
+        movemeGen = movemeGen + 1
+    end
     if cmd == "fling" then
         if flingActive then whisper("already flinging someone") return end
         local t = findPlayer(args[2])
@@ -439,6 +489,17 @@ local function handleCommand(p, msg)
         whisper("Murder: " .. mL)
         task.wait(0.3)
         whisper("Sheriff: " .. sL)
+    elseif cmd == "moveme" then
+        local owner = findOwner()
+        local t = findPlayer(args[2])
+        if not owner then whisper("No owner") return end
+        if not t then whisper("That user doesnt exist") return end
+        if t == owner then whisper("Pick another player") return end
+        if flingActive then whisper("busy flinging") return end
+        movemeGen = movemeGen + 1
+        local gen = movemeGen
+        whisper("moveme -> " .. shortName(t))
+        startMoveme(owner, t, gen)
     elseif cmd == "tp" then
         local t = findPlayer(args[2]) or findOwner()
         if not t then whisper("That user doesnt exist") return end
