@@ -5,6 +5,7 @@ local TCS = cref(game:GetService("TextChatService"))
 local Tween = game:GetService("TweenService")
 local RS = cref(game:GetService("ReplicatedStorage"))
 local Http = cref(game:GetService("HttpService"))
+local Stats = cref(game:GetService("Stats"))
 local TeleportSvc = cref(game:GetService("TeleportService"))
 local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
 local me, cam = Players.LocalPlayer, workspace.CurrentCamera
@@ -18,6 +19,10 @@ local fraudOptedOut = false
 local gunTargetId = nil
 local gunDelivered = false
 local hopBusy = false
+local PING_MIN_MS, PING_MAX_MS = 50, 90
+local G = getgenv and getgenv() or _G
+G.MM_HopState = G.MM_HopState or {pingSearchActive = false}
+local hopState = G.MM_HopState
 
 --[[ Session ]]--
 if getgenv and getgenv().MM_Session then getgenv().MM_Session.active = false end
@@ -194,7 +199,6 @@ local function whisperTargets(o)
     local targets = {}
     local dn = tostring(o.DisplayName or ""):gsub("^@", "")
     if dn ~= "" then
-        table.insert(targets, "@" .. dn)
         table.insert(targets, dn)
     end
     if o.Name and o.Name ~= "" and o.Name ~= dn then
@@ -261,6 +265,42 @@ local function httpGet(url)
     return body.Body or body.body or body
 end
 
+local function queuePingSearchOnTeleport()
+    local queueFn = queue_on_teleport
+        or (syn and syn.queue_on_teleport)
+        or (fluxus and fluxus.queue_on_teleport)
+    if not queueFn then return end
+    pcall(function()
+        queueFn([[
+pcall(function()
+    local g = getgenv and getgenv() or _G
+    g.MM_HopState = g.MM_HopState or {}
+    g.MM_HopState.pingSearchActive = true
+end)
+]])
+    end)
+end
+
+local function getPingMs()
+    local ok, value = pcall(function()
+        return Stats.Network.ServerStatsItem["Data Ping"]:GetValueString()
+    end)
+    if ok and value then
+        local n = tonumber(tostring(value):match("(%d+%.?%d*)"))
+        if n then return n end
+    end
+    ok, value = pcall(function()
+        return Stats.Network.ServerStatsItem["Data Ping"]:GetValue()
+    end)
+    if ok then
+        value = tonumber(value)
+        if value then
+            if value > 0 and value < 10 then return value * 1000 end
+            return value
+        end
+    end
+end
+
 local function findHopServer()
     local cursor, fallback = nil, nil
     for _ = 1, 5 do
@@ -286,9 +326,13 @@ local function findHopServer()
     return fallback
 end
 
-local function hopServer(reason)
+local function hopServer(reason, continuePingSearch)
     if hopBusy then return false end
     hopBusy = true
+    if continuePingSearch then
+        hopState.pingSearchActive = true
+        queuePingSearchOnTeleport()
+    end
     log("server hop: " .. tostring(reason or "requested"))
     local serverId = findHopServer()
     if not serverId then
@@ -603,20 +647,32 @@ Players.PlayerRemoving:Connect(function(p)
 end)
 
 task.spawn(function()
-    local lowPopSince = nil
+    local joinedAt = tick()
+    local badPingSince = nil
+    local skipThisJoin = not hopState.pingSearchActive
+    if skipThisJoin then log("ping hop: skipping first join") end
     while session.active do
-        local count = #Players:GetPlayers()
-        if count <= 2 and not hopBusy then
-            lowPopSince = lowPopSince or tick()
-            if tick() - lowPopSince >= 15 then
-                local owner = findOwner()
-                if owner then whisper("Server low, hopping") end
-                if not hopServer("low population") then
-                    lowPopSince = tick() - 10
+        if not skipThisJoin and not hopBusy then
+            local ping = getPingMs()
+            if ping then
+                local inRange = ping >= PING_MIN_MS and ping <= PING_MAX_MS
+                if inRange then
+                    if hopState.pingSearchActive then
+                        hopState.pingSearchActive = false
+                        log(("ping hop: found %.0fms server"):format(ping))
+                    end
+                    badPingSince = nil
+                else
+                    badPingSince = badPingSince or tick()
+                    if tick() - joinedAt >= 20 and tick() - badPingSince >= 15 then
+                        local owner = findOwner()
+                        if owner then whisper(("Ping %.0fms, hopping"):format(ping)) end
+                        if not hopServer(("ping %.0fms"):format(ping), true) then
+                            badPingSince = tick() - 10
+                        end
+                    end
                 end
             end
-        else
-            lowPopSince = nil
         end
         task.wait(5)
     end
