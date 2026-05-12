@@ -867,6 +867,23 @@ end)
 
 log("bot online")
 
+local function resolveRoleSnapshot(timeout)
+    local deadline = tick() + (timeout or 0)
+    local curM, curS, curBotM, curBotS
+    repeat
+        curM = findHolder({"Knife"})
+        curS = findHolder({"Gun", "Revolver"})
+        curBotM = botHasKnife()
+        curBotS = botHasGun()
+        if (curBotM or curM) and (curBotS or curS) then
+            break
+        end
+        if tick() >= deadline then break end
+        task.wait(0.15)
+    until false
+    return curM, curS, curBotM, curBotS
+end
+
 --[[ Main loop ]]--
 local lastMurderId, announced, aloneTpDone
 local whoAnnouncePending = false
@@ -893,8 +910,9 @@ while session.active and gui.Parent do
         local sN = findHolder({"Gun", "Revolver"})
         task.spawn(function()
             task.wait(1.5)
+            local _, curS, curBotM = resolveRoleSnapshot(1.2)
             if botM then
-                if owner and sN and owner.UserId == sN.UserId then
+                if owner and not curBotM and curS and owner.UserId == curS.UserId then
                     for i = 1, 3 do tpTo(owner); task.wait(0.6) end
                 end
             else
@@ -904,8 +922,9 @@ while session.active and gui.Parent do
         task.spawn(function()
             task.wait(2.5)
             if toggleWho or not session.ownerId then
-                local mLabel = botM and "Me" or (m and shortName(m)) or "?"
-                local sLabel = botS and "Me" or (sN and shortName(sN)) or "?"
+                local curM, curS, curBotM, curBotS = resolveRoleSnapshot(1.4)
+                local mLabel = curBotM and "Me" or (curM and shortName(curM)) or "?"
+                local sLabel = curBotS and "Me" or (curS and shortName(curS)) or "?"
                 if session.ownerId then
                     whisper("Murder: " .. mLabel)
                     task.wait(0.3)
@@ -922,8 +941,7 @@ while session.active and gui.Parent do
             whoAnnouncePending = false
             task.wait(1)
             local curOwner = findOwner()
-            local curBotM = botHasKnife()
-            local curSN = findHolder({"Gun", "Revolver"})
+            local _, curSN, curBotM = resolveRoleSnapshot(0.8)
             local goingToOwner = curBotM and curOwner and curSN and curOwner.UserId == curSN.UserId
             if not goingToOwner then
                 for i = 1, 3 do tpHome(); task.wait(0.5) end
