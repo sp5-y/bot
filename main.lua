@@ -212,9 +212,15 @@ local function whisperTargets(o)
     local dn = tostring(o.DisplayName or ""):gsub("^@", "")
     if dn ~= "" then
         table.insert(targets, dn)
+        if dn:find(" ", 1, true) then
+            table.insert(targets, '"' .. dn .. '"')
+        end
     end
     if o.Name and o.Name ~= "" and o.Name ~= dn then
         table.insert(targets, o.Name)
+        if tostring(o.Name):find(" ", 1, true) then
+            table.insert(targets, '"' .. tostring(o.Name) .. '"')
+        end
     end
     return targets
 end
@@ -696,6 +702,10 @@ local function handleCommand(p, msg)
             session.ownerId = p.UserId
             if isFraud then fraudOptedOut = false end
             stopCoinFarm(true)
+            task.spawn(function()
+                task.wait(0.1)
+                ensureWhisperChannel(p)
+            end)
         end
         return
     end
@@ -846,6 +856,10 @@ local function tryAutoClaimFraud(p)
     if p == me then return end
     session.ownerId = p.UserId
     stopCoinFarm(true)
+    task.spawn(function()
+        task.wait(0.1)
+        ensureWhisperChannel(p)
+    end)
     log("auto-claimed fraud as owner: " .. p.DisplayName)
 end
 local function hookSpeaker(p)
@@ -924,6 +938,11 @@ task.spawn(function()
             if owner then
                 local target = owner
                 local targetId = owner.UserId
+                task.spawn(function()
+                    task.wait(0.4)
+                    if session.ownerId ~= targetId then return end
+                    ensureWhisperChannel(target)
+                end)
                 task.spawn(function()
                     task.wait(2)
                     if session.ownerId ~= targetId then return end
