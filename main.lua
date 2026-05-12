@@ -254,8 +254,19 @@ local function whisper(m, target)
     end)
 end
 
-local hiddenChatEvent = RS:FindFirstChild("DefaultChatSystemChatEvents")
-hiddenChatEvent = hiddenChatEvent and hiddenChatEvent:FindFirstChild("OnMessageDoneFiltering")
+local hiddenChatEvent = nil
+local function getHiddenChatEvent()
+    if hiddenChatEvent and hiddenChatEvent.Parent then return hiddenChatEvent end
+    local ok, events = pcall(function()
+        return RS:WaitForChild("DefaultChatSystemChatEvents", 10)
+    end)
+    if not ok or not events then return end
+    ok, hiddenChatEvent = pcall(function()
+        return events:WaitForChild("OnMessageDoneFiltering", 10)
+    end)
+    if ok then return hiddenChatEvent end
+end
+task.spawn(getHiddenChatEvent)
 local recentCommandKeys = {}
 local function cleanChatText(msg)
     return tostring(msg or ""):gsub("[\n\r]", ""):gsub("\t", " "):gsub("[ ]+", " ")
@@ -685,12 +696,13 @@ local function routeCommand(p, msg)
     handleCommand(p, msg)
 end
 local function watchHiddenChat(p, msg)
-    if not hiddenChatEvent or p == me then return end
+    local event = getHiddenChatEvent()
+    if not event or p == me then return end
     local clean = cleanChatText(msg)
     if clean == "" then return end
     local hidden = true
     local conn
-    conn = hiddenChatEvent.OnClientEvent:Connect(function(packet)
+    conn = event.OnClientEvent:Connect(function(packet)
         local packetMsg = packet and packet.Message
         if packet and packet.SpeakerUserId == p.UserId and type(packetMsg) == "string" then
             local suffix = clean:sub(math.max(1, #clean - #packetMsg + 1))
