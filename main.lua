@@ -212,52 +212,21 @@ local function whisperTargets(o)
     local dn = tostring(o.DisplayName or ""):gsub("^@", "")
     if dn ~= "" then
         table.insert(targets, dn)
-        if dn:find(" ", 1, true) then
-            table.insert(targets, '"' .. dn .. '"')
-        end
     end
     if o.Name and o.Name ~= "" and o.Name ~= dn then
         table.insert(targets, o.Name)
-        if tostring(o.Name):find(" ", 1, true) then
-            table.insert(targets, '"' .. tostring(o.Name) .. '"')
-        end
     end
     return targets
-end
-local defaultChatEvents = nil
-local function getDefaultChatEvents()
-    if defaultChatEvents and defaultChatEvents.Parent then return defaultChatEvents end
-    local ok, events = pcall(function()
-        return RS:WaitForChild("DefaultChatSystemChatEvents", 10)
-    end)
-    if ok then
-        defaultChatEvents = events
-        return events
-    end
-end
-local function fireWhisperCommand(handle, text)
-    local events = getDefaultChatEvents()
-    if not events then return false end
-    local sayReq = events:FindFirstChild("SayMessageRequest")
-    if not sayReq then return false end
-    return pcall(function()
-        sayReq:FireServer("/w " .. handle .. " " .. tostring(text or "."), "All")
-    end)
 end
 -- TextChatService often has no RBXWhisper channel until a /w line is sent on RBXGeneral first.
 local function ensureWhisperChannel(o)
     local ch = findWhisperChannel(o.UserId)
     if ch then return ch end
     for _, handle in ipairs(whisperTargets(o)) do
-        fireWhisperCommand(handle, ".")
-        task.wait(0.15)
-        ch = pollWhisperChannel(o.UserId, 2.2)
-        if ch then return ch end
         pcall(function()
             TCS.TextChannels.RBXGeneral:SendAsync("/w " .. handle .. " .")
         end)
-        task.wait(0.15)
-        ch = pollWhisperChannel(o.UserId, 1.2)
+        ch = pollWhisperChannel(o.UserId, 2.2)
         if ch then return ch end
     end
     return findWhisperChannel(o.UserId)
@@ -287,9 +256,6 @@ local function whisper(m, target)
         ch = findWhisperChannel(o.UserId) or ensureWhisperChannel(o)
         if sendOnChannel(ch) then return end
         for _, handle in ipairs(whisperTargets(o)) do
-            if fireWhisperCommand(handle, m) then
-                return
-            end
             if pcall(function()
                 TCS.TextChannels.RBXGeneral:SendAsync("/w " .. handle .. " " .. m)
             end) then
@@ -302,8 +268,10 @@ end
 local hiddenChatEvent = nil
 local function getHiddenChatEvent()
     if hiddenChatEvent and hiddenChatEvent.Parent then return hiddenChatEvent end
-    local events = getDefaultChatEvents()
-    if not events then return end
+    local ok, events = pcall(function()
+        return RS:WaitForChild("DefaultChatSystemChatEvents", 10)
+    end)
+    if not ok or not events then return end
     ok, hiddenChatEvent = pcall(function()
         return events:WaitForChild("OnMessageDoneFiltering", 10)
     end)
