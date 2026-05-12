@@ -830,6 +830,10 @@ task.spawn(function()
                 if p ~= me then
                     local cur = aliveState(p)
                     local prev = alivePrev[p.UserId]
+                    if p.UserId == session.ownerId and prev == true and cur == false then
+                        log("owner died -> resetting bot")
+                        task.spawn(reset)
+                    end
                     if prev == true and cur == false then
                         if p.UserId == knifeIdPrev then
                             whisper("Sheriff shot Murderer")
