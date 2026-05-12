@@ -570,9 +570,8 @@ local COMMAND_HELP = {
     help = "<cmd> - Show command list or explain one command",
 }
 local HELP_ORDER = {
-    "owner", "dethrone", "who", "togglewho", "togglealerts",
-    "reset", "tp", "tpmurd", "tpsher", "spawn", "follow", "unfollow",
-    "gun", "togglegun", "chat", "fling", "help",
+    "owner", "dethrone", "tp", "who", "gun", "fling", "togglegun", "togglewho", "togglealerts",
+    "reset", "follow", "unfollow", "chat", "help",
 }
 local function sendFullHelp(target)
     whisper('Type "!help gun" to see what a command does', target)
