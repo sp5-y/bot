@@ -766,6 +766,9 @@ local function handleCommand(p, msg)
     elseif cmd == "reset" then
         whisper("Resetting bot")
         reset()
+    elseif cmd == "rejoin" then
+        whisper("Rejoining")
+        hopServer("manual rejoin", false)
     elseif cmd == "togglegun" then
         if ownerIsMurd then whisper("No gun available") return end
         if args[2] then
