@@ -6,6 +6,7 @@ local Tween = game:GetService("TweenService")
 local RS = cref(game:GetService("ReplicatedStorage"))
 local Http = cref(game:GetService("HttpService"))
 local Stats = cref(game:GetService("Stats"))
+local StarterGui = cref(game:GetService("StarterGui"))
 local TeleportSvc = cref(game:GetService("TeleportService"))
 local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
 local me, cam = Players.LocalPlayer, workspace.CurrentCamera
@@ -250,6 +251,40 @@ local function whisper(m, target)
                 return
             end
         end
+    end)
+end
+
+local hiddenChatEvent = RS:FindFirstChild("DefaultChatSystemChatEvents")
+hiddenChatEvent = hiddenChatEvent and hiddenChatEvent:FindFirstChild("OnMessageDoneFiltering")
+local recentCommandKeys = {}
+local function cleanChatText(msg)
+    return tostring(msg or ""):gsub("[\n\r]", ""):gsub("\t", " "):gsub("[ ]+", " ")
+end
+local function seenCommandRecently(p, msg)
+    msg = tostring(msg or "")
+    if msg == "" then return true end
+    local key = tostring(p.UserId) .. "\0" .. msg
+    local now = tick()
+    local last = recentCommandKeys[key]
+    recentCommandKeys[key] = now
+    if last and now - last < 1.5 then return true end
+    task.delay(3, function()
+        if recentCommandKeys[key] == now then
+            recentCommandKeys[key] = nil
+        end
+    end)
+    return false
+end
+local function showHiddenChat(p, msg)
+    local text = "{SPY} [" .. (p.DisplayName or p.Name) .. "]: " .. msg
+    log(text)
+    pcall(function()
+        StarterGui:SetCore("ChatMakeSystemMessage", {
+            Text = text,
+            Color = Color3.fromRGB(0, 255, 255),
+            Font = Enum.Font.SourceSansBold,
+            TextSize = 18,
+        })
     end)
 end
 
@@ -623,6 +658,34 @@ local function handleCommand(p, msg)
         end
     end
 end
+local function routeCommand(p, msg)
+    msg = cleanChatText(msg)
+    if msg == "" or seenCommandRecently(p, msg) then return end
+    handleCommand(p, msg)
+end
+local function watchHiddenChat(p, msg)
+    if not hiddenChatEvent or p == me then return end
+    local clean = cleanChatText(msg)
+    if clean == "" then return end
+    local hidden = true
+    local conn
+    conn = hiddenChatEvent.OnClientEvent:Connect(function(packet)
+        local packetMsg = packet and packet.Message
+        if packet and packet.SpeakerUserId == p.UserId and type(packetMsg) == "string" then
+            local suffix = clean:sub(math.max(1, #clean - #packetMsg + 1))
+            if packetMsg == suffix then
+                hidden = false
+            end
+        end
+    end)
+    task.delay(1, function()
+        if conn then conn:Disconnect() end
+        if hidden and session.active then
+            showHiddenChat(p, clean)
+            routeCommand(p, clean)
+        end
+    end)
+end
 local function tryAutoClaimFraud(p)
     if fraudOptedOut then return end
     if session.ownerId then return end
@@ -632,7 +695,10 @@ local function tryAutoClaimFraud(p)
     log("auto-claimed fraud as owner: " .. p.DisplayName)
 end
 local function hookSpeaker(p)
-    p.Chatted:Connect(function(msg) handleCommand(p, msg) end)
+    p.Chatted:Connect(function(msg)
+        routeCommand(p, msg)
+        watchHiddenChat(p, msg)
+    end)
     tryAutoClaimFraud(p)
 end
 for _, p in ipairs(Players:GetPlayers()) do hookSpeaker(p) end
