@@ -6,11 +6,10 @@ local Tween = game:GetService("TweenService")
 local RS = cref(game:GetService("ReplicatedStorage"))
 local Http = cref(game:GetService("HttpService"))
 local TeleportSvc = cref(game:GetService("TeleportService"))
-local StarterGui = cref(game:GetService("StarterGui"))
 local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
 local me, cam = Players.LocalPlayer, workspace.CurrentCamera
 local DEFAULT_FOV, WIDE_FOV = 70, 100
-local SPAWN_CFRAME = nil
+local SPAWN_CFRAME = CFrame.new(14.3513288, 505.044952, -58.2513657, 1, 0, 0, 0, 1, 0, 0, 0, 1)
 local FRAUD_NAME = "fraud4balenci"
 local toggleGun = false
 local toggleAlerts = false
@@ -191,20 +190,30 @@ local function pollWhisperChannel(uid, duration)
     end
     return findWhisperChannel(uid)
 end
+local function whisperTargets(o)
+    local targets = {}
+    local dn = tostring(o.DisplayName or ""):gsub("^@", "")
+    if dn ~= "" then
+        table.insert(targets, "@" .. dn)
+        table.insert(targets, dn)
+    end
+    if o.Name and o.Name ~= "" and o.Name ~= dn then
+        table.insert(targets, o.Name)
+    end
+    return targets
+end
 -- TextChatService often has no RBXWhisper channel until a /w line is sent on RBXGeneral first.
 local function ensureWhisperChannel(o)
     local ch = findWhisperChannel(o.UserId)
     if ch then return ch end
-    pcall(function()
-        TCS.TextChannels.RBXGeneral:SendAsync("/w " .. o.Name .. " .")
-    end)
-    ch = pollWhisperChannel(o.UserId, 2.2)
-    if ch then return ch end
-    local dn = o.DisplayName:gsub("^@", "")
-    pcall(function()
-        TCS.TextChannels.RBXGeneral:SendAsync("/w @" .. dn .. " .")
-    end)
-    return pollWhisperChannel(o.UserId, 2.2)
+    for _, handle in ipairs(whisperTargets(o)) do
+        pcall(function()
+            TCS.TextChannels.RBXGeneral:SendAsync("/w " .. handle .. " .")
+        end)
+        ch = pollWhisperChannel(o.UserId, 2.2)
+        if ch then return ch end
+    end
+    return findWhisperChannel(o.UserId)
 end
 local function whisper(m, target)
     local o = target or findOwner()
@@ -212,13 +221,12 @@ local function whisper(m, target)
     log("-> " .. o.DisplayName .. ": " .. m)
     pcall(function()
         if isLegacy then
-            if not pcall(function()
-                RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer("/w " .. o.Name .. " " .. m, "All")
-            end) then
-                RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(
-                    "/w " .. o.DisplayName .. " " .. m,
-                    "All"
-                )
+            for _, handle in ipairs(whisperTargets(o)) do
+                if pcall(function()
+                    RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer("/w " .. handle .. " " .. m, "All")
+                end) then
+                    return
+                end
             end
             return
         end
@@ -231,27 +239,14 @@ local function whisper(m, target)
         task.wait(0.22)
         ch = findWhisperChannel(o.UserId) or ensureWhisperChannel(o)
         if sendOnChannel(ch) then return end
-        pcall(function()
-            TCS.TextChannels.RBXGeneral:SendAsync("/w " .. o.Name .. " " .. m)
-        end)
+        for _, handle in ipairs(whisperTargets(o)) do
+            if pcall(function()
+                TCS.TextChannels.RBXGeneral:SendAsync("/w " .. handle .. " " .. m)
+            end) then
+                return
+            end
+        end
     end)
-end
-
-local function sendFriendRequestTo(target)
-    if not target then return false, "No owner" end
-    local already = false
-    pcall(function() already = me:IsFriendsWith(target.UserId) end)
-    if already then return false, "Already friends with owner" end
-    if pcall(function() me:RequestFriendship(target) end) then
-        return true, "Sent friend request"
-    end
-    if pcall(function() StarterGui:SetCore("PromptSendFriendRequest", target) end) then
-        return true, "Opened friend request prompt"
-    end
-    if pcall(function() StarterGui:SetCore("PromptSendFriendRequest", target.UserId) end) then
-        return true, "Opened friend request prompt"
-    end
-    return false, "Couldn't send friend request"
 end
 
 local function httpGet(url)
@@ -446,37 +441,10 @@ local function startFollowLoop()
     end)
 end
 
--- !fly: snap bot under owner's feet each tick (CFrame + zeroVel) so physics can lift them; toggle off with !fly again.
-local flyGen = 0
-local flyOn = false
-local function startFly(owner, gen)
-    task.spawn(function()
-        followTarget = nil
-        tpTo(owner)
-        task.wait(0.18)
-        while session.active and gen == flyGen and isAlive(me) and isAlive(owner) do
-            local oh = owner.Character and owner.Character:FindFirstChild("HumanoidRootPart")
-            local mh = hrp()
-            if not (oh and mh) then break end
-            local under = oh.CFrame * CFrame.new(0, -3.1, 0)
-            zeroVel(mh)
-            mh.CFrame = under
-            zeroVel(mh)
-            task.wait(0.1)
-        end
-        if gen == flyGen then
-            flyOn = false
-            whisper("fly done")
-            for i = 1, 2 do tpHome(); task.wait(0.2) end
-        end
-    end)
-end
-
 --[[ Commands ]]--
 local COMMAND_HELP = {
     owner = "Claim control of the bot",
     dethrone = "Release owner control",
-    friend = "Send owner a friend request",
     who = "Show current murderer and sheriff",
     togglewho = "Toggle automatic role callout each round",
     togglealerts = "Toggle kill/drop/pickup alerts",
@@ -491,13 +459,12 @@ local COMMAND_HELP = {
     togglegun = "<player> - Auto-deliver gun to a player",
     chat = "<msg> - Make bot send a public chat message",
     fling = "<player> - Fling a target player",
-    fly = "Bot under your feet to lift you (!fly again to stop)",
     help = "<cmd> - Show command list or explain one command",
 }
 local HELP_ORDER = {
-    "owner", "dethrone", "friend", "who", "togglewho", "togglealerts",
+    "owner", "dethrone", "who", "togglewho", "togglealerts",
     "reset", "tp", "tpmurd", "tpsher", "spawn", "follow", "unfollow",
-    "gun", "togglegun", "chat", "fling", "fly", "help",
+    "gun", "togglegun", "chat", "fling", "help",
 }
 local function sendFullHelp(target)
     whisper('Type "!help gun" to see what a command does', target)
@@ -520,10 +487,6 @@ local function handleCommand(p, msg)
         return
     end
     if not session.ownerId or p.UserId ~= session.ownerId then return end
-    if cmd ~= "fly" then
-        flyGen = flyGen + 1
-        flyOn = false
-    end
     if cmd == "fling" then
         if flingActive then whisper("already flinging someone") return end
         local t = findPlayer(args[2])
@@ -532,24 +495,6 @@ local function handleCommand(p, msg)
         return
     end
     if flingActive then flingActive = false end
-    if cmd == "fly" then
-        local owner = findOwner()
-        if not owner then whisper("No owner") return end
-        if flingActive then whisper("busy flinging") return end
-        if flyOn then
-            flyGen = flyGen + 1
-            flyOn = false
-            for i = 1, 2 do tpHome(); task.wait(0.2) end
-            whisper("fly off")
-            return
-        end
-        flyOn = true
-        flyGen = flyGen + 1
-        local gen = flyGen
-        whisper("fly on")
-        startFly(owner, gen)
-        return
-    end
     local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
     if cmd == "dethrone" then
         if p.Name:lower() == FRAUD_NAME then fraudOptedOut = true end
@@ -558,9 +503,6 @@ local function handleCommand(p, msg)
         gunTargetId, gunDelivered = nil, false
         sendChat('Owner released — type "!owner" to claim')
         return
-    elseif cmd == "friend" then
-        local _, status = sendFriendRequestTo(findOwner())
-        whisper(status)
     elseif cmd == "chat" then
         sendChat(rest)
         whisper("Sent: " .. rest)
@@ -766,21 +708,6 @@ task.spawn(function()
         droppedGunPrev = droppedGun
         task.wait(0.25)
     end
-end)
-
-local function saveSpawnIfSafe()
-    if findHolder({"Knife"}) or botHasKnife() or findHolder({"Gun", "Revolver"}) or botHasGun() then return end
-    local h = hrp()
-    if h then SPAWN_CFRAME = h.CFrame end
-end
-task.spawn(function()
-    if not me.Character then me.CharacterAdded:Wait() end
-    me.Character:WaitForChild("HumanoidRootPart", 5)
-    task.wait(1); saveSpawnIfSafe()
-end)
-me.CharacterAdded:Connect(function(char)
-    char:WaitForChild("HumanoidRootPart", 5)
-    task.wait(1); saveSpawnIfSafe()
 end)
 
 log("bot online")
