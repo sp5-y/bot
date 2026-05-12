@@ -13,7 +13,7 @@ local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
 local me, cam = Players.LocalPlayer, workspace.CurrentCamera
 local DEFAULT_FOV, WIDE_FOV = 70, 100
 local SPAWN_CFRAME = CFrame.new(14.3513288, 505.044952, -58.2513657, 1, 0, 0, 0, 1, 0, 0, 0, 1)
-local FRAUD_NAME = "fraud4balenci"
+local FRAUD_NAME = "2"
 local toggleGun = false
 local toggleAlerts = false
 local toggleWho = true
@@ -514,11 +514,16 @@ local function equipTool(tool)
     end
     return tool and tool.Parent == me.Character
 end
-local function clickFire()
+local function clickFire(x, y)
     if not VIM then return end
+    x = tonumber(x) or 0
+    y = tonumber(y) or 0
     pcall(function()
-        VIM:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-        VIM:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+        VIM:SendMouseMoveEvent(x, y, game)
+    end)
+    pcall(function()
+        VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)
+        VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
     end)
 end
 local function shootTarget(target)
@@ -536,17 +541,21 @@ local function shootTarget(target)
         local mh = hrp()
         local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
         if not (mh and th) then break end
+        local aimPoint = th.Position + Vector3.new(0, 1.2, 0)
         zeroVel(mh)
-        mh.CFrame = CFrame.new(th.Position + Vector3.new(0, 1.5, 8), th.Position)
+        mh.CFrame = CFrame.new(th.Position + Vector3.new(0, 1.5, 8), aimPoint)
         zeroVel(mh)
+        local mouseX, mouseY = 0, 0
         pcall(function()
-            cam.CFrame = CFrame.new(cam.CFrame.Position, th.Position)
+            cam.CFrame = CFrame.new(mh.Position + Vector3.new(0, 1.5, 0), aimPoint)
+            local screenPos = cam:WorldToViewportPoint(aimPoint)
+            mouseX, mouseY = screenPos.X, screenPos.Y
         end)
         pcall(function() gun:Activate() end)
-        clickFire()
+        clickFire(mouseX, mouseY)
         task.wait(0.15)
         pcall(function() gun:Activate() end)
-        clickFire()
+        clickFire(mouseX, mouseY)
         fired = true
         local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
         if hum and startHealth and hum.Health < startHealth then
