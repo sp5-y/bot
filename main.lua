@@ -660,7 +660,15 @@ local function fling(target, onDone)
             local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
             local thum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
             if mh and th then
-                mh.CFrame = th.CFrame
+                local v = th.AssemblyLinearVelocity
+                if v.Magnitude < 1e-3 then v = th.Velocity end
+                local vh = Vector3.new(v.X, 0, v.Z)
+                local spd = vh.Magnitude
+                local lead = Vector3.zero
+                if spd > 0.12 then
+                    lead = vh.Unit * math.min(spd * 0.14, 8)
+                end
+                mh.CFrame = th.CFrame + lead
                 mh.Velocity = Vector3.new(99999, 99999, 99999)
                 mh.RotVelocity = Vector3.new(99999, 99999, 99999)
             end
