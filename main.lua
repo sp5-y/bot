@@ -627,9 +627,25 @@ end
 
 --[[ Fling ]]--
 local flingActive = false
-local function fling(target)
-    if flingActive then return end
-    if not isAlive(target) or not isAlive(me) then return end
+local flingLoopGen = 0
+local flingLoopActive = false
+
+local function cancelFlingWork()
+    flingLoopGen = flingLoopGen + 1
+    flingLoopActive = false
+    flingActive = false
+end
+
+local function fling(target, onDone)
+    local onDoneFn = onDone
+    if flingActive then
+        if onDoneFn then onDoneFn(false) end
+        return
+    end
+    if not isAlive(target) or not isAlive(me) then
+        if onDoneFn then onDoneFn(false) end
+        return
+    end
     flingActive = true
     log("flinging " .. target.DisplayName)
     task.spawn(function()
@@ -666,10 +682,69 @@ local function fling(target)
         end
         flingActive = false
         log(flung and "fling success" or "fling done")
-        whisper("Successfully flinged " .. shortName(target))
+        if onDoneFn then
+            onDoneFn(flung)
+        else
+            whisper("Successfully flinged " .. shortName(target))
+        end
         for i = 1, 3 do
             tpHome()
             task.wait(0.3)
+        end
+    end)
+end
+
+local function waitFlingDone(gen, timeout)
+    local t0 = tick()
+    while flingActive and tick() - t0 < (timeout or 25) do
+        if gen ~= flingLoopGen then break end
+        task.wait(0.03)
+    end
+end
+
+local function runFlingLoop(mode, playerQuery, gen)
+    task.spawn(function()
+        while session.active and gen == flingLoopGen and flingLoopActive do
+            local targets = {}
+            if mode == "all" then
+                for _, pl in ipairs(Players:GetPlayers()) do
+                    if pl ~= me and (not session.ownerId or pl.UserId ~= session.ownerId) then
+                        table.insert(targets, pl)
+                    end
+                end
+            elseif mode == "sheriff" then
+                local s = findHolder({"Gun", "Revolver"})
+                if s and s ~= me then table.insert(targets, s) end
+            elseif mode == "murder" then
+                local murd = findHolder({"Knife"})
+                if murd and murd ~= me then table.insert(targets, murd) end
+            else
+                local t = findOtherPlayer(playerQuery)
+                if t then table.insert(targets, t) end
+            end
+
+            local any = false
+            for _, tgt in ipairs(targets) do
+                if gen ~= flingLoopGen or not flingLoopActive then break end
+                if isAlive(tgt) and isAlive(me) then
+                    any = true
+                    fling(tgt, function(ok)
+                        if ok and flingLoopActive and gen == flingLoopGen then
+                            whisper("Successfully flinged " .. shortName(tgt))
+                        end
+                    end)
+                    waitFlingDone(gen, 25)
+                end
+            end
+
+            if gen ~= flingLoopGen or not flingLoopActive then break end
+            if mode == "player" then
+                task.wait(0.6)
+            elseif mode == "all" then
+                task.wait(1.5)
+            else
+                task.wait(0.75)
+            end
         end
     end)
 end
@@ -708,7 +783,7 @@ local COMMAND_HELP = {
     gun = "<player> - Deliver gun to a player",
     togglegun = "<player> - Auto-deliver gun to a player",
     chat = "<msg> - Make bot send a public chat message",
-    fling = "<player> - Fling a target player",
+    fling = "all | sheriff | murder | <name> — loop until !fling alone stops",
     help = "<cmd> - Show command list or explain one command",
 }
 local HELP_ORDER = {
@@ -738,13 +813,38 @@ local function handleCommand(p, msg)
     end
     if not session.ownerId or p.UserId ~= session.ownerId then return end
     if cmd == "fling" then
-        if flingActive then whisper("already flinging someone") return end
-        local t = findOtherPlayer(restOfChatArgs(args))
-        if not t then whisper("That user doesnt exist") return end
-        fling(t)
+        local raw = restOfChatArgs(args)
+        local q = (raw:match("^%s*(.-)%s*$") or ""):lower()
+        if q == "" then
+            if flingLoopActive then
+                cancelFlingWork()
+                whisper("fling loop off")
+                return
+            end
+            whisper("Usage: !fling all | sheriff | murder | <name>  — say !fling alone to stop")
+            return
+        end
+
+        flingActive = false
+        flingLoopGen = flingLoopGen + 1
+        local gen = flingLoopGen
+        flingLoopActive = true
+
+        local mode, playerQuery = "player", raw
+        local first = q:match("^(%S+)")
+        if first == "all" then
+            mode, playerQuery = "all", ""
+        elseif first == "sheriff" or first == "sher" or first == "sherif" then
+            mode, playerQuery = "sheriff", ""
+        elseif first == "murder" or first == "murd" or first == "murderer" then
+            mode, playerQuery = "murder", ""
+        end
+
+        runFlingLoop(mode, playerQuery, gen)
+        whisper("fling loop on (" .. (mode == "player" and raw or mode) .. ") — !fling alone to stop")
         return
     end
-    if flingActive then flingActive = false end
+    cancelFlingWork()
     local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
     local ownerIsMurd = session.ownerId and m and not botHasKnife() and m.UserId == session.ownerId
     if cmd == "dethrone" then
@@ -917,7 +1017,6 @@ task.spawn(function()
     local joinedAt = tick()
     local badPingSince = nil
     local skipThisJoin = not hopState.pingSearchActive
-    if skipThisJoin then log("ping hop: skipping first join") end
     while session.active do
         if not skipThisJoin and not hopBusy then
             local ping = getPingMs()
@@ -1010,15 +1109,23 @@ task.spawn(function()
         local gid = gHolder and gHolder.UserId
         local droppedGun = findDroppedGun() ~= nil
         if kid and not knifeIdPrev then suppressDrop = false end
+        -- Always watch owner life (not gated on toggleAlerts); nil cur = character gone after death.
+        if session.ownerId then
+            local own = Players:GetPlayerByUserId(session.ownerId)
+            if own and own ~= me then
+                local cur = aliveState(own)
+                local prev = alivePrev[own.UserId]
+                if prev == true and (cur == false or cur == nil) then
+                    log("owner died -> resetting bot")
+                    task.spawn(function() pcall(reset) end)
+                end
+            end
+        end
         if toggleAlerts and session.ownerId then
             for _, p in ipairs(Players:GetPlayers()) do
                 if p ~= me then
                     local cur = aliveState(p)
                     local prev = alivePrev[p.UserId]
-                    if p.UserId == session.ownerId and prev == true and cur == false then
-                        log("owner died -> resetting bot")
-                        task.spawn(reset)
-                    end
                     if prev == true and cur == false then
                         if p.UserId == knifeIdPrev then
                             whisper("Sheriff shot Murderer")
@@ -1045,12 +1152,16 @@ task.spawn(function()
         end
         for _, p in ipairs(Players:GetPlayers()) do
             local cur = aliveState(p)
-            if cur ~= nil then alivePrev[p.UserId] = cur end
+            if cur ~= nil then
+                alivePrev[p.UserId] = cur
+            elseif alivePrev[p.UserId] == true then
+                alivePrev[p.UserId] = false
+            end
         end
         knifeIdPrev = kid
         gunIdPrev = gid
         droppedGunPrev = droppedGun
-        task.wait(0.25)
+        task.wait(0.12)
     end
 end)
 
