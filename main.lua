@@ -702,17 +702,38 @@ local function waitFlingDone(gen, timeout)
     end
 end
 
-local function runFlingLoop(mode, playerQuery, gen)
+local function runFlingLoop(mode, playerQuery, gen, continuousLoop)
     task.spawn(function()
-        while session.active and gen == flingLoopGen and flingLoopActive do
+        if mode == "all" then
             local targets = {}
-            if mode == "all" then
-                for _, pl in ipairs(Players:GetPlayers()) do
-                    if pl ~= me and (not session.ownerId or pl.UserId ~= session.ownerId) then
-                        table.insert(targets, pl)
+            for _, pl in ipairs(Players:GetPlayers()) do
+                if pl ~= me and (not session.ownerId or pl.UserId ~= session.ownerId) then
+                    table.insert(targets, pl)
+                end
+            end
+            for i, tgt in ipairs(targets) do
+                if gen ~= flingLoopGen or not flingLoopActive or not session.active then break end
+                if isAlive(tgt) and isAlive(me) then
+                    fling(tgt, function(ok)
+                        if ok and flingLoopActive and gen == flingLoopGen then
+                            whisper("Successfully flinged " .. shortName(tgt))
+                        end
+                    end)
+                    waitFlingDone(gen, 25)
+                    if i < #targets and gen == flingLoopGen and flingLoopActive then
+                        task.wait(0.5)
                     end
                 end
-            elseif mode == "sheriff" then
+            end
+            if gen == flingLoopGen then
+                flingLoopActive = false
+            end
+            return
+        end
+
+        local function collectTargets()
+            local targets = {}
+            if mode == "sheriff" then
                 local s = findHolder({"Gun", "Revolver"})
                 if s and s ~= me then table.insert(targets, s) end
             elseif mode == "murder" then
@@ -722,12 +743,36 @@ local function runFlingLoop(mode, playerQuery, gen)
                 local t = findOtherPlayer(playerQuery)
                 if t then table.insert(targets, t) end
             end
+            return targets
+        end
 
-            local any = false
+        if not continuousLoop then
+            local targets = collectTargets()
+            for i, tgt in ipairs(targets) do
+                if gen ~= flingLoopGen or not flingLoopActive or not session.active then break end
+                if isAlive(tgt) and isAlive(me) then
+                    fling(tgt, function(ok)
+                        if ok and flingLoopActive and gen == flingLoopGen then
+                            whisper("Successfully flinged " .. shortName(tgt))
+                        end
+                    end)
+                    waitFlingDone(gen, 25)
+                    if i < #targets and gen == flingLoopGen and flingLoopActive then
+                        task.wait(0.5)
+                    end
+                end
+            end
+            if gen == flingLoopGen then
+                flingLoopActive = false
+            end
+            return
+        end
+
+        while session.active and gen == flingLoopGen and flingLoopActive do
+            local targets = collectTargets()
             for _, tgt in ipairs(targets) do
                 if gen ~= flingLoopGen or not flingLoopActive then break end
                 if isAlive(tgt) and isAlive(me) then
-                    any = true
                     fling(tgt, function(ok)
                         if ok and flingLoopActive and gen == flingLoopGen then
                             whisper("Successfully flinged " .. shortName(tgt))
@@ -740,8 +785,6 @@ local function runFlingLoop(mode, playerQuery, gen)
             if gen ~= flingLoopGen or not flingLoopActive then break end
             if mode == "player" then
                 task.wait(0.6)
-            elseif mode == "all" then
-                task.wait(1.5)
             else
                 task.wait(0.75)
             end
@@ -783,7 +826,7 @@ local COMMAND_HELP = {
     gun = "<player> - Deliver gun to a player",
     togglegun = "<player> - Auto-deliver gun to a player",
     chat = "<msg> - Make bot send a public chat message",
-    fling = "all | sheriff | murder | <name> — loop until !fling alone stops",
+    fling = "all (once each) | sheriff | murder | <name> — add \"loop\" to repeat until !fling stops",
     help = "<cmd> - Show command list or explain one command",
 }
 local HELP_ORDER = {
@@ -814,14 +857,21 @@ local function handleCommand(p, msg)
     if not session.ownerId or p.UserId ~= session.ownerId then return end
     if cmd == "fling" then
         local raw = restOfChatArgs(args)
-        local q = (raw:match("^%s*(.-)%s*$") or ""):lower()
+        local trimmed = (raw:match("^%s*(.-)%s*$") or "")
+        local wl = trimmed:lower()
+        local continuousLoop = wl:match(" loop%s*$") ~= nil
+        local work = trimmed
+        if continuousLoop then
+            work = (trimmed:gsub("%s+[Ll][Oo][Oo][Pp]%s*$", ""):match("^%s*(.-)%s*$") or "")
+        end
+        local q = (work:match("^%s*(.-)%s*$") or ""):lower()
         if q == "" then
             if flingLoopActive then
                 cancelFlingWork()
                 whisper("fling loop off")
                 return
             end
-            whisper("Usage: !fling all | sheriff | murder | <name>  — say !fling alone to stop")
+            whisper("Usage: !fling all | sheriff | murder | <name>  — add \"loop\" to repeat; !fling alone stops or cancels")
             return
         end
 
@@ -830,7 +880,7 @@ local function handleCommand(p, msg)
         local gen = flingLoopGen
         flingLoopActive = true
 
-        local mode, playerQuery = "player", raw
+        local mode, playerQuery = "player", work
         local first = q:match("^(%S+)")
         if first == "all" then
             mode, playerQuery = "all", ""
@@ -840,8 +890,15 @@ local function handleCommand(p, msg)
             mode, playerQuery = "murder", ""
         end
 
-        runFlingLoop(mode, playerQuery, gen)
-        whisper("fling loop on (" .. (mode == "player" and raw or mode) .. ") — !fling alone to stop")
+        local loopArg = continuousLoop and mode ~= "all"
+        runFlingLoop(mode, playerQuery, gen, loopArg)
+        if mode == "all" then
+            whisper("fling all: one pass — !fling alone to cancel mid-run")
+        elseif loopArg then
+            whisper("fling loop on (" .. (mode == "player" and work or mode) .. ") — !fling alone to stop")
+        else
+            whisper("fling once (" .. (mode == "player" and work or mode) .. ") — !fling alone cancels if still going")
+        end
         return
     end
     cancelFlingWork()
