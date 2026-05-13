@@ -167,8 +167,7 @@ local function findPlayer(q)
 end
 local function findOwner()
     if not session.ownerId then return end
-    local p = Players:GetPlayerByUserId(session.ownerId)
-    if p and p ~= me then return p end
+    return Players:GetPlayerByUserId(session.ownerId)
 end
 local function shortName(p) return p.Name:sub(1, 4) .. "..." end
 local function restOfChatArgs(args)
@@ -208,11 +207,16 @@ local function sendChat(msg)
     if not msg or msg == "" then return end
     msg = tostring(msg)
     pcall(function()
-        if not isLegacy then TCS.TextChannels.RBXGeneral:SendAsync(msg)
-        else RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(msg, "All") end
+        if not isLegacy then
+            local gen = TCS.TextChannels and TCS.TextChannels:FindFirstChild("RBXGeneral")
+            if gen then gen:SendAsync(msg) end
+        else
+            RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(msg, "All")
+        end
     end)
 end
 local function findWhisperChannel(uid)
+    if not TCS.TextChannels then return end
     uid = tostring(uid)
     for _, ch in ipairs(TCS.TextChannels:GetChildren()) do
         if ch:IsA("TextChannel") and ch.Name:match("RBXWhisper") then
@@ -244,11 +248,13 @@ local function whisperTargets(o)
 end
 -- TextChatService often has no RBXWhisper channel until a /w line is sent on RBXGeneral first.
 local function ensureWhisperChannel(o)
+    local gen = TCS.TextChannels and TCS.TextChannels:FindFirstChild("RBXGeneral")
+    if not gen then return end
     local ch = findWhisperChannel(o.UserId)
     if ch then return ch end
     for _, handle in ipairs(whisperTargets(o)) do
         pcall(function()
-            TCS.TextChannels.RBXGeneral:SendAsync("/w " .. handle .. " .")
+            gen:SendAsync("/w " .. handle .. " .")
         end)
         ch = pollWhisperChannel(o.UserId, 2.2)
         if ch then return ch end
@@ -256,6 +262,8 @@ local function ensureWhisperChannel(o)
     return findWhisperChannel(o.UserId)
 end
 local function whisper(m, target)
+    m = tostring(m or "")
+    if m == "" then return end
     local o = target or findOwner()
     if not o then log("whisper: no target") return end
     log("-> " .. o.DisplayName .. ": " .. m)
@@ -270,6 +278,7 @@ local function whisper(m, target)
             end
             return
         end
+        local gen = TCS.TextChannels and TCS.TextChannels:FindFirstChild("RBXGeneral")
         local ch = ensureWhisperChannel(o)
         local function sendOnChannel(chan)
             if not chan then return false end
@@ -279,9 +288,10 @@ local function whisper(m, target)
         task.wait(0.22)
         ch = findWhisperChannel(o.UserId) or ensureWhisperChannel(o)
         if sendOnChannel(ch) then return end
+        if not gen then return end
         for _, handle in ipairs(whisperTargets(o)) do
             if pcall(function()
-                TCS.TextChannels.RBXGeneral:SendAsync("/w " .. handle .. " " .. m)
+                gen:SendAsync("/w " .. handle .. " " .. m)
             end) then
                 return
             end
