@@ -15,6 +15,7 @@ local DEFAULT_FOV, WIDE_FOV = 70, 100
 local SPAWN_CFRAME = CFrame.new(14.3513288, 505.044952, -58.2513657, 1, 0, 0, 0, 1, 0, 0, 0, 1)
 local FRAUD_NAME = "2"
 local toggleGun = false
+local toggleShoot = false
 local toggleAlerts = false
 local toggleWho = true
 local fraudOptedOut = false
@@ -432,6 +433,16 @@ end
 
 --[[ Movement ]]--
 local function hrp() return me.Character and me.Character:FindFirstChild("HumanoidRootPart") end
+-- Horizontal lead from HRP velocity so handoffs stay ahead of walking targets.
+local function horizontalApproachLead(root)
+    if not root then return Vector3.zero end
+    local v = root.AssemblyLinearVelocity
+    if v.Magnitude < 1e-3 then v = root.Velocity end
+    local vh = Vector3.new(v.X, 0, v.Z)
+    local spd = vh.Magnitude
+    if spd <= 0.12 then return Vector3.zero end
+    return vh.Unit * math.min(spd * 0.14, 8)
+end
 local function isAlive(p)
     local h = p and p.Character and p.Character:FindFirstChildOfClass("Humanoid")
     return h and h.Health > 0
@@ -485,7 +496,7 @@ local function dropGunAt(target)
     local h = hrp()
     local oh = target.Character:FindFirstChild("HumanoidRootPart")
     if not (h and oh) then return false end
-    h.CFrame = oh.CFrame
+    h.CFrame = oh.CFrame + horizontalApproachLead(oh)
     task.wait(0.1); reset()
     return true
 end
@@ -660,14 +671,7 @@ local function fling(target, onDone)
             local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
             local thum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
             if mh and th then
-                local v = th.AssemblyLinearVelocity
-                if v.Magnitude < 1e-3 then v = th.Velocity end
-                local vh = Vector3.new(v.X, 0, v.Z)
-                local spd = vh.Magnitude
-                local lead = Vector3.zero
-                if spd > 0.12 then
-                    lead = vh.Unit * math.min(spd * 0.14, 8)
-                end
+                local lead = horizontalApproachLead(th)
                 mh.CFrame = th.CFrame + lead
                 mh.Velocity = Vector3.new(99999, 99999, 99999)
                 mh.RotVelocity = Vector3.new(99999, 99999, 99999)
@@ -869,6 +873,7 @@ local COMMAND_HELP = {
     dethrone = "Release owner control",
     who = "Show current murderer and sheriff",
     shoot = "<player> - Pick up gun if needed and try to shoot a player",
+    toggleshoot = "Toggle auto-shooting the murderer when you have the gun",
     togglewho = "Toggle automatic role callout each round",
     togglealerts = "Toggle kill/drop/pickup alerts",
     reset = "Force bot respawn",
@@ -885,7 +890,7 @@ local COMMAND_HELP = {
     help = "<cmd> - Show command list or explain one command",
 }
 local HELP_ORDER = {
-    "owner", "dethrone", "tp", "who", "shoot", "gun", "fling", "togglegun", "togglewho", "togglealerts",
+    "owner", "dethrone", "tp", "who", "shoot", "toggleshoot", "gun", "fling", "togglegun", "togglewho", "togglealerts",
     "reset", "follow", "unfollow", "chat", "help",
 }
 local function sendFullHelp(target)
@@ -969,7 +974,7 @@ local function handleCommand(p, msg)
     if cmd == "dethrone" then
         if p.Name:lower() == FRAUD_NAME then fraudOptedOut = true end
         session.ownerId = nil
-        toggleGun, toggleAlerts, toggleWho = false, false, true
+        toggleGun, toggleShoot, toggleAlerts, toggleWho = false, false, false, true
         gunTargetId, gunDelivered = nil, false
         sendChat('Owner released. Type !owner to claim.')
         return
@@ -1053,6 +1058,10 @@ local function handleCommand(p, msg)
     elseif cmd == "togglewho" then
         toggleWho = not toggleWho
         whisper("Role callouts: " .. (toggleWho and "on" or "off"))
+    elseif cmd == "toggleshoot" then
+        if ownerIsMurd or botHasKnife() then whisper("No gun available.") return end
+        toggleShoot = not toggleShoot
+        whisper("Auto-shoot murderer: " .. (toggleShoot and "on" or "off"))
     elseif cmd == "follow" then
         local t = findPlayer(args[2]) or findOwner()
         if not t then whisper("Player not found.") return end
@@ -1126,7 +1135,7 @@ Players.PlayerAdded:Connect(hookSpeaker)
 Players.PlayerRemoving:Connect(function(p)
     if session.ownerId and p.UserId == session.ownerId then
         session.ownerId = nil
-        toggleGun, toggleAlerts, toggleWho = false, false, true
+        toggleGun, toggleShoot, toggleAlerts, toggleWho = false, false, false, true
         gunTargetId, gunDelivered = nil, false
         sendChat("Owner left. Type !owner to claim.")
     end
@@ -1308,6 +1317,7 @@ local lastMurderId, announced, aloneTpDone
 local whoAnnouncePending = false
 local ownerMurdSheriffDropDone = false
 local roleAnnounceUnlockAt = 0
+local lastToggleShootTry = 0
 while session.active and gui.Parent do
     local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
     local botM, botS = botHasKnife(), botHasGun()
@@ -1404,6 +1414,28 @@ while session.active and gui.Parent do
         gunDelivered = true
         _G.MM_GunBusy = true
         task.spawn(function() bringGun(gunTarget); task.wait(3); _G.MM_GunBusy = false end)
+    end
+
+    if toggleShoot and session.ownerId and not flingActive and not flingLoopActive
+        and not _G.MM_GunBusy and (tick() - lastToggleShootTry) >= 2.25
+        and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt
+        and not botM and not ownerIsMurd and m and m ~= me and isAlive(m) and isAlive(me)
+    then
+        lastToggleShootTry = tick()
+        _G.MM_GunBusy = true
+        task.spawn(function()
+            local murd = findHolder({"Knife"})
+            local ownerP = session.ownerId and Players:GetPlayerByUserId(session.ownerId)
+            local om = ownerP and murd and murd.UserId == ownerP.UserId
+            if toggleShoot and session.ownerId and murd and murd ~= me and isAlive(murd) and isAlive(me)
+                and not om and not botHasKnife()
+            then
+                local _, status = shootTarget(murd)
+                log("toggleshoot " .. tostring(status))
+            end
+            task.wait(1)
+            _G.MM_GunBusy = false
+        end)
     end
 
     local subject = (s and s.Character and s.Character:FindFirstChildOfClass("Humanoid"))
