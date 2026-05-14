@@ -861,6 +861,36 @@ end
 local flingActive = false
 local flingLoopGen = 0
 local flingLoopActive = false
+local FlingRunSvc = game:GetService("RunService")
+
+local function flingPartVelocity(root, lastPos, lastT)
+    local v = root.AssemblyLinearVelocity
+    if v.Magnitude < 1e-3 then v = root.Velocity end
+    if lastPos and lastT then
+        local dt = tick() - lastT
+        if dt > 0.001 and dt < 0.45 then
+            local est = (root.Position - lastPos) / dt
+            v = v:Lerp(est, 0.62)
+        end
+    end
+    return v
+end
+
+-- Extra lookahead for low-FPS / capped frame rate so fling stays on moving & jumping targets.
+local function flingPredictLead(root, lastPos, lastT)
+    if not root then return Vector3.zero end
+    local v = flingPartVelocity(root, lastPos, lastT)
+    local frameGap = (lastT and tick() - lastT) or (1 / 15)
+    local lookahead = math.clamp(frameGap * 2.1 + 0.1, 0.12, 0.32)
+    local lead = v * lookahead
+    local flat = Vector3.new(lead.X, 0, lead.Z)
+    if flat.Magnitude > 16 then
+        flat = flat.Unit * 16
+        lead = Vector3.new(flat.X, lead.Y, flat.Z)
+    end
+    lead = Vector3.new(lead.X, math.clamp(lead.Y, -8, 12), lead.Z)
+    return lead
+end
 
 local function cancelFlingWork()
     flingLoopGen = flingLoopGen + 1
@@ -887,12 +917,15 @@ local function fling(target, onDone)
         local stopAt = startedAt + 10
         local flung = false
         local hiVelFrames = 0
+        local lastThPos, lastThT
         while flingActive and tick() < stopAt and isAlive(target) and isAlive(me) do
             local mh = hrp()
             local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
             local thum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
             if mh and th then
-                local lead = horizontalApproachLead(th)
+                local lead = flingPredictLead(th, lastThPos, lastThT)
+                lastThPos = th.Position
+                lastThT = tick()
                 mh.CFrame = th.CFrame + lead
                 mh.Velocity = Vector3.new(99999, 99999, 99999)
                 mh.RotVelocity = Vector3.new(99999, 99999, 99999)
@@ -911,7 +944,7 @@ local function fling(target, onDone)
                     break
                 end
             end
-            task.wait()
+            FlingRunSvc.Heartbeat:Wait()
         end
         log(flung and "fling success" or "fling done")
         if onDoneFn then
