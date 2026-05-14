@@ -27,8 +27,12 @@ local coinFarmGen = 0
 local coinFarmVisited = {}
 local coinFarmNoclipConn = nil
 local coinFarmResetting = false
-local COIN_FLY_SPEED = 42
-local COIN_SEARCH_RANGE = 250
+local lastAutoRejoinAt = 0
+local COIN_STEP_MAX = 2.5
+local COIN_STEP_WAIT = 0.07
+local COIN_SEARCH_RANGE = 200
+local COIN_MAGNET_RANGE = 50
+local AUTO_REJOIN_COOLDOWN = 50
 local PING_MIN_MS, PING_MAX_MS = 50, 90
 local G = getgenv and getgenv() or _G
 G.MM_HopState = G.MM_HopState or {pingSearchActive = false}
@@ -431,6 +435,8 @@ end
 
 local function tryAutoRejoin(reason)
     if session.ownerId or hopBusy then return end
+    if tick() - lastAutoRejoinAt < AUTO_REJOIN_COOLDOWN then return end
+    lastAutoRejoinAt = tick()
     log("auto rejoin: " .. tostring(reason))
     queueCoinFarmRejoin()
     hopServer(reason, false)
@@ -528,12 +534,17 @@ local function tpHome()
         zeroVel(h)
     end
 end
-local function reset()
+local function reset(opts)
+    opts = opts or {}
+    local safeKill = opts.safe == true
     local char = me.Character
     if not char then return end
     local h = char:FindFirstChild("HumanoidRootPart")
     if h then
-        pcall(function() h.CFrame = CFrame.new(0, -10000, 0) end)
+        zeroVel(h)
+        if not safeKill then
+            pcall(function() h.CFrame = CFrame.new(0, -10000, 0) end)
+        end
     end
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then
@@ -676,38 +687,64 @@ local function isFarmCoinPart(v)
     return v:IsA("BasePart") and (v.Name == "Coin_Server" or v.Name == "Coin")
 end
 
-local function magnetAllCoins(h)
+local function horizontalDist(a, b)
+    return (Vector3.new(a.X, 0, a.Z) - Vector3.new(b.X, 0, b.Z)).Magnitude
+end
+
+local function safeFarmTarget(coinPos, h)
+    local y = h.Position.Y
+    local dy = coinPos.Y - y
+    if math.abs(dy) > 4 then
+        y = y + math.clamp(dy, -2.5, 2.5)
+    else
+        y = coinPos.Y
+    end
+    return Vector3.new(coinPos.X, y, coinPos.Z)
+end
+
+local function magnetNearbyCoins(h, range)
     if not h then return end
     local cf = h.CFrame
+    local p = h.Position
     for _, v in ipairs(workspace:GetDescendants()) do
-        if isFarmCoinPart(v) then
+        if isFarmCoinPart(v) and (v.Position - p).Magnitude <= range then
             pcall(function() v.CFrame = cf end)
         end
     end
 end
 
-local function flyToCoin(pos, gen)
+local function moveToCoinSafe(coinPos, gen)
     local h = hrp()
-    if not h or not pos then return false end
-    local dist = (pos - h.Position).Magnitude
-    if dist < 3.5 then
-        zeroVel(h)
-        h.CFrame = CFrame.new(pos)
-        return true
-    end
-    local dur = math.max(0.05, dist / COIN_FLY_SPEED)
-    local tw = Tween:Create(h, TweenInfo.new(dur, Enum.EasingStyle.Linear), {CFrame = CFrame.new(pos)})
-    tw:Play()
-    local deadline = tick() + dur + 0.35
-    while tw.PlaybackState == Enum.PlaybackState.Playing do
-        if gen ~= coinFarmGen or session.ownerId then
-            tw:Cancel()
-            return false
+    if not h or not coinPos then return false end
+    local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+    if hum and horizontalDist(h.Position, coinPos) > 6 then
+        hum:MoveTo(Vector3.new(coinPos.X, h.Position.Y, coinPos.Z))
+        local t0 = tick()
+        while tick() - t0 < 2 and gen == coinFarmGen and not session.ownerId do
+            h = hrp()
+            if not h then return false end
+            if horizontalDist(h.Position, coinPos) < 6 then break end
+            task.wait(0.12)
         end
-        if tick() > deadline then break end
-        task.wait(0.02)
     end
-    return gen == coinFarmGen
+    h = hrp()
+    if not h then return false end
+    local deadline = tick() + 5
+    while tick() < deadline and gen == coinFarmGen and not session.ownerId do
+        h = hrp()
+        if not h then return false end
+        local target = safeFarmTarget(coinPos, h)
+        local delta = target - h.Position
+        local dist = delta.Magnitude
+        if dist < 4 then
+            zeroVel(h)
+            return true
+        end
+        zeroVel(h)
+        h.CFrame = CFrame.new(h.Position + delta.Unit * math.min(dist, COIN_STEP_MAX))
+        task.wait(COIN_STEP_WAIT)
+    end
+    return false
 end
 
 local function findNearestFarmCoin(h)
@@ -729,13 +766,13 @@ local function collectFarmCoinStep(gen)
     local h = hrp()
     if not h then return false end
     local bagBefore = getCoinBagCount()
-    magnetAllCoins(h)
+    magnetNearbyCoins(h, COIN_MAGNET_RANGE)
     local bagAfter = getCoinBagCount()
     if bagBefore and bagAfter and bagAfter > bagBefore then return true end
     local closest = findNearestFarmCoin(h)
     if not closest then return false end
-    if (closest.Position - h.Position).Magnitude > 6 then
-        if not flyToCoin(closest.Position, gen) then return false end
+    if horizontalDist(h.Position, closest.Position) > 5 then
+        if not moveToCoinSafe(closest.Position, gen) then return false end
     end
     h = hrp()
     if h and closest.Parent and closest:IsDescendantOf(workspace) then
@@ -784,35 +821,43 @@ local function runCoinFarmLoop(gen)
         end
     end)
     local noCoinStreak = 0
-    while session.active and gen == coinFarmGen and not session.ownerId do
-        local count = getCoinBagCount()
-        if count and count >= maxCoins then
-            log("coin bag full (" .. count .. ") -> reset")
-            coinFarmResetting = true
-            reset()
-            coinFarmResetting = false
-            coinFarmVisited = {}
-            local t0 = tick()
-            while tick() - t0 < 6 and not hrp() do task.wait(0.05) end
-            task.wait(0.15)
-        else
-            local got = collectFarmCoinStep(gen)
-            if got then
-                noCoinStreak = 0
+    local ok, err = pcall(function()
+        tpHome()
+        task.wait(0.3)
+        while session.active and gen == coinFarmGen and not session.ownerId do
+            local count = getCoinBagCount()
+            if count and count >= maxCoins then
+                log("coin bag full (" .. count .. ") -> reset")
+                coinFarmResetting = true
+                reset({safe = true})
+                coinFarmResetting = false
+                coinFarmVisited = {}
+                local t0 = tick()
+                while tick() - t0 < 6 and not hrp() do task.wait(0.05) end
+                tpHome()
+                task.wait(0.2)
             else
-                noCoinStreak = noCoinStreak + 1
-                if noCoinStreak >= 25 then
-                    coinFarmVisited = {}
+                local got = collectFarmCoinStep(gen)
+                if got then
                     noCoinStreak = 0
+                else
+                    noCoinStreak = noCoinStreak + 1
+                    if noCoinStreak >= 30 then
+                        coinFarmVisited = {}
+                        noCoinStreak = 0
+                    end
+                    task.wait(0.08)
                 end
-                task.wait(0.02)
             end
         end
-    end
+    end)
     charConn:Disconnect()
     stopCoinFarmNoclip()
     if gen == coinFarmGen then
         coinFarmActive = false
+    end
+    if not ok then
+        log("coin farm error: " .. tostring(err))
     end
 end
 
@@ -1401,7 +1446,6 @@ task.spawn(function()
             if not coinFarmActive then
                 coinFarmGen = coinFarmGen + 1
                 local gen = coinFarmGen
-                coinFarmActive = true
                 task.spawn(function() runCoinFarmLoop(gen) end)
             end
         elseif coinFarmActive then
