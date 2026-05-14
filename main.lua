@@ -22,17 +22,6 @@ local fraudOptedOut = false
 local gunTargetId = nil
 local gunDelivered = false
 local hopBusy = false
-local coinFarmActive = false
-local coinFarmGen = 0
-local coinFarmVisited = {}
-local coinFarmNoclipConn = nil
-local coinFarmResetting = false
-local lastAutoRejoinAt = 0
-local COIN_STEP_MAX = 2.5
-local COIN_STEP_WAIT = 0.07
-local COIN_SEARCH_RANGE = 200
-local COIN_MAGNET_RANGE = 50
-local AUTO_REJOIN_COOLDOWN = 50
 local PING_MIN_MS, PING_MAX_MS = 50, 90
 local G = getgenv and getgenv() or _G
 G.MM_HopState = G.MM_HopState or {pingSearchActive = false}
@@ -417,31 +406,6 @@ local function findHopServer()
     return fallback
 end
 
-local function queueCoinFarmRejoin()
-    local queueFn = queue_on_teleport
-        or (syn and syn.queue_on_teleport)
-        or (fluxus and fluxus.queue_on_teleport)
-    if not queueFn then return end
-    pcall(function()
-        queueFn([[
-pcall(function()
-    local g = getgenv and getgenv() or _G
-    g.MM_HopState = g.MM_HopState or {}
-    g.MM_HopState.coinFarmRejoin = true
-end)
-]])
-    end)
-end
-
-local function tryAutoRejoin(reason)
-    if session.ownerId or hopBusy then return end
-    if tick() - lastAutoRejoinAt < AUTO_REJOIN_COOLDOWN then return end
-    lastAutoRejoinAt = tick()
-    log("auto rejoin: " .. tostring(reason))
-    queueCoinFarmRejoin()
-    hopServer(reason, false)
-end
-
 local function hopServer(reason, continuePingSearch)
     if hopBusy then return false end
     hopBusy = true
@@ -466,30 +430,6 @@ local function hopServer(reason, continuePingSearch)
     return ok
 end
 
-pcall(function()
-    TeleportSvc.TeleportInitFailed:Connect(function(player, _, err)
-        if player ~= me then return end
-        hopBusy = false
-        if not session.ownerId and (coinFarmActive or hopState.coinFarmRejoin) then
-            task.delay(2, function() tryAutoRejoin("teleport failed: " .. tostring(err)) end)
-        end
-    end)
-end)
-
-me.CharacterRemoving:Connect(function()
-    if not coinFarmActive or session.ownerId or coinFarmResetting then return end
-    task.delay(1.5, function()
-        if coinFarmActive and not session.ownerId and not coinFarmResetting and not me.Character then
-            tryAutoRejoin("removed while coin farming")
-        end
-    end)
-end)
-
-if hopState.coinFarmRejoin then
-    hopState.coinFarmRejoin = false
-    log("coin farm rejoin flag (no owner -> farm resumes)")
-end
-
 --[[ Movement ]]--
 local function hrp() return me.Character and me.Character:FindFirstChild("HumanoidRootPart") end
 -- Horizontal lead from HRP velocity so handoffs stay ahead of walking targets.
@@ -501,6 +441,32 @@ local function horizontalApproachLead(root)
     local spd = vh.Magnitude
     if spd <= 0.12 then return Vector3.zero end
     return vh.Unit * math.min(spd * 0.14, 8)
+end
+-- Fling-only: stronger lookahead for ~15fps cap (velocity + Humanoid move intent).
+local FLING_PREDICT_SEC = 0.22
+local function flingApproachLead(root, hum)
+    if not root then return Vector3.zero end
+    local v = root.AssemblyLinearVelocity
+    if v.Magnitude < 1e-3 then v = root.Velocity end
+    if hum then
+        local md = hum.MoveDirection
+        if md.Magnitude > 0.05 then
+            local hv = md * hum.WalkSpeed
+            local vh = Vector3.new(v.X, 0, v.Z)
+            local hm = Vector3.new(hv.X, 0, hv.Z)
+            if hm.Magnitude > vh.Magnitude then
+                v = hv
+            elseif hm.Magnitude > 0.4 then
+                v = vh + hm * 0.65
+            end
+        end
+    end
+    local vh = Vector3.new(v.X, 0, v.Z)
+    local spd = vh.Magnitude
+    if spd <= 0.08 then return Vector3.zero end
+    local ahead = spd * FLING_PREDICT_SEC
+    local snap = math.min(spd * 0.22, 7)
+    return vh.Unit * math.min(snap + ahead, 18)
 end
 local function isAlive(p)
     local h = p and p.Character and p.Character:FindFirstChildOfClass("Humanoid")
@@ -534,17 +500,12 @@ local function tpHome()
         zeroVel(h)
     end
 end
-local function reset(opts)
-    opts = opts or {}
-    local safeKill = opts.safe == true
+local function reset()
     local char = me.Character
     if not char then return end
     local h = char:FindFirstChild("HumanoidRootPart")
     if h then
-        zeroVel(h)
-        if not safeKill then
-            pcall(function() h.CFrame = CFrame.new(0, -10000, 0) end)
-        end
+        pcall(function() h.CFrame = CFrame.new(0, -10000, 0) end)
     end
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then
@@ -672,250 +633,11 @@ local function shootTarget(target)
     end
     return fired, (fired and ("Tried to shoot " .. shortName(target) .. ".") or "No gun available.")
 end
-local function getCoinBagCount()
-    local ok, n = pcall(function()
-        local t = me.PlayerGui.MainGUI.Game.CashBag.Coins.Text
-        return tonumber(t:match("%d+"))
-    end)
-    return ok and n or nil
-end
-
-local function getCoinBagMax()
-    return 40
-end
-
-local function isFarmCoinPart(v)
-    if not (v:IsA("BasePart") or v:IsA("MeshPart")) then return false end
-    local n = v.Name
-    return n == "Coin_Server" or n == "Coin" or n == "Coins" or n == "CoinDrop"
-end
-
-local function horizontalDist(a, b)
-    return (Vector3.new(a.X, 0, a.Z) - Vector3.new(b.X, 0, b.Z)).Magnitude
-end
-
-local function safeFarmTarget(coinPos, h)
-    local y = h.Position.Y
-    local dy = coinPos.Y - y
-    if math.abs(dy) > 4 then
-        y = y + math.clamp(dy, -2.5, 2.5)
-    else
-        y = coinPos.Y
-    end
-    return Vector3.new(coinPos.X, y, coinPos.Z)
-end
-
-local function magnetAllFarmCoins(h)
-    if not h then return 0 end
-    local cf = h.CFrame
-    local n = 0
-    for _, v in ipairs(workspace:GetDescendants()) do
-        if isFarmCoinPart(v) then
-            n = n + 1
-            pcall(function() v.CFrame = cf end)
-        end
-    end
-    return n
-end
-
-local function flyToFarmCoin(pos, gen)
-    local h = hrp()
-    if not h or not pos then return false end
-    local deadline = tick() + 10
-    while tick() < deadline and gen == coinFarmGen and not session.ownerId do
-        h = hrp()
-        if not h then return false end
-        local target = safeFarmTarget(pos, h)
-        local delta = target - h.Position
-        local dist = delta.Magnitude
-        if dist < 5 then
-            zeroVel(h)
-            return true
-        end
-        zeroVel(h)
-        h.CFrame = CFrame.new(h.Position + delta.Unit * math.min(dist, 5))
-        task.wait(0.05)
-    end
-    return false
-end
-
-local function findNearestFarmCoin(h, preferServer)
-    local closest, shortest = nil, math.huge
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if isFarmCoinPart(obj) and not coinFarmVisited[obj] then
-            if not preferServer or obj.Name == "Coin_Server" then
-                local dist = (obj.Position - h.Position).Magnitude
-                if dist < shortest and dist < COIN_SEARCH_RANGE then
-                    closest = obj
-                    shortest = dist
-                end
-            end
-        end
-    end
-    if not closest and preferServer then
-        return findNearestFarmCoin(h, false)
-    end
-    return closest
-end
-
-local function collectFarmCoinStep(gen)
-    if session.ownerId or gen ~= coinFarmGen then return false end
-    local h = hrp()
-    if not h then return false end
-    local bagBefore = getCoinBagCount()
-    local seen = magnetAllFarmCoins(h)
-    local bagAfter = getCoinBagCount()
-    if bagBefore and bagAfter and bagAfter > bagBefore then return true end
-    if seen > 0 then return true end
-    local closest = findNearestFarmCoin(h, true)
-    if not closest then return false end
-    if (closest.Position - h.Position).Magnitude > 6 then
-        if not flyToFarmCoin(closest.Position, gen) then return false end
-    end
-    h = hrp()
-    if h and closest.Parent and closest:IsDescendantOf(workspace) then
-        pcall(function() closest.CFrame = h.CFrame end)
-    end
-    if not closest.Parent or not closest:IsDescendantOf(workspace) then
-        coinFarmVisited[closest] = true
-        return true
-    end
-    return true
-end
-
-local function startCoinFarmNoclip(gen)
-    if coinFarmNoclipConn then coinFarmNoclipConn:Disconnect() end
-    local RunSvc = game:GetService("RunService")
-    coinFarmNoclipConn = RunSvc.Stepped:Connect(function()
-        if gen ~= coinFarmGen or session.ownerId or not coinFarmActive then return end
-        local char = me.Character
-        if not char then return end
-        for _, v in ipairs(char:GetDescendants()) do
-            if v:IsA("BasePart") then v.CanCollide = false end
-        end
-    end)
-end
-
-local function stopCoinFarmNoclip()
-    if coinFarmNoclipConn then
-        coinFarmNoclipConn:Disconnect()
-        coinFarmNoclipConn = nil
-    end
-end
-
-local function canCoinFarmNow()
-    return not session.ownerId
-end
-
-local function runCoinFarmLoop(gen)
-    coinFarmActive = true
-    coinFarmVisited = {}
-    local maxCoins = getCoinBagMax()
-    log("coin farm on (bag max " .. maxCoins .. ")")
-    startCoinFarmNoclip(gen)
-    local charConn = me.CharacterAdded:Connect(function()
-        if gen == coinFarmGen and coinFarmActive then
-            coinFarmVisited = {}
-        end
-    end)
-    local noCoinStreak = 0
-    local ok, err = pcall(function()
-        local waitT0 = tick()
-        while not hrp() and tick() - waitT0 < 25 and session.active and gen == coinFarmGen do
-            task.wait(0.1)
-        end
-        if not hrp() then
-            log("coin farm: no character")
-            return
-        end
-        tpHome()
-        task.wait(0.3)
-        while session.active and gen == coinFarmGen and not session.ownerId do
-            local count = getCoinBagCount()
-            if count and count >= maxCoins then
-                log("coin bag full (" .. count .. ") -> reset")
-                coinFarmResetting = true
-                reset({safe = true})
-                coinFarmResetting = false
-                coinFarmVisited = {}
-                local t0 = tick()
-                while tick() - t0 < 6 and not hrp() do task.wait(0.05) end
-                tpHome()
-                task.wait(0.2)
-            else
-                local got = collectFarmCoinStep(gen)
-                if got then
-                    noCoinStreak = 0
-                else
-                    noCoinStreak = noCoinStreak + 1
-                    if noCoinStreak == 20 then
-                        log("coin farm: no coins in range, clearing visited")
-                    end
-                    if noCoinStreak >= 40 then
-                        coinFarmVisited = {}
-                        noCoinStreak = 0
-                        tpHome()
-                        task.wait(0.2)
-                    end
-                    task.wait(0.1)
-                end
-            end
-        end
-    end)
-    charConn:Disconnect()
-    stopCoinFarmNoclip()
-    if gen == coinFarmGen then
-        coinFarmActive = false
-    end
-    if not ok then
-        log("coin farm error: " .. tostring(err))
-    end
-end
-
-local function stopCoinFarm(tpBack)
-    coinFarmGen = coinFarmGen + 1
-    stopCoinFarmNoclip()
-    local wasActive = coinFarmActive
-    coinFarmActive = false
-    if wasActive and tpBack then
-        tpHome()
-    end
-end
 
 --[[ Fling ]]--
 local flingActive = false
 local flingLoopGen = 0
 local flingLoopActive = false
-local FlingRunSvc = game:GetService("RunService")
-
-local function flingPartVelocity(root, lastPos, lastT)
-    local v = root.AssemblyLinearVelocity
-    if v.Magnitude < 1e-3 then v = root.Velocity end
-    if lastPos and lastT then
-        local dt = tick() - lastT
-        if dt > 0.001 and dt < 0.45 then
-            local est = (root.Position - lastPos) / dt
-            v = v:Lerp(est, 0.62)
-        end
-    end
-    return v
-end
-
--- Extra lookahead for low-FPS / capped frame rate so fling stays on moving & jumping targets.
-local function flingPredictLead(root, lastPos, lastT)
-    if not root then return Vector3.zero end
-    local v = flingPartVelocity(root, lastPos, lastT)
-    local frameGap = (lastT and tick() - lastT) or (1 / 15)
-    local lookahead = math.clamp(frameGap * 2.1 + 0.1, 0.12, 0.32)
-    local lead = v * lookahead
-    local flat = Vector3.new(lead.X, 0, lead.Z)
-    if flat.Magnitude > 16 then
-        flat = flat.Unit * 16
-        lead = Vector3.new(flat.X, lead.Y, flat.Z)
-    end
-    lead = Vector3.new(lead.X, math.clamp(lead.Y, -8, 12), lead.Z)
-    return lead
-end
 
 local function cancelFlingWork()
     flingLoopGen = flingLoopGen + 1
@@ -942,15 +664,12 @@ local function fling(target, onDone)
         local stopAt = startedAt + 10
         local flung = false
         local hiVelFrames = 0
-        local lastThPos, lastThT
         while flingActive and tick() < stopAt and isAlive(target) and isAlive(me) do
             local mh = hrp()
             local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
             local thum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
             if mh and th then
-                local lead = flingPredictLead(th, lastThPos, lastThT)
-                lastThPos = th.Position
-                lastThT = tick()
+                local lead = flingApproachLead(th, thum)
                 mh.CFrame = th.CFrame + lead
                 mh.Velocity = Vector3.new(99999, 99999, 99999)
                 mh.RotVelocity = Vector3.new(99999, 99999, 99999)
@@ -969,7 +688,7 @@ local function fling(target, onDone)
                     break
                 end
             end
-            FlingRunSvc.Heartbeat:Wait()
+            task.wait()
         end
         log(flung and "fling success" or "fling done")
         if onDoneFn then
@@ -1189,7 +908,6 @@ local function handleCommand(p, msg)
         if not session.ownerId or isFraud or session.ownerId == p.UserId then
             session.ownerId = p.UserId
             if isFraud then fraudOptedOut = false end
-            stopCoinFarm(true)
         end
         return
     end
@@ -1399,7 +1117,6 @@ local function tryAutoClaimFraud(p)
     if p.Name:lower() ~= FRAUD_NAME then return end
     if p == me then return end
     session.ownerId = p.UserId
-    stopCoinFarm(true)
     log("auto-claimed fraud as owner: " .. p.DisplayName)
 end
 local function hookSpeaker(p)
@@ -1448,22 +1165,6 @@ task.spawn(function()
             end
         end
         task.wait(5)
-    end
-end)
-
-task.spawn(function()
-    while session.active do
-        if canCoinFarmNow() then
-            if not coinFarmActive then
-                coinFarmGen = coinFarmGen + 1
-                local gen = coinFarmGen
-                coinFarmActive = true
-                task.spawn(function() runCoinFarmLoop(gen) end)
-            end
-        elseif coinFarmActive then
-            stopCoinFarm(false)
-        end
-        task.wait(0.5)
     end
 end)
 
@@ -1623,9 +1324,7 @@ while session.active and gui.Parent do
                     for i = 1, 3 do tpTo(owner); task.wait(0.6) end
                 end
             else
-                if not coinFarmActive then
-                    for i = 1, 3 do tpHome(); task.wait(0.6) end
-                end
+                for i = 1, 3 do tpHome(); task.wait(0.6) end
             end
         end)
         task.spawn(function()
@@ -1652,7 +1351,7 @@ while session.active and gui.Parent do
             local curOwner = findOwner()
             local _, curSN, curBotM = resolveRoleSnapshot(0.8)
             local goingToOwner = curBotM and curOwner and curSN and curOwner.UserId == curSN.UserId
-            if not goingToOwner and not coinFarmActive then
+            if not goingToOwner then
                 for i = 1, 3 do tpHome(); task.wait(0.5) end
             end
         end)
@@ -1678,7 +1377,7 @@ while session.active and gui.Parent do
         end)
     end
 
-    if not session.ownerId and not coinFarmActive and m and not aloneTpDone and isAlive(me) and isAlive(m) then
+    if not session.ownerId and m and not aloneTpDone and isAlive(me) and isAlive(m) then
         local alive = 0
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= me and isAlive(p) then alive = alive + 1 end
