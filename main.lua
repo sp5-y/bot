@@ -1,1458 +1,757 @@
---[[ MM2 Helper Bot ]]--
-local Players = game:GetService("Players")
-local cref = cloneref or function(x) return x end
-local TCS = cref(game:GetService("TextChatService"))
-local Tween = game:GetService("TweenService")
-local RS = cref(game:GetService("ReplicatedStorage"))
-local Http = cref(game:GetService("HttpService"))
-local Stats = cref(game:GetService("Stats"))
-local StarterGui = cref(game:GetService("StarterGui"))
-local TeleportSvc = cref(game:GetService("TeleportService"))
-local VIM = pcall(function() return cref(game:GetService("VirtualInputManager")) end) and cref(game:GetService("VirtualInputManager")) or nil
-local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
-local me, cam = Players.LocalPlayer, workspace.CurrentCamera
-local DEFAULT_FOV, WIDE_FOV = 70, 100
-local SPAWN_CFRAME = CFrame.new(14.3513288, 505.044952, -58.2513657, 1, 0, 0, 0, 1, 0, 0, 0, 1)
-local FRAUD_NAME = "2"
-local toggleGun = false
-local toggleShoot = false
-local toggleAlerts = false
-local toggleWho = true
-local fraudOptedOut = false
-local gunTargetId = nil
-local gunDelivered = false
-local hopBusy = false
-local PING_MIN_MS, PING_MAX_MS = 50, 90
-local G = getgenv and getgenv() or _G
-G.MM_HopState = G.MM_HopState or {pingSearchActive = false}
-local hopState = G.MM_HopState
+--[[
+Made by ThisW0ntGetBanned
+Discord: https://discord.gg/MyjGtee
+Enjoy Kiddo's
+]]
 
---[[ Session ]]--
-if getgenv and getgenv().MM_Session then getgenv().MM_Session.active = false end
-if game.CoreGui:FindFirstChild("MM") then game.CoreGui.MM:Destroy() end
-local session = {active = true, ownerId = nil}
-if getgenv then getgenv().MM_Session = session end
-cam.FieldOfView = DEFAULT_FOV
-do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid") 
-   if h then cam.CameraSubject = h end end
+--[[Getting Service]]--
+local Plrs = game:GetService("Players");
+local Run = game:GetService("RunService");
+local CoreGui = game:GetService("CoreGui");
+local StartGui = game:GetService("StarterGui");
+local Teams = game:GetService("Teams");
+local UserInput = game:GetService("UserInputService");
+local Light = game:GetService("Lighting");
+local Workspace = game:GetService("Workspace");
+local CoreGui = game:GetService("CoreGui");
+local Players = game:GetService("Players");
 
---[[ Background mode (low CPU, muted, no 3D) ]]--
--- Hold RightAlt to disable. Auto-disables when script is re-executed.
-task.spawn(function()
-    local UIS = game:GetService("UserInputService")
-    local VU = game:GetService("VirtualUser")
-    local RunSvc = game:GetService("RunService")
-    local UGS = UserSettings():GetService("UserGameSettings")
-    local origQuality = settings().Rendering.QualityLevel
-    local origVolume = UGS.MasterVolume
-    UGS.MasterVolume = 0
-    pcall(function()
-        Players.LocalPlayer.Idled:Connect(function()
-            VU:CaptureController()
-            VU:ClickButton2(Vector2.new(math.random(10, 50), math.random(10, 50)))
-        end)
-    end)
-    while session.active and not UIS:IsKeyDown(Enum.KeyCode.RightAlt) do
-        pcall(function()
-            if setfpscap then setfpscap(15) end
-            settings().Rendering.QualityLevel = 1
-            RunSvc:Set3dRenderingEnabled(false)
-        end)
-        task.wait(1)
-    end
-    pcall(function()
-        RunSvc:Set3dRenderingEnabled(true)
-        settings().Rendering.QualityLevel = origQuality
-        UGS.MasterVolume = origVolume
-        if setfpscap then setfpscap(60) end
-    end)
-end)
+local secret953 = secret953 or debug.getupvalues;
+local secret500 = secret500 or debug.setupvalue;
+local getreg = getreg or debug.getregistry;
 
---[[ GUI ]]--
-local gui = Instance.new("ScreenGui", game.CoreGui)
-gui.Name, gui.ResetOnSpawn = "MM", false
-local f = Instance.new("Frame", gui)
-f.Size, f.Position = UDim2.new(0, 140, 0, 180), UDim2.new(1, -150, 0, 10)
-f.BackgroundColor3, f.Visible = Color3.fromRGB(20, 20, 20), false
-Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
-local img = Instance.new("ImageLabel", f)
-img.Size, img.Position, img.BackgroundTransparency = UDim2.new(1, -10, 1, -40), UDim2.new(0, 5, 0, 5), 1
-local lbl = Instance.new("TextLabel", f)
-lbl.Size, lbl.Position, lbl.BackgroundTransparency = UDim2.new(1, -10, 0, 28), UDim2.new(0, 5, 1, -32), 1
-lbl.TextColor3, lbl.Font, lbl.TextScaled = Color3.new(1, 0, 0), Enum.Font.GothamBold, true
+plr = game.Players.LocalPlayer ;
+hum = plr.Character.HumanoidRootPart
+mouse = plr:GetMouse();
+espenabled = false;
 
---[[ Log GUI ]]--
-local logFrame = Instance.new("Frame", gui)
-logFrame.Size = UDim2.new(0, 260, 0, 130)
-logFrame.Position = UDim2.new(1, -270, 1, -140)
-logFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-logFrame.BackgroundTransparency = 0.3
-logFrame.BorderSizePixel = 0
-Instance.new("UICorner", logFrame).CornerRadius = UDim.new(0, 6)
-local logList = Instance.new("UIListLayout", logFrame)
-logList.SortOrder = Enum.SortOrder.LayoutOrder
-logList.Padding = UDim.new(0, 1)
-local logPad = Instance.new("UIPadding", logFrame)
-logPad.PaddingLeft, logPad.PaddingRight = UDim.new(0, 6), UDim.new(0, 6)
-logPad.PaddingTop, logPad.PaddingBottom = UDim.new(0, 4), UDim.new(0, 4)
-local logCounter = 0
-local function log(msg)
-    logCounter = logCounter + 1
-    local order = logCounter
-    local t = Instance.new("TextLabel", logFrame)
-    t.Size = UDim2.new(1, 0, 0, 14)
-    t.BackgroundTransparency = 1
-    t.Font = Enum.Font.Code
-    t.TextSize = 12
-    t.TextXAlignment = Enum.TextXAlignment.Left
-    t.TextColor3 = Color3.fromRGB(180, 230, 180)
-    t.Text = "[" .. os.date("%X") .. "] " .. tostring(msg)
-    t.LayoutOrder = order
-    t.TextTruncate = Enum.TextTruncate.AtEnd
-    local kids = logFrame:GetChildren()
-    local labels = {}
-    for _, c in ipairs(kids) do
-        if c:IsA("TextLabel") then table.insert(labels, c) end
-    end
-    table.sort(labels, function(a, b) return a.LayoutOrder < b.LayoutOrder end)
-    while #labels > 8 do
-        labels[1]:Destroy()
-        table.remove(labels, 1)
-    end
-end
-
---[[ Finders ]]--
-local function hasItem(parent, names)
-    for _, c in ipairs(parent and parent:GetChildren() or {}) do
-        if table.find(names, c.Name) then return true end
-    end
-end
-local function playerHas(p, names)
-    return hasItem(p.Character, names) or hasItem(p:FindFirstChildOfClass("Backpack"), names)
-end
-local function findHolder(names)
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= me and playerHas(p, names) then return p end
-    end
-end
-local function botHasGun() return playerHas(me, {"Gun", "Revolver"}) end
-local function botHasKnife() return playerHas(me, {"Knife"}) end
-local function findDroppedGun()
-    for _, o in ipairs(workspace:GetDescendants()) do
-        if o:IsA("Tool") and (o.Name == "Gun" or o.Name == "Revolver" or o.Name == "GunDrop")
-           and not Players:GetPlayerFromCharacter(o.Parent) then
-            local h = o:FindFirstChild("Handle") or o:FindFirstChildWhichIsA("BasePart")
-            if h then return h end
-        end
-    end
-    for _, o in ipairs(workspace:GetDescendants()) do
-        if o:IsA("BasePart") and o.Name == "GunDrop" then return o end
-    end
-end
-
-local function findPlayer(q)
-    if not q or q == "" then return end
-    q = q:lower()
-    local best, bestScore
-    for _, p in ipairs(Players:GetPlayers()) do
-        local n, d = p.Name:lower(), p.DisplayName:lower()
-        local i = n:find(q, 1, true) or d:find(q, 1, true)
-        if i then
-            local score = i + math.abs(#n - #q)
-            if not bestScore or score < bestScore then best, bestScore = p, score end
-        end
-    end
-    return best
-end
-local function findOwner()
-    if not session.ownerId then return end
-    local p = Players:GetPlayerByUserId(session.ownerId)
-    if p and p ~= me then return p end
-end
-local function shortName(p) return p.Name:sub(1, 4) .. "..." end
-local function restOfChatArgs(args)
-    if not args or #args < 2 then return "" end
-    return (table.concat(args, " ", 2)):match("^%s*(.-)%s*$") or ""
-end
--- Like findPlayer but never the bot; prefers exact username/display match (matches bot.lua intent for combat targets).
-local function findOtherPlayer(q)
-    if not q or q == "" then return end
-    q = tostring(q):lower()
-    local exactN, exactD, best, bestScore
-    for _, pl in ipairs(Players:GetPlayers()) do
-        if pl ~= me then
-            local nl, dl = pl.Name:lower(), tostring(pl.DisplayName or ""):lower()
-            if nl == q then exactN = pl end
-            if dl == q then exactD = pl end
-            local i = nl:find(q, 1, true) or dl:find(q, 1, true)
-            if i then
-                local score = i + math.abs(#nl - #q)
-                if not bestScore or score < bestScore then best, bestScore = pl, score end
-            end
-        end
-    end
-    return exactN or exactD or best
-end
-local function getHeldTool(p, names)
-    for _, container in ipairs({p.Character, p:FindFirstChildOfClass("Backpack")}) do
-        for _, c in ipairs(container and container:GetChildren() or {}) do
-            if c:IsA("Tool") and table.find(names, c.Name) then
-                return c
-            end
-        end
-    end
-end
---[[ Chat / Whisper ]]--
-local function sendChat(msg)
-    if not msg or msg == "" then return end
-    msg = tostring(msg)
-    pcall(function()
-        if not isLegacy then TCS.TextChannels.RBXGeneral:SendAsync(msg)
-        else RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(msg, "All") end
-    end)
-end
-local function findWhisperChannel(uid)
-    uid = tostring(uid)
-    for _, ch in ipairs(TCS.TextChannels:GetChildren()) do
-        if ch:IsA("TextChannel") and ch.Name:match("RBXWhisper") then
-            if tostring(ch.Name):find(uid, 1, true) then
-                return ch
-            end
-        end
-    end
-end
-local function pollWhisperChannel(uid, duration)
-    local t0 = tick()
-    while tick() - t0 < duration do
-        local ch = findWhisperChannel(uid)
-        if ch then return ch end
-        task.wait(0.08)
-    end
-    return findWhisperChannel(uid)
-end
-local function whisperTargets(o)
-    local targets = {}
-    local dn = tostring(o.DisplayName or ""):gsub("^@", "")
-    if dn ~= "" then
-        table.insert(targets, dn)
-    end
-    if o.Name and o.Name ~= "" and o.Name ~= dn then
-        table.insert(targets, o.Name)
-    end
-    return targets
-end
--- TextChatService often has no RBXWhisper channel until a /w line is sent on RBXGeneral first.
-local function ensureWhisperChannel(o)
-    local ch = findWhisperChannel(o.UserId)
-    if ch then return ch end
-    for _, handle in ipairs(whisperTargets(o)) do
-        pcall(function()
-            TCS.TextChannels.RBXGeneral:SendAsync("/w " .. handle .. " .")
-        end)
-        ch = pollWhisperChannel(o.UserId, 2.2)
-        if ch then return ch end
-    end
-    return findWhisperChannel(o.UserId)
-end
-local function whisper(m, target)
-    local o = target or findOwner()
-    if not o then log("whisper: no target") return end
-    log("-> " .. o.DisplayName .. ": " .. m)
-    pcall(function()
-        if isLegacy then
-            for _, handle in ipairs(whisperTargets(o)) do
-                if pcall(function()
-                    RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer("/w " .. handle .. " " .. m, "All")
-                end) then
-                    return
-                end
-            end
-            return
-        end
-        local ch = ensureWhisperChannel(o)
-        local function sendOnChannel(chan)
-            if not chan then return false end
-            return pcall(function() chan:SendAsync(m) end)
-        end
-        if sendOnChannel(ch) then return end
-        task.wait(0.22)
-        ch = findWhisperChannel(o.UserId) or ensureWhisperChannel(o)
-        if sendOnChannel(ch) then return end
-        for _, handle in ipairs(whisperTargets(o)) do
-            if pcall(function()
-                TCS.TextChannels.RBXGeneral:SendAsync("/w " .. handle .. " " .. m)
-            end) then
-                return
-            end
-        end
-    end)
-end
-
-local hiddenChatEvent = nil
-local function getHiddenChatEvent()
-    if hiddenChatEvent and hiddenChatEvent.Parent then return hiddenChatEvent end
-    local ok, events = pcall(function()
-        return RS:WaitForChild("DefaultChatSystemChatEvents", 10)
-    end)
-    if not ok or not events then return end
-    ok, hiddenChatEvent = pcall(function()
-        return events:WaitForChild("OnMessageDoneFiltering", 10)
-    end)
-    if ok then return hiddenChatEvent end
-end
-task.spawn(getHiddenChatEvent)
-local recentCommandKeys = {}
-local function cleanChatText(msg)
-    return tostring(msg or ""):gsub("[\n\r]", ""):gsub("\t", " "):gsub("[ ]+", " ")
-end
-local function seenCommandRecently(p, msg)
-    msg = tostring(msg or "")
-    if msg == "" then return true end
-    local key = tostring(p.UserId) .. "\0" .. msg
-    local now = tick()
-    local last = recentCommandKeys[key]
-    recentCommandKeys[key] = now
-    if last and now - last < 1.5 then return true end
-    task.delay(3, function()
-        if recentCommandKeys[key] == now then
-            recentCommandKeys[key] = nil
-        end
-    end)
-    return false
-end
-local function showHiddenChat(p, msg)
-    local text = "{SPY} [" .. (p.DisplayName or p.Name) .. "]: " .. msg
-    log(text)
-    pcall(function()
-        StarterGui:SetCore("ChatMakeSystemMessage", {
-            Text = text,
-            Color = Color3.fromRGB(0, 255, 255),
-            Font = Enum.Font.SourceSansBold,
-            TextSize = 18,
-        })
-    end)
-end
-
-local function httpGet(url)
-    local ok, body = pcall(function() return game:HttpGet(url) end)
-    if ok and body then return body end
-    local requestFn = (syn and syn.request) or (http and http.request) or http_request or request or (fluxus and fluxus.request)
-    if not requestFn then return end
-    ok, body = pcall(function()
-        return requestFn({Url = url, Method = "GET"})
-    end)
-    if not ok or not body then return end
-    return body.Body or body.body or body
-end
-
-local function queuePingSearchOnTeleport()
-    local queueFn = queue_on_teleport
-        or (syn and syn.queue_on_teleport)
-        or (fluxus and fluxus.queue_on_teleport)
-    if not queueFn then return end
-    pcall(function()
-        queueFn([[
 pcall(function()
-    local g = getgenv and getgenv() or _G
-    g.MM_HopState = g.MM_HopState or {}
-    g.MM_HopState.pingSearchActive = true
-end)
-]])
-    end)
-end
+  game.CoreGui.MurderLx:Destroy()
+  end)
 
-local function getPingMs()
-    local ok, value = pcall(function()
-        return Stats.Network.ServerStatsItem["Data Ping"]:GetValueString()
-    end)
-    if ok and value then
-        local n = tonumber(tostring(value):match("(%d+%.?%d*)"))
-        if n then return n end
-    end
-    ok, value = pcall(function()
-        return Stats.Network.ServerStatsItem["Data Ping"]:GetValue()
-    end)
-    if ok then
-        value = tonumber(value)
-        if value then
-            if value > 0 and value < 10 then return value * 1000 end
-            return value
-        end
-    end
-end
+local cam = workspace.CurrentCamera
+local blur = Instance.new("BlurEffect")
+blur.Size = 40
+blur.Parent = cam
+blur.Enabled = true
 
-local function findHopServer()
-    local cursor, fallback = nil, nil
-    for _ = 1, 5 do
-        local url = ("https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Desc&limit=100"):format(game.PlaceId)
-        if cursor and cursor ~= "" then
-            url = url .. "&cursor=" .. Http:UrlEncode(cursor)
-        end
-        local raw = httpGet(url)
-        if not raw then break end
-        local ok, page = pcall(function() return Http:JSONDecode(raw) end)
-        if not ok or type(page) ~= "table" then break end
-        for _, server in ipairs(page.data or {}) do
-            local playing = tonumber(server.playing) or 0
-            local maxPlayers = tonumber(server.maxPlayers) or 0
-            if server.id ~= game.JobId and playing < maxPlayers and playing > 0 then
-                if playing > 2 then return server.id end
-                if not fallback then fallback = server.id end
-            end
-        end
-        cursor = page.nextPageCursor
-        if not cursor or cursor == "" then break end
-    end
-    return fallback
-end
-
-local function hopServer(reason, continuePingSearch)
-    if hopBusy then return false end
-    hopBusy = true
-    if continuePingSearch then
-        hopState.pingSearchActive = true
-        queuePingSearchOnTeleport()
-    end
-    log("server hop: " .. tostring(reason or "requested"))
-    local serverId = findHopServer()
-    if not serverId then
-        log("server hop: no server found")
-        hopBusy = false
-        return false
-    end
-    local ok = pcall(function()
-        TeleportSvc:TeleportToPlaceInstance(game.PlaceId, serverId, me)
-    end)
-    if not ok then
-        log("server hop failed")
-        hopBusy = false
-    end
-    return ok
-end
-
---[[ Movement ]]--
-local function hrp() return me.Character and me.Character:FindFirstChild("HumanoidRootPart") end
--- Horizontal lead from HRP velocity so handoffs stay ahead of walking targets.
-local function horizontalApproachLead(root)
-    if not root then return Vector3.zero end
-    local v = root.AssemblyLinearVelocity
-    if v.Magnitude < 1e-3 then v = root.Velocity end
-    local vh = Vector3.new(v.X, 0, v.Z)
-    local spd = vh.Magnitude
-    if spd <= 0.12 then return Vector3.zero end
-    return vh.Unit * math.min(spd * 0.14, 8)
-end
--- Fling-only: stronger lookahead for ~15fps cap (velocity + Humanoid move intent).
-local FLING_PREDICT_SEC = 0.22
-local function flingApproachLead(root, hum)
-    if not root then return Vector3.zero end
-    local v = root.AssemblyLinearVelocity
-    if v.Magnitude < 1e-3 then v = root.Velocity end
-    if hum then
-        local md = hum.MoveDirection
-        if md.Magnitude > 0.05 then
-            local hv = md * hum.WalkSpeed
-            local vh = Vector3.new(v.X, 0, v.Z)
-            local hm = Vector3.new(hv.X, 0, hv.Z)
-            if hm.Magnitude > vh.Magnitude then
-                v = hv
-            elseif hm.Magnitude > 0.4 then
-                v = vh + hm * 0.65
-            end
-        end
-    end
-    local vh = Vector3.new(v.X, 0, v.Z)
-    local spd = vh.Magnitude
-    if spd <= 0.08 then return Vector3.zero end
-    local ahead = spd * FLING_PREDICT_SEC
-    local snap = math.min(spd * 0.22, 7)
-    return vh.Unit * math.min(snap + ahead, 18)
-end
-local function isAlive(p)
-    local h = p and p.Character and p.Character:FindFirstChildOfClass("Humanoid")
-    return h and h.Health > 0
-end
-local function tweenTo(cf, dur)
-    local h = hrp(); if not h then return end
-    local tw = Tween:Create(h, TweenInfo.new(dur, Enum.EasingStyle.Linear), {CFrame = cf})
-    tw:Play(); tw.Completed:Wait()
-end
-local function zeroVel(h)
-    if not h then return end
-    pcall(function() h.AssemblyLinearVelocity = Vector3.zero end)
-    pcall(function() h.AssemblyAngularVelocity = Vector3.zero end)
-    h.Velocity = Vector3.zero
-    h.RotVelocity = Vector3.zero
-end
-local function tpTo(p)
-    local h, t = hrp(), p and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-    if h and t then
-        zeroVel(h)
-        h.CFrame = t.CFrame + Vector3.new(0, 0, 3)
-        zeroVel(h)
-    end
-end
-local function tpHome()
-    local h = hrp()
-    if h and SPAWN_CFRAME then
-        zeroVel(h)
-        h.CFrame = SPAWN_CFRAME
-        zeroVel(h)
-    end
-end
-local function reset()
-    local char = me.Character
-    if not char then return end
-    local h = char:FindFirstChild("HumanoidRootPart")
-    if h then
-        pcall(function() h.CFrame = CFrame.new(0, -10000, 0) end)
-    end
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        pcall(function() hum.Health = 0 end)
-        pcall(function() hum:TakeDamage(hum.MaxHealth * 2) end)
-        pcall(function() hum:ChangeState(Enum.HumanoidStateType.Dead) end)
-    end
-    pcall(function() char:BreakJoints() end)
-    pcall(function() me:LoadCharacter() end)
-end
-local function dropGunAt(target)
-    if not isAlive(target) then return false end
-    local h = hrp()
-    local oh = target.Character:FindFirstChild("HumanoidRootPart")
-    if not (h and oh) then return false end
-    h.CFrame = oh.CFrame + horizontalApproachLead(oh)
-    task.wait(0.1); reset()
-    return true
-end
-local function bringGun(target)
-    target = target or findOwner()
-    if not isAlive(target) then return end
-    if botHasGun() then dropGunAt(target); return end
-    local g, h = findDroppedGun(), hrp()
-    if not (g and h) then return end
-    g.CFrame = h.CFrame
-    task.wait(0.5)
-    dropGunAt(target)
-end
-local function stashGunAtSpawn()
-    if not SPAWN_CFRAME or not isAlive(me) then return false end
-    if not botHasGun() then
-        local g, h = findDroppedGun(), hrp()
-        if not (g and h) then return false end
-        g.CFrame = h.CFrame
-        local t0 = tick()
-        while session.active and tick() - t0 < 2.5 do
-            if botHasGun() then break end
-            task.wait(0.05)
-        end
-        if not botHasGun() then return false end
-    end
-    for i = 1, 2 do tpHome(); task.wait(0.15) end
-    task.wait(0.1)
-    reset()
-    return true
-end
-local function pickUpDroppedGun()
-    if botHasGun() then return true end
-    local g, h = findDroppedGun(), hrp()
-    if not (g and h and isAlive(me)) then return false end
-    g.CFrame = h.CFrame
-    local t0 = tick()
-    while session.active and tick() - t0 < 2.5 do
-        if botHasGun() then return true end
-        task.wait(0.05)
-    end
-    return false
-end
-local function equipTool(tool)
-    local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
-    if tool and hum and tool.Parent ~= me.Character then
-        pcall(function() hum:EquipTool(tool) end)
-        task.wait(0.15)
-    end
-    return tool and tool.Parent == me.Character
-end
-local function clickFire(x, y)
-    if not VIM then return end
-    x = tonumber(x) or 0
-    y = tonumber(y) or 0
-    pcall(function()
-        VIM:SendMouseMoveEvent(x, y, game)
-    end)
-    pcall(function()
-        VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)
-        VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
-    end)
-end
-local function shootTarget(target)
-    if target == me then return false, "Invalid target." end
-    if not isAlive(target) or not isAlive(me) then return false, "Player not found." end
-    if not botHasGun() and not pickUpDroppedGun() then return false, "No gun available." end
-    local gun = getHeldTool(me, {"Gun", "Revolver"})
-    if not gun then return false, "No gun available." end
-    if not equipTool(gun) then return false, "No gun available." end
-    followTarget = nil
-    local startHealth = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
-    startHealth = startHealth and startHealth.Health or nil
-    local fired = false
-    for _ = 1, 10 do
-        if not isAlive(target) or not isAlive(me) then break end
-        local mh = hrp()
-        local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-        if not (mh and th) then break end
-        local aimPoint = th.Position + Vector3.new(0, 1.2, 0)
-        zeroVel(mh)
-        mh.CFrame = CFrame.new(th.Position + Vector3.new(0, 1.5, 8), aimPoint)
-        zeroVel(mh)
-        local mouseX, mouseY = 0, 0
-        pcall(function()
-            cam.CFrame = CFrame.new(mh.Position + Vector3.new(0, 1.5, 0), aimPoint)
-            local sp = cam:WorldToViewportPoint(aimPoint)
-            if sp.Z > 0 then
-                mouseX, mouseY = sp.X, sp.Y
-            else
-                local vs = cam.ViewportSize
-                mouseX, mouseY = vs.X * 0.5, vs.Y * 0.45
-            end
-        end)
-        pcall(function() gun:Activate() end)
-        clickFire(mouseX, mouseY)
-        task.wait(0.15)
-        pcall(function() gun:Activate() end)
-        clickFire(mouseX, mouseY)
-        fired = true
-        local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
-        if hum and startHealth and hum.Health < startHealth then
-            return true, "Shot " .. shortName(target) .. "."
-        end
-        if not isAlive(target) then
-            return true, "Shot " .. shortName(target) .. "."
-        end
-        task.wait(0.2)
-    end
-    return fired, (fired and ("Tried to shoot " .. shortName(target) .. ".") or "No gun available.")
-end
-
---[[ Fling ]]--
-local flingActive = false
-local flingLoopGen = 0
-local flingLoopActive = false
-local flingLoopContinuous = false
-local flingSettling = false
-
-local function cancelFlingWork()
-    flingLoopGen = flingLoopGen + 1
-    flingLoopActive = false
-    flingLoopContinuous = false
-    flingActive = false
-    flingSettling = false
-end
-
-local function fling(target, onDone)
-    local onDoneFn = onDone
-    if flingActive then
-        if onDoneFn then onDoneFn(false) end
-        return
-    end
-    if not isAlive(target) or not isAlive(me) then
-        if onDoneFn then onDoneFn(false) end
-        return
-    end
-    flingActive = true
-    log("flinging " .. target.DisplayName)
-    task.spawn(function()
-        local thrp0 = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-        local startPos = thrp0 and thrp0.Position
-        local startedAt = tick()
-        local stopAt = startedAt + 10
-        local flung = false
-        local hiVelFrames = 0
-        while flingActive and tick() < stopAt and isAlive(target) and isAlive(me) do
-            local mh = hrp()
-            local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-            local thum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
-            if mh and th then
-                local lead = flingApproachLead(th, thum)
-                mh.CFrame = th.CFrame + lead
-                mh.Velocity = Vector3.new(99999, 99999, 99999)
-                mh.RotVelocity = Vector3.new(99999, 99999, 99999)
-            end
-            if th and startPos and tick() - startedAt > 2 then
-                local vel = th.Velocity.Magnitude
-                if vel > 600 then hiVelFrames = hiVelFrames + 1
-                else hiVelFrames = 0 end
-                local moved = (th.Position - startPos).Magnitude
-                local state = thum and thum:GetState()
-                local ragdoll = state == Enum.HumanoidStateType.PlatformStanding
-                             or state == Enum.HumanoidStateType.FallingDown
-                             or state == Enum.HumanoidStateType.Physics
-                if hiVelFrames >= 5 or moved > 60 or ragdoll then
-                    flung = true
-                    break
-                end
-            end
-            task.wait()
-        end
-        log(flung and "fling success" or "fling done")
-        if onDoneFn then
-            onDoneFn(flung)
-        else
-            whisper("Flung " .. shortName(target) .. ".")
-        end
-        flingActive = false
-        flingSettling = true
-        for i = 1, 3 do
-            tpHome()
-            task.wait(0.3)
-        end
-        flingSettling = false
-    end)
-end
-
-local function waitFlingDone(gen, timeout)
-    local t0 = tick()
-    while (flingActive or flingSettling) and tick() - t0 < (timeout or 25) do
-        if gen ~= flingLoopGen then break end
-        task.wait(0.03)
-    end
-end
-
-local FLING_LOOP_MAX_SEC = 300
-
-local function flingLoopTimedOut(loopBegan)
-    return tick() - loopBegan >= FLING_LOOP_MAX_SEC
-end
-
---- Between loop flings: retry fast on miss; on hit, short pause if still alive or wait for respawn if dead.
-local function waitAfterLoopFling(target, gen, loopBegan, hadSuccess)
-    if not target or not target.Parent then return end
-    if flingLoopTimedOut(loopBegan) then return end
-    if not hadSuccess then
-        task.wait(0.55)
-        return
-    end
-    task.wait(0.35)
-    if not isAlive(target) then
-        local t0 = tick()
-        while gen == flingLoopGen and flingLoopActive and session.active and not flingLoopTimedOut(loopBegan) do
-            if not target.Parent then return end
-            if isAlive(target) and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
-                break
-            end
-            if tick() - t0 > 40 then break end
-            task.wait(0.12)
-        end
-        task.wait(0.25)
-    else
-        task.wait(0.85)
-    end
-end
-
-local function runFlingLoop(mode, playerQuery, gen, continuousLoop)
-    task.spawn(function()
-        if mode == "all" then
-            local targets = {}
-            for _, pl in ipairs(Players:GetPlayers()) do
-                if pl ~= me and (not session.ownerId or pl.UserId ~= session.ownerId) then
-                    table.insert(targets, pl)
-                end
-            end
-            for i, tgt in ipairs(targets) do
-                if gen ~= flingLoopGen or not flingLoopActive or not session.active then break end
-                if isAlive(tgt) and isAlive(me) then
-                    fling(tgt, function(ok)
-                        if ok and flingLoopActive and gen == flingLoopGen then
-                            whisper("Flung " .. shortName(tgt) .. ".")
-                        end
-                    end)
-                    waitFlingDone(gen, 25)
-                    if i < #targets and gen == flingLoopGen and flingLoopActive then
-                        task.wait(0.5)
-                    end
-                end
-            end
-            if gen == flingLoopGen then
-                flingLoopActive = false
-            end
-            return
-        end
-
-        local loopTargetUserId = nil
-        local function collectTargets()
-            local targets = {}
-            if mode == "sheriff" then
-                local s = findHolder({"Gun", "Revolver"})
-                if s and s ~= me then table.insert(targets, s) end
-            elseif mode == "murder" then
-                local murd = findHolder({"Knife"})
-                if murd and murd ~= me then table.insert(targets, murd) end
-            else
-                if loopTargetUserId then
-                    local pl = Players:GetPlayerByUserId(loopTargetUserId)
-                    if pl and pl ~= me then table.insert(targets, pl) end
-                else
-                    local t = findOtherPlayer(playerQuery)
-                    if t then table.insert(targets, t) end
-                end
-            end
-            return targets
-        end
-
-        if not continuousLoop then
-            local targets = collectTargets()
-            for i, tgt in ipairs(targets) do
-                if gen ~= flingLoopGen or not flingLoopActive or not session.active then break end
-                if isAlive(tgt) and isAlive(me) then
-                    fling(tgt, function(ok)
-                        if ok and flingLoopActive and gen == flingLoopGen then
-                            whisper("Flung " .. shortName(tgt) .. ".")
-                        end
-                    end)
-                    waitFlingDone(gen, 25)
-                    if i < #targets and gen == flingLoopGen and flingLoopActive then
-                        task.wait(0.5)
-                    end
-                end
-            end
-            if gen == flingLoopGen then
-                flingLoopActive = false
-            end
-            return
-        end
-
-        local loopBegan = tick()
-        while session.active and gen == flingLoopGen and flingLoopActive do
-            if flingLoopTimedOut(loopBegan) then
-                whisper("Fling loop stopped (5 minute limit).")
-                cancelFlingWork()
-                return
-            end
-            if not isAlive(me) then
-                task.wait(0.5)
-            else
-                local targets = collectTargets()
-                if #targets == 0 then
-                    task.wait(0.6)
-                else
-                    for _, tgt in ipairs(targets) do
-                        if gen ~= flingLoopGen or not flingLoopActive or flingLoopTimedOut(loopBegan) then break end
-                        if mode == "player" and not loopTargetUserId and tgt.UserId then
-                            loopTargetUserId = tgt.UserId
-                        end
-                        if isAlive(tgt) then
-                            local lastOk = false
-                            fling(tgt, function(ok)
-                                lastOk = ok
-                            end)
-                            waitFlingDone(gen, 25)
-                            if gen ~= flingLoopGen or not flingLoopActive then break end
-                            waitAfterLoopFling(tgt, gen, loopBegan, lastOk)
-                        elseif mode == "player" and loopTargetUserId then
-                            task.wait(0.45)
-                        end
-                    end
-                end
-            end
-            if gen == flingLoopGen and flingLoopActive then
-                task.wait(0.15)
-            end
-        end
-        if gen == flingLoopGen then
-            flingLoopActive = false
-            flingLoopContinuous = false
-        end
-    end)
-end
-
---[[ Follow ]]--
-local followTarget = nil
-local function startFollowLoop()
-    task.spawn(function()
-        while followTarget and session.active do
-            local target = followTarget
-            if target and isAlive(target) and isAlive(me) then
-                local thrp = target.Character:FindFirstChild("HumanoidRootPart")
-                local hum = me.Character:FindFirstChildOfClass("Humanoid")
-                if thrp and hum then hum:MoveTo(thrp.Position) end
-            end
-            task.wait(0.3)
-        end
-    end)
-end
-
---[[ Commands ]]--
-local COMMAND_HELP = {
-    owner = "Claim control of the bot",
-    dethrone = "Release owner control",
-    who = "Show current murderer and sheriff",
-    shoot = "<player> - Pick up gun if needed and try to shoot a player",
-    toggleshoot = "Toggle auto-shooting the murderer when you have the gun",
-    togglewho = "Toggle automatic role callout each round",
-    togglealerts = "Toggle kill/drop/pickup alerts",
-    reset = "Force bot respawn",
-    tp = "<player> - Teleport bot to a player",
-    tpmurd = "Teleport bot to the murderer",
-    tpsher = "Teleport bot to the sheriff",
-    spawn = "Teleport bot to spawn",
-    follow = "<player> - Follow a player",
-    unfollow = "Stop following current player",
-    gun = "<player> - Deliver gun to a player",
-    togglegun = "<player> - Auto-deliver gun to a player",
-    chat = "<msg> - Make bot send a public chat message",
-    fling = "<player> - Flings player off the map",
-    help = "<cmd> - Show command list or explain one command",
+local Rendering = {
+MurderSheriffESP = false,
+NameESP = false,
+UserESP = false,
 }
-local HELP_ORDER = {
-    "owner", "dethrone", "tp", "who", "shoot", "toggleshoot", "gun", "fling", "togglegun", "togglewho", "togglealerts",
-    "reset", "follow", "unfollow", "chat", "help",
+
+
+local User = {
+SpeedHax = false,
+JumpHax = false,
+GravityHax = false,
+GodModeHax = false,
+CoinsXX = false,
+CTP = false,
 }
-local function sendFullHelp(target)
-    whisper('Use !help <command> for one command, e.g. !help gun', target)
-    local parts = {}
-    for _, key in ipairs(HELP_ORDER) do
-        table.insert(parts, "!" .. key)
-    end
-    whisper(table.concat(parts, " "), target)
-end
-local function handleCommand(p, msg)
-    if msg:sub(1, 1) ~= "!" then return end
-    local args = msg:split(" ")
-    local cmd, rest = args[1]:sub(2):lower(), msg:sub(#args[1] + 2)
-    if cmd == "owner" then
-        local isFraud = p.Name:lower() == FRAUD_NAME
-        if not session.ownerId or isFraud or session.ownerId == p.UserId then
-            session.ownerId = p.UserId
-            if isFraud then fraudOptedOut = false end
-        end
-        return
-    end
-    if not session.ownerId or p.UserId ~= session.ownerId then return end
-    if flingLoopContinuous and cmd ~= "fling" then
-        whisper('You need to toggle off fling loop using "!fling"')
-        return
-    end
-    if cmd == "fling" then
-        local raw = restOfChatArgs(args)
-        local trimmed = (raw:match("^%s*(.-)%s*$") or "")
-        local wl = trimmed:lower()
-        local continuousLoop = wl:match(" loop%s*$") ~= nil
-        local work = trimmed
-        if continuousLoop then
-            work = (trimmed:gsub("%s+[Ll][Oo][Oo][Pp]%s*$", ""):match("^%s*(.-)%s*$") or "")
-        end
-        local q = (work:match("^%s*(.-)%s*$") or ""):lower()
-        if q == "" then
-            if flingLoopActive or flingActive or flingSettling then
-                cancelFlingWork()
-                whisper("Fling loop stopped.")
-                return
-            end
-            whisper("!fling all | sheriff | murder | <name> — add loop to repeat. !fling alone stops (5 min max).")
-            return
-        end
 
-        if flingLoopContinuous then
-            whisper('You need to toggle off fling loop using "!fling"')
-            return
-        end
+local Teleport = {
+L = false,
+   }
 
-        local mode, playerQuery = "player", work
-        local first = q:match("^(%S+)")
-        if first == "all" then
-            mode, playerQuery = "all", ""
-        elseif first == "sheriff" or first == "sher" or first == "sherif" then
-            mode, playerQuery = "sheriff", ""
-        elseif first == "murder" or first == "murd" or first == "murderer" then
-            mode, playerQuery = "murder", ""
-        end
+local ULog = {
+["Info"] = "Murder Mystery GUI, remastered, version 3.4, Made by ThisW0ntGetBanned, Discord: https://discord.gg/MyjGtee",
+["Date"] = "3/26/19"
+   }
 
-        if continuousLoop and mode == "all" then
-            whisper("Use !fling all only. Looping the whole server is disabled.")
-            return
-        end
+function GetPlayers( ... )
+for i, v in pairs(game.Players:GetChildren()) do
+warn(i,v)
+end
+end
+--[[Local Character Functions]]--
+function CreateGod( ... )
+if GodMode.Text == "GodeMode: OFF" then
+GodMode.Text = "GodeMode: ON"
+GodMode.TextColor3 = Color3.new(0,185,0)
+game.Players.LocalPlayer.Character.Humanoid:Remove()
+Instance.new('Humanoid', game.Players.LocalPlayer.Character)
+elseif
+GodMode.Text == "GodMode: ON" then
+GodMode.Text = "GodMode: ERORR"--LOL :)
+GodMode.TextColor3 = Color3.new(170,0,0)
+end
+end
 
-        flingActive = false
-        flingLoopGen = flingLoopGen + 1
-        local gen = flingLoopGen
-        flingLoopActive = true
+function CreateGrav( ... )
+if Gravity.Text == "Gravity Hax: OFF" then
+Gravity.Text = "Gravity Hax: ON"
+game.Workspace.Gravity = 80
+Gravity.TextColor3 = Color3.new(0,185,0)
+elseif
+Gravity.Text == "Gravity Hax: ON" then
+game.Workspace.Gravity = 196.2
+Gravity.Text = "Gravity Hax: OFF"
+Gravity.TextColor3 = Color3.new(170,0,0)
+end
+end
 
-        local loopArg = continuousLoop and mode ~= "all"
-        flingLoopContinuous = loopArg
-        runFlingLoop(mode, playerQuery, gen, loopArg)
-        if mode == "all" then
-            whisper("Flinging everyone (one pass).")
-        elseif loopArg then
-            local label = mode == "player" and work or mode
-            whisper("Say !fling alone to stop the loop.")
-            task.wait(0.3)
-            whisper("Looping on: " .. label)
-        else
-            whisper("Flinging " .. (mode == "player" and work or mode) .. ".")
-        end
-        return
-    end
-    local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
-    local ownerIsMurd = session.ownerId and m and not botHasKnife() and m.UserId == session.ownerId
-    if cmd == "dethrone" then
-        if p.Name:lower() == FRAUD_NAME then fraudOptedOut = true end
-        session.ownerId = nil
-        toggleGun, toggleShoot, toggleAlerts, toggleWho = false, false, false, true
-        gunTargetId, gunDelivered = nil, false
-        sendChat('Owner released. Type !owner to claim.')
-        return
-    elseif cmd == "chat" then
-        sendChat(rest)
-        whisper("Chat sent.")
-    elseif cmd == "who" then
-        local botM, botS = botHasKnife(), botHasGun()
-        local mL = botM and "Me" or (m and shortName(m)) or "?"
-        local sL = botS and "Me" or (s and shortName(s)) or "?"
-        whisper("Murderer: " .. mL)
-        task.wait(0.3)
-        whisper("Sheriff: " .. sL)
-    elseif cmd == "tp" then
-        local t = findPlayer(args[2]) or findOwner()
-        if not t then whisper("Player not found.") return end
-        tpTo(t)
-        whisper("Teleported to " .. shortName(t) .. ".")
-    elseif cmd == "tpmurd" then
-        if not m then whisper("Murderer not found.") return end
-        tpTo(m)
-        whisper("Teleported to murderer.")
-    elseif cmd == "tpsher" then
-        if not s then whisper("Sheriff not found.") return end
-        tpTo(s)
-        whisper("Teleported to sheriff.")
-    elseif cmd == "shoot" then
-        local q = restOfChatArgs(args)
-        if q == "" then whisper("!shoot <player>") return end
-        local picked = findOtherPlayer(q)
-        if not picked then whisper("Player not found.") return end
-        local targetUid = picked.UserId
-        if ownerIsMurd or botHasKnife() then whisper("No gun available.") return end
-        if _G.MM_GunBusy then whisper("Gun busy, try again.") return end
-        _G.MM_GunBusy = true
-        task.spawn(function()
-            local tgt = Players:GetPlayerByUserId(targetUid)
-            if not tgt or not isAlive(tgt) then
-                whisper("Player not found.")
-                task.wait(0.2)
-                _G.MM_GunBusy = false
-                return
-            end
-            local ok, status = shootTarget(tgt)
-            whisper(status)
-            task.wait(1)
-            _G.MM_GunBusy = false
-        end)
-    elseif cmd == "gun" then
-        local t = findPlayer(args[2]) or findOwner()
-        if not t then whisper("Player not found.") return end
-        if ownerIsMurd then whisper("No gun available.") return end
-        if botHasKnife() then whisper("No gun available.") return end
-        if not (botHasGun() or findDroppedGun()) then whisper("No gun available.") return end
-        bringGun(t)
-        whisper("Gun delivered to " .. shortName(t) .. ".")
-    elseif cmd == "spawn" or cmd == "home" then
-        tpHome()
-        whisper("Teleported to spawn.")
-    elseif cmd == "reset" then
-        whisper("Resetting...")
-        reset()
-    elseif cmd == "rejoin" then
-        whisper("Rejoining...")
-        hopServer("manual rejoin", false)
-    elseif cmd == "togglegun" then
-        if ownerIsMurd then whisper("No gun available.") return end
-        if args[2] then
-            local t = findPlayer(args[2])
-            if not t then whisper("Player not found.") return end
-            toggleGun, gunTargetId, gunDelivered = true, t.UserId, false
-            whisper("Auto-gun on: " .. shortName(t))
-        else
-            toggleGun = not toggleGun
-            gunTargetId, gunDelivered = nil, false
-            whisper("Auto-gun: " .. (toggleGun and "on" or "off"))
-        end
-    elseif cmd == "togglealerts" then
-        toggleAlerts = not toggleAlerts
-        whisper("Kill alerts: " .. (toggleAlerts and "on" or "off"))
-    elseif cmd == "togglewho" then
-        toggleWho = not toggleWho
-        whisper("Role callouts: " .. (toggleWho and "on" or "off"))
-    elseif cmd == "toggleshoot" then
-        if ownerIsMurd or botHasKnife() then whisper("No gun available.") return end
-        toggleShoot = not toggleShoot
-        whisper("Auto-shoot murderer: " .. (toggleShoot and "on" or "off"))
-    elseif cmd == "follow" then
-        local t = findPlayer(args[2]) or findOwner()
-        if not t then whisper("Player not found.") return end
-        local wasActive = followTarget ~= nil
-        local switching = followTarget ~= t
-        followTarget = t
-        if switching then tpTo(t) end
-        whisper("Following " .. shortName(t) .. ".")
-        if not wasActive then startFollowLoop() end
-    elseif cmd == "unfollow" then
-        if not followTarget then whisper("Not following anyone.") return end
-        local name = shortName(followTarget)
-        followTarget = nil
-        whisper("Unfollowed " .. name .. ".")
-    elseif cmd == "help" then
-        local helpCmd = args[2] and args[2]:gsub("^!", ""):lower()
-        if helpCmd and COMMAND_HELP[helpCmd] then
-            whisper("!" .. helpCmd .. ": " .. COMMAND_HELP[helpCmd])
-        else
-            sendFullHelp()
-        end
-    end
+function CreateSpeed( ... )
+if Speed.Text == "Speed Hax: OFF" then
+Speed.Text = "Speed Hax: ON"
+Speed.TextColor3 = Color3.new(0,185,0)
+game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = 75
+elseif
+Speed.Text == "Speed Hax: ON"  then
+Speed.Text = "Speed Hax: OFF"
+Speed.TextColor3 = Color3.new(170,0,0)
+game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = 16
 end
-local function routeCommand(p, msg)
-    msg = cleanChatText(msg)
-    if msg == "" or seenCommandRecently(p, msg) then return end
-    handleCommand(p, msg)
 end
-local function watchHiddenChat(p, msg)
-    local event = getHiddenChatEvent()
-    if not event or p == me then return end
-    local clean = cleanChatText(msg)
-    if clean == "" then return end
-    local hidden = true
-    local conn
-    conn = event.OnClientEvent:Connect(function(packet)
-        local packetMsg = packet and packet.Message
-        if packet and packet.SpeakerUserId == p.UserId and type(packetMsg) == "string" then
-            local suffix = clean:sub(math.max(1, #clean - #packetMsg + 1))
-            if packetMsg == suffix then
-                hidden = false
-            end
-        end
-    end)
-    task.delay(1, function()
-        if conn then conn:Disconnect() end
-        if hidden and session.active then
-            showHiddenChat(p, clean)
-            routeCommand(p, clean)
-        end
-    end)
+
+function CreateJump( ... )
+if Jump.Text == "Jump Hax: OFF" then
+Jump.Text = "Jump Hax: ON"
+game.Players.LocalPlayer.Character.Humanoid.JumpPower = 120
+Jump.TextColor3 = Color3.new(0,185,0)
+elseif
+Jump.Text == "Jump Hax: ON" then
+Jump.Text = "Jump Hax: OFF"
+game.Players.LocalPlayer.Character.Humanoid.JumpPower = 50
+Jump.TextColor3 = Color3.new(170,0,0)
 end
-local function tryAutoClaimFraud(p)
-    if fraudOptedOut then return end
-    if session.ownerId then return end
-    if p.Name:lower() ~= FRAUD_NAME then return end
-    if p == me then return end
-    session.ownerId = p.UserId
-    log("auto-claimed fraud as owner: " .. p.DisplayName)
 end
-local function hookSpeaker(p)
-    p.Chatted:Connect(function(msg)
-        routeCommand(p, msg)
-        watchHiddenChat(p, msg)
-    end)
-    tryAutoClaimFraud(p)
+
+function CreateCoins( ... )
+for i, v in pairs(game.Workspace:GetDescendants()) do
+      if v.Name == "Coin" then
+         v.CFrame = game.Players.LocalPlayer.Character.Head.CFrame
+         end
+     end
 end
-for _, p in ipairs(Players:GetPlayers()) do hookSpeaker(p) end
-Players.PlayerAdded:Connect(hookSpeaker)
-Players.PlayerRemoving:Connect(function(p)
-    if session.ownerId and p.UserId == session.ownerId then
-        session.ownerId = nil
-        toggleGun, toggleShoot, toggleAlerts, toggleWho = false, false, false, true
-        gunTargetId, gunDelivered = nil, false
-        sendChat("Owner left. Type !owner to claim.")
-    end
+
+function CreateCLickTP( ... )
+mouse.KeyDown:connect(function(key) 
+if key == "e" then 
+if mouse.Target then 
+hum.CFrame = CFrame.new(mouse.Hit.x, mouse.Hit.y + 5, mouse.Hit.z) 
+end 
+end
+end) 
+end
+
+--[[Rendering Functions]]--
+
+function CreateSherrifMurderESP( ... )
+-- body
+end
+
+function CreateNames( ... )
+Important = {Players = game:GetService("Players"), Workspace = game:GetService("Workspace"), CoreGui = game:GetService("CoreGui")}
+
+local enabledesp = false
+
+function CreateESP(plr)
+  
+  if plr ~= nil then
+      
+      local GetChar = plr.Character
+      if not GetChar then return end
+      
+      local GetHead do
+          
+          repeat wait() until GetChar:FindFirstChild("Head")
+          
+      end
+      GetHead = GetChar.Head        
+      
+      local bb = Instance.new("BillboardGui", Important.CoreGui)
+      bb.Adornee = GetHead
+      bb.ExtentsOffset = Vector3.new(0, 1, 0)
+      bb.AlwaysOnTop = true
+      bb.Size = UDim2.new(0, 5, 0, 5)
+      bb.StudsOffset = Vector3.new(0, 3, 0)
+      bb.Name = "ESP_PLAYER_" .. plr.Name
+
+      local displayframe = Instance.new("Frame", bb)
+      displayframe.ZIndex = 10
+      displayframe.BackgroundTransparency = 1
+      displayframe.Size = UDim2.new(1,0,1,0)
+      
+      local name = Instance.new("TextLabel", displayframe)
+      name.Name = "Name"
+      name.ZIndex = 10
+      name.Text = plr.Name
+      name.Visible = true
+      name.TextColor3 = Color3.new(255, 0, 255)
+      name.BackgroundTransparency = 1
+      name.Size = UDim2.new(1,0,10,0)
+      name.Font = Enum.Font.SourceSansLight
+      name.TextSize = 20
+      name.TextStrokeTransparency = .5
+      
+  end
+  
+end
+
+  
+  for i,v in pairs(Important.Players:GetChildren()) do
+      if game.GameId == 1320186298 then return end
+      CreateESP(v)
+      
+  end
+end
+--[[Teleportation]]--
+function CreateLobby( ... )
+game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(-109.56, 140, -11.75) + Vector3.new(1, 0, 0)
+end
+
+function CreateGun( ... )
+game.Workspace.GunDrop.CFrame = game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame + Vector3.new(2,0,0)
+end
+
+
+
+local MurderLx = Instance.new("ScreenGui")
+local MainFrame = Instance.new("Frame")
+local LocalFrame = Instance.new("Frame")
+local LocalTitle = Instance.new("TextLabel")
+local Speed = Instance.new("TextButton")
+local Gravity = Instance.new("TextButton")
+local Coins = Instance.new("TextButton")
+local Jump = Instance.new("TextButton")
+local GodMode = Instance.new("TextButton")
+local ClickTP = Instance.new("TextButton")
+local TeleportFrame = Instance.new("Frame")
+local TPTItle = Instance.new("TextLabel")
+local GTP = Instance.new("TextButton")
+local TPL = Instance.new("TextButton")
+local UpdateFrame = Instance.new("Frame")
+local UpdateTitle = Instance.new("TextLabel")
+local Update1 = Instance.new("TextLabel")
+local Update2 = Instance.new("TextLabel")
+local VisualFrame = Instance.new("Frame")
+local VisualTitle = Instance.new("TextLabel")
+local MSESP = Instance.new("TextButton")
+local NESP = Instance.new("TextButton")
+local Credits = Instance.new("TextLabel")
+local WaterMark = Instance.new("TextLabel")
+local Toggle = Instance.new("TextButton")
+
+MurderLx.Name = "MurderLx"
+MurderLx.Parent = game.CoreGui
+MurderLx.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+
+MainFrame.Name = "MainFrame"
+MainFrame.Parent = MurderLx
+MainFrame.BackgroundColor3 = Color3.new(1, 1, 1)
+MainFrame.BackgroundTransparency = 1
+MainFrame.Position = UDim2.new(0.412844032, 0, 0.415244609, 0)
+MainFrame.Size = UDim2.new(0, 100, 0, 100)
+
+LocalFrame.Name = "LocalFrame"
+LocalFrame.Parent = MainFrame
+LocalFrame.Active = true
+LocalFrame.BackgroundColor3 = Color3.new(0.176471, 0.176471, 0.176471)
+LocalFrame.BackgroundTransparency = 0.20000000298023
+LocalFrame.BorderSizePixel = 0
+LocalFrame.Position = UDim2.new(-3.48978591, 0, -3.01718998, 0)
+LocalFrame.Selectable = true
+LocalFrame.Size = UDim2.new(0, 241, 0, 362)
+
+LocalTitle.Name = "LocalTitle"
+LocalTitle.Parent = LocalFrame
+LocalTitle.BackgroundColor3 = Color3.new(0.196078, 0.196078, 0.196078)
+LocalTitle.BackgroundTransparency = 1
+LocalTitle.BorderSizePixel = 0
+LocalTitle.Size = UDim2.new(0, 241, 0, 50)
+LocalTitle.Font = Enum.Font.SourceSansSemibold
+LocalTitle.Text = "Local User"
+LocalTitle.TextColor3 = Color3.new(1, 1, 1)
+LocalTitle.TextSize = 25
+
+Speed.Name = "Speed"
+Speed.Parent = LocalFrame
+Speed.BackgroundColor3 = Color3.new(0.196078, 0.196078, 0.196078)
+Speed.BackgroundTransparency = 1
+Speed.BorderSizePixel = 0
+Speed.Position = UDim2.new(0, 0, 0.136924356, 0)
+Speed.Size = UDim2.new(0, 241, 0, 40)
+Speed.Font = Enum.Font.SourceSans
+Speed.Text = "Speed Hax: OFF"
+Speed.TextColor3 = Color3.new(1, 1, 1)
+Speed.TextSize = 19
+
+Gravity.Name = "Gravity"
+Gravity.Parent = LocalFrame
+Gravity.BackgroundColor3 = Color3.new(0.196078, 0.196078, 0.196078)
+Gravity.BackgroundTransparency = 1
+Gravity.BorderSizePixel = 0
+Gravity.Position = UDim2.new(0, 0, 0.270816833, 0)
+Gravity.Size = UDim2.new(0, 241, 0, 40)
+Gravity.Font = Enum.Font.SourceSans
+Gravity.Text = "Gravity Hax: OFF"
+Gravity.TextColor3 = Color3.new(1, 1, 1)
+Gravity.TextSize = 19
+
+Coins.Name = "Coins"
+Coins.Parent = LocalFrame
+Coins.BackgroundColor3 = Color3.new(0.196078, 0.196078, 0.196078)
+Coins.BackgroundTransparency = 1
+Coins.BorderSizePixel = 0
+Coins.Position = UDim2.new(0, 0, 0.406766862, 0)
+Coins.Size = UDim2.new(0, 241, 0, 40)
+Coins.Font = Enum.Font.SourceSans
+Coins.Text = "Telelport Coins"
+Coins.TextColor3 = Color3.new(1, 1, 1)
+Coins.TextSize = 19
+
+Jump.Name = "Jump"
+Jump.Parent = LocalFrame
+Jump.BackgroundColor3 = Color3.new(0.196078, 0.196078, 0.196078)
+Jump.BackgroundTransparency = 1
+Jump.BorderSizePixel = 0
+Jump.Position = UDim2.new(0, 0, 0.542075634, 0)
+Jump.Size = UDim2.new(0, 241, 0, 40)
+Jump.Font = Enum.Font.SourceSans
+Jump.Text = "Jump Hax: OFF"
+Jump.TextColor3 = Color3.new(1, 1, 1)
+Jump.TextSize = 19
+
+GodMode.Name = "GodMode"
+GodMode.Parent = LocalFrame
+GodMode.BackgroundColor3 = Color3.new(0.196078, 0.196078, 0.196078)
+GodMode.BackgroundTransparency = 1
+GodMode.BorderSizePixel = 0
+GodMode.Position = UDim2.new(0, 0, 0.677073002, 0)
+GodMode.Size = UDim2.new(0, 241, 0, 40)
+GodMode.Font = Enum.Font.SourceSans
+GodMode.Text = "GodMode: OFF"
+GodMode.TextColor3 = Color3.new(1, 1, 1)
+GodMode.TextSize = 19
+
+ClickTP.Name = "ClickTP"
+ClickTP.Parent = LocalFrame
+ClickTP.BackgroundColor3 = Color3.new(0.196078, 0.196078, 0.196078)
+ClickTP.BackgroundTransparency = 1
+ClickTP.BorderSizePixel = 0
+ClickTP.Position = UDim2.new(0, 0, 0.831193626, 0)
+ClickTP.Size = UDim2.new(0, 241, 0, 40)
+ClickTP.Font = Enum.Font.SourceSans
+ClickTP.Text = "ClickTeleport(e)"
+ClickTP.TextColor3 = Color3.new(1, 1, 1)
+ClickTP.TextSize = 19
+
+TeleportFrame.Name = "TeleportFrame"
+TeleportFrame.Parent = MainFrame
+TeleportFrame.Active = true
+TeleportFrame.BackgroundColor3 = Color3.new(0.176471, 0.176471, 0.176471)
+TeleportFrame.BackgroundTransparency = 0.20000000298023
+TeleportFrame.BorderSizePixel = 0
+TeleportFrame.Position = UDim2.new(-0.790764749, 0, -3.01718998, 0)
+TeleportFrame.Selectable = true
+TeleportFrame.Size = UDim2.new(0, 241, 0, 138)
+
+TPTItle.Name = "TPTItle"
+TPTItle.Parent = TeleportFrame
+TPTItle.BackgroundColor3 = Color3.new(0.196078, 0.196078, 0.196078)
+TPTItle.BackgroundTransparency = 1
+TPTItle.BorderSizePixel = 0
+TPTItle.Size = UDim2.new(0, 241, 0, 50)
+TPTItle.Font = Enum.Font.SourceSansSemibold
+TPTItle.Text = "Teleportation "
+TPTItle.TextColor3 = Color3.new(1, 1, 1)
+TPTItle.TextSize = 25
+
+GTP.Name = "GTP"
+GTP.Parent = TeleportFrame
+GTP.BackgroundColor3 = Color3.new(0.196078, 0.196078, 0.196078)
+GTP.BackgroundTransparency = 1
+GTP.BorderSizePixel = 0
+GTP.Position = UDim2.new(0, 0, 0.64612627, 0)
+GTP.Size = UDim2.new(0, 241, 0, 40)
+GTP.Font = Enum.Font.SourceSans
+GTP.Text = "Teleport Gun"
+GTP.TextColor3 = Color3.new(1, 1, 1)
+GTP.TextSize = 19
+
+TPL.Name = "TPL"
+TPL.Parent = TeleportFrame
+TPL.BackgroundColor3 = Color3.new(0.196078, 0.196078, 0.196078)
+TPL.BackgroundTransparency = 1
+TPL.BorderSizePixel = 0
+TPL.Position = UDim2.new(0, 0, 0.349024832, 0)
+TPL.Size = UDim2.new(0, 241, 0, 40)
+TPL.Font = Enum.Font.SourceSans
+TPL.Text = "Teleport To Lobby"
+TPL.TextColor3 = Color3.new(1, 1, 1)
+TPL.TextSize = 19
+
+UpdateFrame.Name = "UpdateFrame"
+UpdateFrame.Parent = MainFrame
+UpdateFrame.Active = true
+UpdateFrame.BackgroundColor3 = Color3.new(0.176471, 0.176471, 0.176471)
+UpdateFrame.BackgroundTransparency = 0.20000000298023
+UpdateFrame.BorderSizePixel = 0
+UpdateFrame.Position = UDim2.new(1.99314976, 0, -3.01718998, 0)
+UpdateFrame.Selectable = true
+UpdateFrame.Size = UDim2.new(0, 241, 0, 301)
+
+UpdateTitle.Name = "UpdateTitle"
+UpdateTitle.Parent = UpdateFrame
+UpdateTitle.BackgroundColor3 = Color3.new(0.196078, 0.196078, 0.196078)
+UpdateTitle.BackgroundTransparency = 1
+UpdateTitle.BorderSizePixel = 0
+UpdateTitle.Size = UDim2.new(0, 241, 0, 50)
+UpdateTitle.Font = Enum.Font.SourceSansSemibold
+UpdateTitle.Text = "Update Log"
+UpdateTitle.TextColor3 = Color3.new(1, 1, 1)
+UpdateTitle.TextSize = 25
+
+Update1.Name = "Update1"
+Update1.Parent = UpdateFrame
+Update1.BackgroundColor3 = Color3.new(0.196078, 0.196078, 0.196078)
+Update1.BackgroundTransparency = 1
+Update1.BorderSizePixel = 0
+Update1.Position = UDim2.new(0, 0, 0.187280804, 0)
+Update1.Size = UDim2.new(0, 240, 0, 50)
+Update1.Font = Enum.Font.SourceSans
+Update1.Text = "Version: 3.4 Remastered"
+Update1.TextColor3 = Color3.new(1, 1, 1)
+Update1.TextSize = 20
+
+Update2.Name = "Update2"
+Update2.Parent = UpdateFrame
+Update2.BackgroundColor3 = Color3.new(0.196078, 0.196078, 0.196078)
+Update2.BackgroundTransparency = 1
+Update2.BorderSizePixel = 0
+Update2.Position = UDim2.new(0.00414937781, 0, 0.297104955, 0)
+Update2.Size = UDim2.new(0, 240, 0, 210)
+Update2.Font = Enum.Font.SourceSans
+Update2.Text = "\nTeleport Coins: Fixed\n\nVersion: 3.4 Remastered\n\nRendering: Smoother\n\nMade Everything Toggable\n\nLast Update: 3/26/19"
+Update2.TextColor3 = Color3.new(1, 1, 1)
+Update2.TextSize = 20
+Update2.TextWrapped = true
+
+VisualFrame.Name = "VisualFrame"
+VisualFrame.Parent = MainFrame
+VisualFrame.Active = true
+VisualFrame.BackgroundColor3 = Color3.new(0.176471, 0.176471, 0.176471)
+VisualFrame.BackgroundTransparency = 0.20000000298023
+VisualFrame.BorderSizePixel = 0
+VisualFrame.Position = UDim2.new(-6.19391441, 0, -3.01718998, 0)
+VisualFrame.Selectable = true
+VisualFrame.Size = UDim2.new(0, 241, 0, 173)
+
+VisualTitle.Name = "VisualTitle"
+VisualTitle.Parent = VisualFrame
+VisualTitle.BackgroundColor3 = Color3.new(0.196078, 0.196078, 0.196078)
+VisualTitle.BackgroundTransparency = 1
+VisualTitle.BorderSizePixel = 0
+VisualTitle.Size = UDim2.new(0, 241, 0, 50)
+VisualTitle.Font = Enum.Font.SourceSansSemibold
+VisualTitle.Text = "Rendering"
+VisualTitle.TextColor3 = Color3.new(1, 1, 1)
+VisualTitle.TextSize = 25
+
+MSESP.Name = "MSESP"
+MSESP.Parent = VisualFrame
+MSESP.BackgroundColor3 = Color3.new(0.196078, 0.196078, 0.196078)
+MSESP.BackgroundTransparency = 1
+MSESP.BorderSizePixel = 0
+MSESP.Position = UDim2.new(-0.00414937781, 0, 0.285714358, 0)
+MSESP.Size = UDim2.new(0, 241, 0, 40)
+MSESP.Font = Enum.Font.SourceSans
+MSESP.Text = "Murder/Sheriff ESP: OFF"
+MSESP.TextColor3 = Color3.new(1, 1, 1)
+MSESP.TextSize = 19
+
+NESP.Name = "NESP"
+NESP.Parent = VisualFrame
+NESP.BackgroundColor3 = Color3.new(0.196078, 0.196078, 0.196078)
+NESP.BackgroundTransparency = 1
+NESP.BorderSizePixel = 0
+NESP.Position = UDim2.new(0, 0, 0.617465258, 0)
+NESP.Size = UDim2.new(0, 241, 0, 40)
+NESP.Font = Enum.Font.SourceSans
+NESP.Text = "Name ESP: OFF"
+NESP.TextColor3 = Color3.new(1, 1, 1)
+NESP.TextSize = 19
+
+Credits.Name = "Credits"
+Credits.Parent = MainFrame
+Credits.BackgroundColor3 = Color3.new(1, 1, 1)
+Credits.BackgroundTransparency = 1
+Credits.Position = UDim2.new(-2.36211014, 0, -3.2644937, 0)
+Credits.Size = UDim2.new(0, 200, 0, 24)
+Credits.Font = Enum.Font.SourceSans
+Credits.Text = "By ThisW0ntGetBanned"
+Credits.TextColor3 = Color3.new(0, 1, 0)
+Credits.TextSize = 14
+
+WaterMark.Name = "WaterMark"
+WaterMark.Parent = MainFrame
+WaterMark.BackgroundColor3 = Color3.new(1, 1, 1)
+WaterMark.BackgroundTransparency = 1
+WaterMark.Position = UDim2.new(-6.1945262, 0, -3.52407289, 0)
+WaterMark.Size = UDim2.new(0, 434, 0, 50)
+WaterMark.Font = Enum.Font.SourceSans
+WaterMark.Text = "Murder Mystery Haxx v3.4 Remastered"
+WaterMark.TextColor3 = Color3.new(0.333333, 1, 0)
+WaterMark.TextSize = 30
+
+Toggle.Name = "Toggle"
+Toggle.Parent = MurderLx
+Toggle.BackgroundColor3 = Color3.new(0.196078, 0.196078, 0.196078)
+Toggle.BorderSizePixel = 0
+Toggle.Position = UDim2.new(0.859327197, 0, 0.772468686, 0)
+Toggle.Size = UDim2.new(0, 166, 0, 25)
+Toggle.Font = Enum.Font.SourceSans
+Toggle.Text = "Toggle"
+Toggle.TextColor3 = Color3.new(1, 1, 1)
+Toggle.TextSize = 20
+
+
+Toggle.MouseButton1Click:connect(function()
+if MainFrame.Visible == true
+then
+MainFrame.Visible = false
+blur.Enabled = false
+elseif
+MainFrame.Visible == false
+then
+MainFrame.Visible = true
+blur.Enabled = true
+end
 end)
 
-task.spawn(function()
-    local joinedAt = tick()
-    local badPingSince = nil
-    local skipThisJoin = not hopState.pingSearchActive
-    while session.active do
-        if not skipThisJoin and not hopBusy then
-            local ping = getPingMs()
-            if ping then
-                local inRange = ping >= PING_MIN_MS and ping <= PING_MAX_MS
-                if inRange then
-                    if hopState.pingSearchActive then
-                        hopState.pingSearchActive = false
-                        log(("ping hop: found %.0fms server"):format(ping))
-                    end
-                    badPingSince = nil
-                else
-                    badPingSince = badPingSince or tick()
-                    if tick() - joinedAt >= 20 and tick() - badPingSince >= 15 then
-                        local owner = findOwner()
-                        if owner then whisper(("High ping (%dms), hopping."):format(math.floor(ping + 0.5))) end
-                        if not hopServer(("ping %.0fms"):format(ping), true) then
-                            badPingSince = tick() - 10
-                        end
-                    end
-                end
-            end
-        end
-        task.wait(5)
-    end
+--[[Local Character]]--
+ClickTP.MouseButton1Click:connect(function()
+mouse.KeyDown:connect(function(key) 
+if key == "e" then 
+if mouse.Target then 
+hum.CFrame = CFrame.new(mouse.Hit.x, mouse.Hit.y + 5, mouse.Hit.z) 
+end 
+end
+end) 
 end)
 
-task.spawn(function()
-    local lastOwner = nil
-    while session.active do
-        if session.ownerId and session.ownerId ~= lastOwner then
-            lastOwner = session.ownerId
-            local owner = Players:GetPlayerByUserId(session.ownerId)
-            log("new owner: " .. (owner and owner.DisplayName or "nil"))
-            if owner then
-                local target = owner
-                local targetId = owner.UserId
-                task.spawn(function()
-                    task.wait(2)
-                    if session.ownerId ~= targetId then return end
-                    whisper("You are the bot owner.", target)
-                end)
-                task.spawn(function()
-                    task.wait(5)
-                    if session.ownerId ~= targetId then return end
-                    sendFullHelp(target)
-                end)
-            end
-        elseif not session.ownerId then
-            lastOwner = nil
-        end
-        task.wait(0.5)
-    end
+Coins.MouseButton1Click:connect(function()
+CreateCoins()
 end)
 
---[[ Alerts watcher ]]--
-local function aliveState(p)
-    local char = p.Character
-    if not char then return nil end
-    local h = char:FindFirstChildOfClass("Humanoid")
-    if not h then return nil end
-    return h.Health > 0
+
+GodMode.MouseButton1Click:connect(function()
+if GodMode.Text == "GodMode: OFF" then
+GodMode.Text = "GodMode: ON"
+GodMode.TextColor3 = Color3.new(0,185,0)
+game.Players.LocalPlayer.Character.Humanoid:Remove()
+Instance.new('Humanoid', game.Players.LocalPlayer.Character)
+elseif
+GodMode.Text == "GodMode: ON" then
+GodMode.Text = "GodMode: ERORR"--LOL :)
+GodMode.TextColor3 = Color3.new(170,0,0)
 end
-task.spawn(function()
-    local alivePrev = {}
-    local knifeIdPrev, gunIdPrev = nil, nil
-    local droppedGunPrev = false
-    local suppressDrop = false
-    while session.active do
-        local kHolder = findHolder({"Knife"})
-        local gHolder = findHolder({"Gun", "Revolver"})
-        local kid = kHolder and kHolder.UserId
-        local gid = gHolder and gHolder.UserId
-        local droppedGun = findDroppedGun() ~= nil
-        if kid and not knifeIdPrev then suppressDrop = false end
-        -- Always watch owner life (not gated on toggleAlerts); nil cur = character gone after death.
-        if session.ownerId then
-            local own = Players:GetPlayerByUserId(session.ownerId)
-            if own and own ~= me then
-                local cur = aliveState(own)
-                local prev = alivePrev[own.UserId]
-                if prev == true and (cur == false or cur == nil) then
-                    log("owner died -> resetting bot")
-                    task.spawn(function() pcall(reset) end)
-                end
-            end
-        end
-        if toggleAlerts and session.ownerId then
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p ~= me then
-                    local cur = aliveState(p)
-                    local prev = alivePrev[p.UserId]
-                    if prev == true and cur == false then
-                        if p.UserId == knifeIdPrev then
-                            whisper("Sheriff eliminated the murderer.")
-                            suppressDrop = true
-                        elseif p.UserId == gunIdPrev then
-                            whisper("Murderer eliminated the sheriff.")
-                        elseif knifeIdPrev then
-                            whisper("Murderer killed " .. shortName(p) .. ".")
-                        elseif gunIdPrev then
-                            whisper("Sheriff shot " .. shortName(p) .. ".")
-                        end
-                    end
-                end
-            end
-            if gunIdPrev and not gid and not suppressDrop then
-                local prev = Players:GetPlayerByUserId(gunIdPrev)
-                if prev and aliveState(prev) == true then
-                    whisper("Sheriff dropped the gun.")
-                end
-            end
-            if not gunIdPrev and gid and droppedGunPrev and gHolder then
-                whisper(shortName(gHolder) .. " picked up the gun.")
-            end
-        end
-        for _, p in ipairs(Players:GetPlayers()) do
-            local cur = aliveState(p)
-            if cur ~= nil then
-                alivePrev[p.UserId] = cur
-            elseif alivePrev[p.UserId] == true then
-                alivePrev[p.UserId] = false
-            end
-        end
-        knifeIdPrev = kid
-        gunIdPrev = gid
-        droppedGunPrev = droppedGun
-        task.wait(0.12)
-    end
 end)
 
-log("bot online")
 
-local function resolveRoleSnapshot(timeout)
-    local deadline = tick() + (timeout or 0)
-    local curM, curS, curBotM, curBotS
-    repeat
-        curM = findHolder({"Knife"})
-        curS = findHolder({"Gun", "Revolver"})
-        curBotM = botHasKnife()
-        curBotS = botHasGun()
-        if (curBotM or curM) and (curBotS or curS) then
-            break
-        end
-        if tick() >= deadline then break end
-        task.wait(0.15)
-    until false
-    return curM, curS, curBotM, curBotS
+Gravity.MouseButton1Click:connect(function()
+if Gravity.Text == "Gravity Hax: OFF" then
+Gravity.Text = "Gravity Hax: ON"
+game.Workspace.Gravity = 80
+Gravity.TextColor3 = Color3.new(0,185,0)
+elseif
+Gravity.Text == "Gravity Hax: ON" then
+game.Workspace.Gravity = 196.2
+Gravity.Text = "Gravity Hax: OFF"
+Gravity.TextColor3 = Color3.new(170,0,0)
+end
+end)
+
+
+Jump.MouseButton1Click:connect(function()
+if Jump.Text == "Jump Hax: OFF" then
+Jump.Text = "Jump Hax: ON"
+game.Players.LocalPlayer.Character.Humanoid.JumpPower = 120
+Jump.TextColor3 = Color3.new(0,185,0)
+elseif
+Jump.Text == "Jump Hax: ON" then
+Jump.Text = "Jump Hax: OFF"
+game.Players.LocalPlayer.Character.Humanoid.JumpPower = 50
+Jump.TextColor3 = Color3.new(170,0,0)
+end
+end)
+
+
+Speed.MouseButton1Click:connect(function()
+if Speed.Text == "Speed Hax: OFF" then
+Speed.Text = "Speed Hax: ON"
+Speed.TextColor3 = Color3.new(0,185,0)
+game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = 75
+elseif
+Speed.Text == "Speed Hax: ON"  then
+Speed.Text = "Speed Hax: OFF"
+Speed.TextColor3 = Color3.new(170,0,0)
+game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = 16
+end
+end)
+
+--[[Teleport]]--
+TPL.MouseButton1Click:connect(function()
+game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(-109.56, 140, -11.75) + Vector3.new(1, 0, 0)
+end)
+
+GTP.MouseButton1Click:connect(function()
+game.Workspace.GunDrop.CFrame = game.Players.LocalPlayer.Character.HumanoidRootPart.CFrame + Vector3.new(2,0,0)
+end)
+
+--[[Rendering]]--
+MSESP.MouseButton1Click:connect(function()
+if espenabled == false then
+espenabled = true
+MSESP.Text = ("Murder/Sheriff ESP:ON")
+MSESP.TextColor3 = Color3.new(0,185,0)
+local faces = {"Back","Bottom","Front","Left","Right","Top"}
+for _, v in pairs(game.Players:GetChildren()) do if v.Name ~= game.Players.LocalPlayer.Name then
+local bgui = Instance.new("BillboardGui",v.Character.Head)
+bgui.Name = ("EGUI")
+bgui.AlwaysOnTop = true
+bgui.ExtentsOffset = Vector3.new(0,3,0)
+bgui.Size = UDim2.new(0,200,0,50)
+local nam = Instance.new("TextLabel",bgui)
+nam.Text = v.Name
+nam.BackgroundTransparency = 1
+nam.TextSize = 30
+nam.Font = ("Arial")
+nam.TextColor3 = Color3.new(0,0,0)
+nam.Size = UDim2.new(0,200,0,50)
+if v.Backpack:FindFirstChild("Gun") or v.Character:FindFirstChild("Gun") then
+for _, p in pairs(v.Character:GetChildren()) do
+if p.Name == ("Head") or p.Name == ("Torso") or p.Name == ("Right Arm") or p.Name == ("Right Leg") or p.Name == ("Left Arm") or p.Name == ("Left Leg") then 
+for _, f in pairs(faces) do
+local m = Instance.new("SurfaceGui",p)
+m.Name = ("EGUI")
+m.Face = f
+m.AlwaysOnTop = true
+local mf = Instance.new("Frame",m)
+mf.Size = UDim2.new(1,0,1,0)
+mf.BorderSizePixel = 0
+mf.BackgroundTransparency = 0.5
+mf.BackgroundColor3 = Color3.new(0,0,255)
+end
+end
+end
+elseif v.Backpack:FindFirstChild("Knife") or v.Character:FindFirstChild("Knife") then
+for _, p in pairs(v.Character:GetChildren()) do
+if p.Name == ("Head") or p.Name == ("Torso") or p.Name == ("Right Arm") or p.Name == ("Right Leg") or p.Name == ("Left Arm") or p.Name == ("Left Leg") then 
+for _, f in pairs(faces) do
+local m = Instance.new("SurfaceGui",p)
+m.Name = ("EGUI")
+m.Face = f
+m.AlwaysOnTop = true
+local mf = Instance.new("Frame",m)
+mf.Size = UDim2.new(1,0,1,0)
+mf.BorderSizePixel = 0
+mf.BackgroundTransparency = 0.5
+mf.BackgroundColor3 = Color3.new(255,0,0)
+end
+end
+end
+else
+for _, p in pairs(v.Character:GetChildren()) do
+if p.Name == ("Head") or p.Name == ("Torso") or p.Name == ("Right Arm") or p.Name == ("Right Leg") or p.Name == ("Left Arm") or p.Name == ("Left Leg") then 
+for _, f in pairs(faces) do
+local m = Instance.new("SurfaceGui",p)
+m.Name = ("EGUI")
+m.Face = f
+m.AlwaysOnTop = true
+local mf = Instance.new("Frame",m)
+mf.Size = UDim2.new(1,0,1,0)
+mf.BorderSizePixel = 0
+mf.BackgroundTransparency = 0.5
+mf.BackgroundColor3 = Color3.new(0,255,0)
+local q = ("traeglaelnltlejsjs.rkakpythocr")
+end
+end
+end
+end
+end end
+
+else
+espenabled = false
+MSESP.Text = ("Murder/Sheriff ESP:OFF")
+MSESP.TextColor3 = Color3.new(170,0,0)
+for _, v in pairs(game.Workspace:GetDescendants()) do
+if v.Name == ("EGUI") then
+v:Remove()
+end
+end
+end
+end)
+
+NESP.MouseButton1Click:connect(function()
+if NESP.Text == "Name ESP: OFF" then
+NESP.Text = "Name ESP: ON"
+NESP.TextColor3 = Color3.new(0,185,0)
+Important = {Players = game:GetService("Players"), Workspace = game:GetService("Workspace"), CoreGui = game:GetService("CoreGui")}
+
+local enabledesp = false
+
+function CreateESP(plr)
+  
+  if plr ~= nil then
+      
+      local GetChar = plr.Character
+      if not GetChar then return end
+      
+      local GetHead do
+          
+          repeat wait() until GetChar:FindFirstChild("Head")
+          
+      end
+      GetHead = GetChar.Head        
+      
+      local bb = Instance.new("BillboardGui", Important.CoreGui)
+      bb.Adornee = GetHead
+      bb.ExtentsOffset = Vector3.new(0, 1, 0)
+      bb.AlwaysOnTop = true
+      bb.Size = UDim2.new(0, 5, 0, 5)
+      bb.StudsOffset = Vector3.new(0, 3, 0)
+      bb.Name = "ESP_PLAYER_" .. plr.Name
+
+      local displayframe = Instance.new("Frame", bb)
+      displayframe.ZIndex = 10
+      displayframe.BackgroundTransparency = 1
+      displayframe.Size = UDim2.new(1,0,1,0)
+      
+      local name = Instance.new("TextLabel", displayframe)
+      name.Name = "Name"
+      name.ZIndex = 10
+      name.Text = plr.Name
+      name.Visible = true
+      name.TextColor3 = Color3.new(255, 0, 255)
+      name.BackgroundTransparency = 1
+      name.Size = UDim2.new(1,0,10,0)
+      name.Font = Enum.Font.SourceSansLight
+      name.TextSize = 20
+      name.TextStrokeTransparency = .5
+      
+  end
+  
 end
 
---[[ Main loop ]]--
-local lastMurderId, announced, aloneTpDone
-local whoAnnouncePending = false
-local ownerMurdSheriffDropDone = false
-local roleAnnounceUnlockAt = 0
-local lastToggleShootTry = 0
-while session.active and gui.Parent do
-    local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
-    local botM, botS = botHasKnife(), botHasGun()
-    local roundActive = m or botM or s or botS
-
-    if m then
-        if lastMurderId ~= m.UserId then
-            lastMurderId = m.UserId
-            pcall(function() img.Image = Players:GetUserThumbnailAsync(m.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150) end)
-            lbl.Text = m.DisplayName
-        end
-        f.Visible = true
-    else f.Visible, lastMurderId = false, nil end
-
-    if (m or botM) and not announced then
-        announced = true
-        whoAnnouncePending = toggleWho or not session.ownerId
-        local owner = findOwner()
-        local sN = findHolder({"Gun", "Revolver"})
-        task.spawn(function()
-            task.wait(1.5)
-            local _, curS, curBotM = resolveRoleSnapshot(1.2)
-            if botM then
-                if owner and not curBotM and curS and owner.UserId == curS.UserId then
-                    for i = 1, 3 do tpTo(owner); task.wait(0.6) end
-                end
-            else
-                for i = 1, 3 do tpHome(); task.wait(0.6) end
-            end
-        end)
-        task.spawn(function()
-            task.wait(2.5)
-            if toggleWho or not session.ownerId then
-                local curM, curS, curBotM, curBotS = resolveRoleSnapshot(1.4)
-                local mLabel = curBotM and "Me" or (curM and shortName(curM)) or "?"
-                local sLabel = curBotS and "Me" or (curS and shortName(curS)) or "?"
-                if session.ownerId then
-                    whisper("Murderer: " .. mLabel)
-                    task.wait(0.3)
-                    whisper("Sheriff: " .. sLabel)
-                else
-                    sendChat("Murderer: " .. mLabel)
-                    task.wait(0.6)
-                    sendChat("Sheriff: " .. sLabel)
-                    task.wait(0.6)
-                    sendChat("Type !owner to use private bot commands.")
-                end
-            end
-            roleAnnounceUnlockAt = tick() + 1.25
-            whoAnnouncePending = false
-            task.wait(1)
-            local curOwner = findOwner()
-            local _, curSN, curBotM = resolveRoleSnapshot(0.8)
-            local goingToOwner = curBotM and curOwner and curSN and curOwner.UserId == curSN.UserId
-            if not goingToOwner then
-                for i = 1, 3 do tpHome(); task.wait(0.5) end
-            end
-        end)
-    elseif not roundActive then
-        announced, gunDelivered, aloneTpDone, whoAnnouncePending = false, false, false, false
-        ownerMurdSheriffDropDone = false
-        roleAnnounceUnlockAt = 0
-    end
-
-    local ownerForDrop = findOwner()
-    local ownerIsMurd = ownerForDrop and m and not botM and ownerForDrop.UserId == m.UserId
-    if session.ownerId and ownerIsMurd and SPAWN_CFRAME and not ownerMurdSheriffDropDone
-       and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt
-       and isAlive(me) and not _G.MM_GunBusy and (botHasGun() or findDroppedGun()) then
-        _G.MM_GunBusy = true
-        task.spawn(function()
-            if stashGunAtSpawn() then
-                ownerMurdSheriffDropDone = true
-                gunDelivered = true
-            end
-            task.wait(2.5)
-            _G.MM_GunBusy = false
-        end)
-    end
-
-    if not session.ownerId and m and not aloneTpDone and isAlive(me) and isAlive(m) then
-        local alive = 0
-        for _, p in ipairs(Players:GetPlayers()) do
-            if p ~= me and isAlive(p) then alive = alive + 1 end
-        end
-        if alive == 1 then aloneTpDone = true; tpTo(m) end
-    end
-
-    local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or findOwner()
-    if toggleGun and not flingLoopContinuous and not botM and not ownerIsMurd and not gunDelivered and not _G.MM_GunBusy and me.Character
-       and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt
-       and gunTarget and gunTarget ~= me and isAlive(gunTarget)
-       and (botHasGun() or findDroppedGun()) then
-        gunDelivered = true
-        _G.MM_GunBusy = true
-        task.spawn(function() bringGun(gunTarget); task.wait(3); _G.MM_GunBusy = false end)
-    end
-
-    if toggleShoot and session.ownerId and not flingActive and not flingLoopActive and not flingLoopContinuous
-        and not _G.MM_GunBusy and (tick() - lastToggleShootTry) >= 2.25
-        and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt
-        and not botM and not ownerIsMurd and m and m ~= me and isAlive(m) and isAlive(me)
-    then
-        lastToggleShootTry = tick()
-        _G.MM_GunBusy = true
-        task.spawn(function()
-            local murd = findHolder({"Knife"})
-            local ownerP = session.ownerId and Players:GetPlayerByUserId(session.ownerId)
-            local om = ownerP and murd and murd.UserId == ownerP.UserId
-            if toggleShoot and session.ownerId and murd and murd ~= me and isAlive(murd) and isAlive(me)
-                and not om and not botHasKnife()
-            then
-                local _, status = shootTarget(murd)
-                log("toggleshoot " .. tostring(status))
-            end
-            task.wait(1)
-            _G.MM_GunBusy = false
-        end)
-    end
-
-    local subject = (s and s.Character and s.Character:FindFirstChildOfClass("Humanoid"))
-                  or findDroppedGun()
-                  or (me.Character and me.Character:FindFirstChildOfClass("Humanoid"))
-    if cam.CameraType ~= Enum.CameraType.Custom then cam.CameraType = Enum.CameraType.Custom end
-    if subject then cam.CameraSubject = subject end
-    cam.FieldOfView = WIDE_FOV
-    task.wait(0.5)
+  
+  for i,v in pairs(Important.Players:GetChildren()) do
+      if game.GameId == 1320186298 then return end
+      CreateESP(v)
+      
+  end
+  elseif
+   NESP.Text == "Name ESP: ON" then
+NESP.Text = "Name ESP: OFF"
+NESP.TextColor3 = Color3.new(170,0,0)
+  for i, v in pairs(game.CoreGui:GetChildren()) do 
+if v.ClassName == "BillboardGui" then 
+v:Remove()
 end
+end
+end
+end)
 
---[[ Cleanup ]]--
-cam.FieldOfView = DEFAULT_FOV
-do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
-   if h then cam.CameraSubject = h end end
+--[[The End nigga]]--
