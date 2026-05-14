@@ -27,10 +27,8 @@ local coinFarmGen = 0
 local coinFarmVisited = {}
 local coinFarmNoclipConn = nil
 local coinFarmResetting = false
-local COIN_UNDER = 2
-local COIN_MAX_Y_STEP = 6
-local COIN_SEARCH_RANGE = 400
-local COIN_MAGNET_RANGE = 70
+local COIN_FLY_SPEED = 42
+local COIN_SEARCH_RANGE = 250
 local PING_MIN_MS, PING_MAX_MS = 50, 90
 local G = getgenv and getgenv() or _G
 G.MM_HopState = G.MM_HopState or {pingSearchActive = false}
@@ -678,76 +676,38 @@ local function isFarmCoinPart(v)
     return v:IsA("BasePart") and (v.Name == "Coin_Server" or v.Name == "Coin")
 end
 
-local function horizontalDist(a, b)
-    return (Vector3.new(a.X, 0, a.Z) - Vector3.new(b.X, 0, b.Z)).Magnitude
-end
-
-local function farmHideUnder(coinPos, fromY)
-    local targetY = coinPos.Y - COIN_UNDER
-    if fromY then
-        targetY = fromY + math.clamp(targetY - fromY, -COIN_MAX_Y_STEP, COIN_MAX_Y_STEP)
-    end
-    return Vector3.new(coinPos.X, targetY, coinPos.Z)
-end
-
-local function farmPickupCf(coinPos)
-    return CFrame.new(coinPos.X, coinPos.Y - 0.25, coinPos.Z)
-end
-
-local function snapHrp(pos)
-    local h = hrp()
-    if not h or not pos then return end
-    zeroVel(h)
-    h.CFrame = CFrame.new(pos)
-end
-
-local function rushToCoin(coinPos)
-    local h = hrp()
-    if not h then return false end
-    local hide = farmHideUnder(coinPos, h.Position.Y)
-    zeroVel(h)
-    if horizontalDist(h.Position, hide) > 1 then
-        h.CFrame = CFrame.new(hide.X, h.Position.Y, hide.Z)
-    end
-    h.CFrame = CFrame.new(hide)
-    zeroVel(h)
-    return true
-end
-
-local function magnetCoinsInRange(h, range)
+local function magnetAllCoins(h)
     if not h then return end
     local cf = h.CFrame
     for _, v in ipairs(workspace:GetDescendants()) do
-        if isFarmCoinPart(v) and (v.Position - h.Position).Magnitude < range then
+        if isFarmCoinPart(v) then
             pcall(function() v.CFrame = cf end)
         end
     end
 end
 
-local function coinCollected(coin)
-    return not coin or not coin.Parent or not coin:IsDescendantOf(workspace)
-end
-
-local function touchCoin(coin)
-    if coinCollected(coin) then return true end
+local function flyToCoin(pos, gen)
     local h = hrp()
-    if not h then return false end
-    pcall(function() coin.CFrame = h.CFrame end)
-    return coinCollected(coin)
-end
-
-local function nudgePickup(coin, gen)
-    for _ = 1, 3 do
-        if gen ~= coinFarmGen or session.ownerId then return false end
-        if coinCollected(coin) then return true end
-        local h = hrp()
-        if not h then return false end
-        snapHrp(farmHideUnder(coin.Position, h.Position.Y))
-        pcall(function() coin.CFrame = farmPickupCf(coin.Position) end)
-        if coinCollected(coin) then return true end
-        task.wait(0.01)
+    if not h or not pos then return false end
+    local dist = (pos - h.Position).Magnitude
+    if dist < 3.5 then
+        zeroVel(h)
+        h.CFrame = CFrame.new(pos)
+        return true
     end
-    return coinCollected(coin)
+    local dur = math.max(0.05, dist / COIN_FLY_SPEED)
+    local tw = Tween:Create(h, TweenInfo.new(dur, Enum.EasingStyle.Linear), {CFrame = CFrame.new(pos)})
+    tw:Play()
+    local deadline = tick() + dur + 0.35
+    while tw.PlaybackState == Enum.PlaybackState.Playing do
+        if gen ~= coinFarmGen or session.ownerId then
+            tw:Cancel()
+            return false
+        end
+        if tick() > deadline then break end
+        task.wait(0.02)
+    end
+    return gen == coinFarmGen
 end
 
 local function findNearestFarmCoin(h)
@@ -768,11 +728,20 @@ local function collectFarmCoinStep(gen)
     if session.ownerId or gen ~= coinFarmGen then return false end
     local h = hrp()
     if not h then return false end
-    magnetCoinsInRange(h, COIN_MAGNET_RANGE)
+    local bagBefore = getCoinBagCount()
+    magnetAllCoins(h)
+    local bagAfter = getCoinBagCount()
+    if bagBefore and bagAfter and bagAfter > bagBefore then return true end
     local closest = findNearestFarmCoin(h)
     if not closest then return false end
-    rushToCoin(closest.Position)
-    if touchCoin(closest) or nudgePickup(closest, gen) then
+    if (closest.Position - h.Position).Magnitude > 6 then
+        if not flyToCoin(closest.Position, gen) then return false end
+    end
+    h = hrp()
+    if h and closest.Parent and closest:IsDescendantOf(workspace) then
+        pcall(function() closest.CFrame = h.CFrame end)
+    end
+    if not closest.Parent or not closest:IsDescendantOf(workspace) then
         coinFarmVisited[closest] = true
         return true
     end
