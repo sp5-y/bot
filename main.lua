@@ -638,11 +638,15 @@ end
 local flingActive = false
 local flingLoopGen = 0
 local flingLoopActive = false
+local flingLoopContinuous = false
+local flingSettling = false
 
 local function cancelFlingWork()
     flingLoopGen = flingLoopGen + 1
     flingLoopActive = false
+    flingLoopContinuous = false
     flingActive = false
+    flingSettling = false
 end
 
 local function fling(target, onDone)
@@ -697,16 +701,18 @@ local function fling(target, onDone)
             whisper("Flung " .. shortName(target) .. ".")
         end
         flingActive = false
+        flingSettling = true
         for i = 1, 3 do
             tpHome()
             task.wait(0.3)
         end
+        flingSettling = false
     end)
 end
 
 local function waitFlingDone(gen, timeout)
     local t0 = tick()
-    while flingActive and tick() - t0 < (timeout or 25) do
+    while (flingActive or flingSettling) and tick() - t0 < (timeout or 25) do
         if gen ~= flingLoopGen then break end
         task.wait(0.03)
     end
@@ -718,32 +724,29 @@ local function flingLoopTimedOut(loopBegan)
     return tick() - loopBegan >= FLING_LOOP_MAX_SEC
 end
 
---- After a successful loop fling, wait until the victim dies/respawns (or caps) before the next fling.
+--- Between loop flings: retry fast on miss; on hit, short pause if still alive or wait for respawn if dead.
 local function waitAfterLoopFling(target, gen, loopBegan, hadSuccess)
     if not target or not target.Parent then return end
     if flingLoopTimedOut(loopBegan) then return end
     if not hadSuccess then
-        local t0 = tick()
-        while tick() - t0 < 0.75 and gen == flingLoopGen and flingLoopActive and not flingLoopTimedOut(loopBegan) do
-            task.wait(0.05)
-        end
+        task.wait(0.55)
         return
     end
-    task.wait(0.4)
-    local phase0 = tick()
-    while gen == flingLoopGen and flingLoopActive and session.active and not flingLoopTimedOut(loopBegan) do
-        if not target.Parent then return end
-        if not isAlive(target) then break end
-        if tick() - phase0 > 50 then break end
-        task.wait(0.1)
+    task.wait(0.35)
+    if not isAlive(target) then
+        local t0 = tick()
+        while gen == flingLoopGen and flingLoopActive and session.active and not flingLoopTimedOut(loopBegan) do
+            if not target.Parent then return end
+            if isAlive(target) and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+                break
+            end
+            if tick() - t0 > 40 then break end
+            task.wait(0.12)
+        end
+        task.wait(0.25)
+    else
+        task.wait(0.85)
     end
-    while gen == flingLoopGen and flingLoopActive and session.active and not flingLoopTimedOut(loopBegan) do
-        if not target.Parent then return end
-        if isAlive(target) and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then break end
-        if tick() - phase0 > 95 then break end
-        task.wait(0.1)
-    end
-    task.wait(0.25)
 end
 
 local function runFlingLoop(mode, playerQuery, gen, continuousLoop)
@@ -825,26 +828,39 @@ local function runFlingLoop(mode, playerQuery, gen, continuousLoop)
                 cancelFlingWork()
                 return
             end
-            local targets = collectTargets()
-            if #targets == 0 then
-                task.wait(0.75)
+            if not isAlive(me) then
+                task.wait(0.5)
             else
-                for _, tgt in ipairs(targets) do
-                    if gen ~= flingLoopGen or not flingLoopActive or flingLoopTimedOut(loopBegan) then break end
-                    if mode == "player" and not loopTargetUserId and tgt.UserId then
-                        loopTargetUserId = tgt.UserId
-                    end
-                    if isAlive(tgt) and isAlive(me) then
-                        local lastOk = false
-                        fling(tgt, function(ok)
-                            lastOk = ok
-                        end)
-                        waitFlingDone(gen, 25)
-                        if gen ~= flingLoopGen or not flingLoopActive then break end
-                        waitAfterLoopFling(tgt, gen, loopBegan, lastOk)
+                local targets = collectTargets()
+                if #targets == 0 then
+                    task.wait(0.6)
+                else
+                    for _, tgt in ipairs(targets) do
+                        if gen ~= flingLoopGen or not flingLoopActive or flingLoopTimedOut(loopBegan) then break end
+                        if mode == "player" and not loopTargetUserId and tgt.UserId then
+                            loopTargetUserId = tgt.UserId
+                        end
+                        if isAlive(tgt) then
+                            local lastOk = false
+                            fling(tgt, function(ok)
+                                lastOk = ok
+                            end)
+                            waitFlingDone(gen, 25)
+                            if gen ~= flingLoopGen or not flingLoopActive then break end
+                            waitAfterLoopFling(tgt, gen, loopBegan, lastOk)
+                        elseif mode == "player" and loopTargetUserId then
+                            task.wait(0.45)
+                        end
                     end
                 end
             end
+            if gen == flingLoopGen and flingLoopActive then
+                task.wait(0.15)
+            end
+        end
+        if gen == flingLoopGen then
+            flingLoopActive = false
+            flingLoopContinuous = false
         end
     end)
 end
@@ -912,6 +928,10 @@ local function handleCommand(p, msg)
         return
     end
     if not session.ownerId or p.UserId ~= session.ownerId then return end
+    if flingLoopContinuous and cmd ~= "fling" then
+        whisper('You need to toggle off fling loop using "!fling"')
+        return
+    end
     if cmd == "fling" then
         local raw = restOfChatArgs(args)
         local trimmed = (raw:match("^%s*(.-)%s*$") or "")
@@ -923,12 +943,17 @@ local function handleCommand(p, msg)
         end
         local q = (work:match("^%s*(.-)%s*$") or ""):lower()
         if q == "" then
-            if flingLoopActive or flingActive then
+            if flingLoopActive or flingActive or flingSettling then
                 cancelFlingWork()
                 whisper("Fling loop stopped.")
                 return
             end
             whisper("!fling all | sheriff | murder | <name> — add loop to repeat. !fling alone stops (5 min max).")
+            return
+        end
+
+        if flingLoopContinuous then
+            whisper('You need to toggle off fling loop using "!fling"')
             return
         end
 
@@ -953,6 +978,7 @@ local function handleCommand(p, msg)
         flingLoopActive = true
 
         local loopArg = continuousLoop and mode ~= "all"
+        flingLoopContinuous = loopArg
         runFlingLoop(mode, playerQuery, gen, loopArg)
         if mode == "all" then
             whisper("Flinging everyone (one pass).")
@@ -1386,7 +1412,7 @@ while session.active and gui.Parent do
     end
 
     local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or findOwner()
-    if toggleGun and not botM and not ownerIsMurd and not gunDelivered and not _G.MM_GunBusy and me.Character
+    if toggleGun and not flingLoopContinuous and not botM and not ownerIsMurd and not gunDelivered and not _G.MM_GunBusy and me.Character
        and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt
        and gunTarget and gunTarget ~= me and isAlive(gunTarget)
        and (botHasGun() or findDroppedGun()) then
@@ -1395,7 +1421,7 @@ while session.active and gui.Parent do
         task.spawn(function() bringGun(gunTarget); task.wait(3); _G.MM_GunBusy = false end)
     end
 
-    if toggleShoot and session.ownerId and not flingActive and not flingLoopActive
+    if toggleShoot and session.ownerId and not flingActive and not flingLoopActive and not flingLoopContinuous
         and not _G.MM_GunBusy and (tick() - lastToggleShootTry) >= 2.25
         and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt
         and not botM and not ownerIsMurd and m and m ~= me and isAlive(m) and isAlive(me)
