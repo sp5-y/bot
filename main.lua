@@ -26,10 +26,12 @@ local coinFarmActive = false
 local coinFarmGen = 0
 local coinFarmVisited = {}
 local coinFarmNoclipConn = nil
+local coinFarmLaneY = nil
 local COIN_FLY_SPEED = 55
 local COIN_SEARCH_RANGE = 400
-local COIN_FARM_BURY_DEPTH = 14
+local COIN_LANE_BELOW = 3.5
 local COIN_HEAD_OFFSET = 1.5
+local COIN_MAGNET_RANGE = 120
 local PING_MIN_MS, PING_MAX_MS = 50, 90
 local G = getgenv and getgenv() or _G
 G.MM_HopState = G.MM_HopState or {pingSearchActive = false}
@@ -643,22 +645,35 @@ local function flyToPosition(pos, speed)
     tweenTo(CFrame.new(pos), dur)
 end
 
-local function farmBuriedPos(worldPos)
-    return Vector3.new(worldPos.X, worldPos.Y - COIN_FARM_BURY_DEPTH, worldPos.Z)
+local function horizontalDist(a, b)
+    return (Vector3.new(a.X, 0, a.Z) - Vector3.new(b.X, 0, b.Z)).Magnitude
 end
 
-local function farmCollectCFrame(h)
-    local char = me.Character
-    local head = char and char:FindFirstChild("Head")
-    if head then return head.CFrame end
-    return h.CFrame * CFrame.new(0, COIN_HEAD_OFFSET, 0)
+local function ensureFarmLaneY(coinY)
+    if coinFarmLaneY then return coinFarmLaneY end
+    if coinY then
+        coinFarmLaneY = coinY - COIN_LANE_BELOW
+    elseif SPAWN_CFRAME then
+        coinFarmLaneY = SPAWN_CFRAME.Position.Y - 6
+    end
+    return coinFarmLaneY
+end
+
+local function farmMovePos(coinPos)
+    local laneY = ensureFarmLaneY(coinPos.Y) or coinPos.Y - COIN_LANE_BELOW
+    return Vector3.new(coinPos.X, laneY, coinPos.Z)
+end
+
+local function farmPickupAt(coinPos)
+    local laneY = ensureFarmLaneY(coinPos.Y) or (coinPos.Y - COIN_LANE_BELOW)
+    return CFrame.new(coinPos.X, laneY + COIN_HEAD_OFFSET, coinPos.Z)
 end
 
 local function findNearestFarmCoin(h)
     local closest, shortest = nil, math.huge
     for _, obj in ipairs(workspace:GetDescendants()) do
         if isFarmCoinPart(obj) and not coinFarmVisited[obj] then
-            local dist = (obj.Position - h.Position).Magnitude
+            local dist = horizontalDist(obj.Position, h.Position)
             if dist < shortest and dist < COIN_SEARCH_RANGE then
                 closest = obj
                 shortest = dist
@@ -670,10 +685,11 @@ end
 
 local function magnetNearbyFarmCoins(h)
     if not h then return end
-    local collectCf = farmCollectCFrame(h)
+    local laneY = coinFarmLaneY or h.Position.Y
+    local pickY = laneY + COIN_HEAD_OFFSET
     for _, v in ipairs(workspace:GetDescendants()) do
-        if isFarmCoinPart(v) and (v.Position - h.Position).Magnitude < COIN_SEARCH_RANGE then
-            pcall(function() v.CFrame = collectCf end)
+        if isFarmCoinPart(v) and horizontalDist(v.Position, h.Position) < COIN_MAGNET_RANGE then
+            pcall(function() v.CFrame = CFrame.new(v.Position.X, pickY, v.Position.Z) end)
         end
     end
 end
@@ -687,12 +703,19 @@ local function collectFarmCoinStep(gen)
         magnetNearbyFarmCoins(h)
         return false
     end
-    flyToPosition(farmBuriedPos(closest.Position), COIN_FLY_SPEED)
+    local coinPos = closest.Position
+    ensureFarmLaneY(coinPos.Y)
+    local target = farmMovePos(coinPos)
+    if horizontalDist(h.Position, coinPos) > 10 then
+        flyToPosition(target, COIN_FLY_SPEED)
+    else
+        zeroVel(h)
+        h.CFrame = CFrame.new(target)
+    end
     if gen ~= coinFarmGen or session.ownerId then return false end
     h = hrp()
-    if not h then return false end
-    if closest.Parent and closest:IsDescendantOf(workspace) then
-        pcall(function() closest.CFrame = farmCollectCFrame(h) end)
+    if closest.Parent and closest:IsDescendantOf(workspace) and h then
+        pcall(function() closest.CFrame = farmPickupAt(coinPos) end)
         coinFarmVisited[closest] = true
         return true
     end
@@ -726,12 +749,14 @@ end
 local function runCoinFarmLoop(gen)
     coinFarmActive = true
     coinFarmVisited = {}
+    coinFarmLaneY = nil
     local maxCoins = getCoinBagMax()
     log("coin farm on (bag max " .. maxCoins .. ")")
     startCoinFarmNoclip(gen)
     local charConn = me.CharacterAdded:Connect(function()
         if gen == coinFarmGen and coinFarmActive then
             coinFarmVisited = {}
+            coinFarmLaneY = nil
         end
     end)
     local noCoinStreak = 0
@@ -741,6 +766,7 @@ local function runCoinFarmLoop(gen)
             log("coin bag full (" .. count .. ") -> reset")
             reset()
             coinFarmVisited = {}
+            coinFarmLaneY = nil
             local t0 = tick()
             while tick() - t0 < 10 and not hrp() do task.wait(0.1) end
             task.wait(0.5)
