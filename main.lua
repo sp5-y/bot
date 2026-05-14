@@ -906,7 +906,7 @@ local function runFlingLoop(mode, playerQuery, gen, continuousLoop)
         local loopBegan = tick()
         while session.active and gen == flingLoopGen and flingLoopActive do
             if flingLoopTimedOut(loopBegan) then
-                whisper("Fling loop timed out.")
+                whisper("Fling loop stopped.")
                 cancelFlingWork()
                 return
             end
@@ -950,13 +950,12 @@ end
 --[[ Follow ]]--
 local followTarget = nil
 
---[[ Round / where ]]--
+--[[ Round ]]--
 local function isRoundActive()
     return findHolder({"Knife"}) or findHolder({"Gun", "Revolver"})
         or botHasKnife() or botHasGun()
 end
 
---- Everyone alive in server except the bot (owner included if alive).
 local function getAliveExcludingBot()
     local list = {}
     for _, pl in ipairs(Players:GetPlayers()) do
@@ -967,52 +966,11 @@ local function getAliveExcludingBot()
     return list
 end
 
---- No owner: only the murderer and bot are still alive.
 local function isOnlyMurdererLeftWithBot(murderer)
     if not murderer or botHasKnife() then return false end
     if not isAlive(me) or not isAlive(murderer) then return false end
     local alive = getAliveExcludingBot()
     return #alive == 1 and alive[1].UserId == murderer.UserId
-end
-
-local whereGen = 0
-local whereActive = false
-local WHERE_MAX_SEC = 180
-
-local function cancelWhere()
-    whereGen = whereGen + 1
-    whereActive = false
-end
-
-local function runWhereTracker(gen, target)
-    task.spawn(function()
-        local uid = target.UserId
-        local began = tick()
-        while session.active and gen == whereGen and whereActive do
-            if tick() - began >= WHERE_MAX_SEC then
-                whisper("Tracking timed out.")
-                break
-            end
-            local pl = Players:GetPlayerByUserId(uid)
-            if not pl or not isAlive(pl) then
-                whisper(shortName(target) .. " is out.")
-                break
-            end
-            local mh = hrp()
-            local th = pl.Character and pl.Character:FindFirstChild("HumanoidRootPart")
-            if mh and th then
-                whisper(math.floor((mh.Position - th.Position).Magnitude + 0.5) .. " studs away.")
-            end
-            local t0 = tick()
-            while tick() - t0 < 5 and gen == whereGen and whereActive and session.active do
-                if tick() - began >= WHERE_MAX_SEC then break end
-                local cur = Players:GetPlayerByUserId(uid)
-                if not cur or not isAlive(cur) then break end
-                task.wait(0.2)
-            end
-        end
-        if gen == whereGen then whereActive = false end
-    end)
 end
 
 local function startFollowLoop()
@@ -1034,7 +992,6 @@ local COMMAND_HELP = {
     owner = "Claim control of the bot",
     dethrone = "Release owner control",
     who = "Show current murderer and sheriff",
-    where = "<player> - Distance every 5s until they die, !where alone to stop",
     shoot = "<player> - Pick up gun if needed and try to shoot a player",
     toggleshoot = "Toggle auto-shooting the murderer when you have the gun",
     togglewho = "Toggle automatic role callout each round",
@@ -1053,12 +1010,11 @@ local COMMAND_HELP = {
     help = "<cmd> - Show command list or explain one command",
 }
 local HELP_ORDER = {
-    "owner", "dethrone", "tp", "who", "where", "shoot", "toggleshoot", "gun", "fling", "togglegun", "togglewho", "togglealerts",
+    "owner", "dethrone", "tp", "who", "shoot", "toggleshoot", "gun", "fling", "togglegun", "togglewho", "togglealerts",
     "reset", "follow", "unfollow", "chat", "help",
 }
 local function sendFullHelp(target)
-    whisper("Type !help <command> for details.", target)
-    task.wait(0.3)
+    whisper("Use !help <command> for what a command does.", target)
     local parts = {}
     for _, key in ipairs(HELP_ORDER) do
         table.insert(parts, "!" .. key)
@@ -1098,7 +1054,7 @@ local function handleCommand(p, msg)
                 whisper("Fling loop stopped.")
                 return
             end
-            whisper("!fling all | sheriff | murder | <name> — add loop to repeat, !fling alone stops.")
+            whisper("!fling all | sheriff | murder | <name> — add loop to repeat. !fling alone stops.")
             return
         end
 
@@ -1131,12 +1087,12 @@ local function handleCommand(p, msg)
         flingLoopContinuous = loopArg
         runFlingLoop(mode, playerQuery, gen, loopArg)
         if mode == "all" then
-            whisper("Flinging all.")
+            whisper("Flinging everyone.")
         elseif loopArg then
             local label = mode == "player" and work or mode
-            whisper("Say !fling to stop the loop.")
+            whisper("Say !fling alone to stop the loop.")
             task.wait(0.3)
-            whisper("Looping: " .. label)
+            whisper("Looping on: " .. label)
         else
             whisper("Flinging " .. (mode == "player" and work or mode) .. ".")
         end
@@ -1145,7 +1101,6 @@ local function handleCommand(p, msg)
     local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
     local ownerIsMurd = session.ownerId and m and not botHasKnife() and m.UserId == session.ownerId
     if cmd == "dethrone" then
-        cancelWhere()
         if p.Name:lower() == FRAUD_NAME then fraudOptedOut = true end
         session.ownerId = nil
         toggleGun, toggleShoot, toggleAlerts, toggleWho = false, false, false, true
@@ -1162,27 +1117,6 @@ local function handleCommand(p, msg)
         whisper("Murderer: " .. mL)
         task.wait(0.3)
         whisper("Sheriff: " .. sL)
-    elseif cmd == "where" then
-        local q = restOfChatArgs(args)
-        local trimmed = (q:match("^%s*(.-)%s*$") or "")
-        if trimmed == "" then
-            if whereActive then
-                cancelWhere()
-                whisper("Tracking stopped.")
-            else
-                whisper("!where <player>")
-            end
-            return
-        end
-        local target = findOtherPlayer(trimmed) or findPlayer(trimmed)
-        if not target then
-            whisper("Player not found.")
-            return
-        end
-        cancelWhere()
-        whereGen = whereGen + 1
-        whereActive = true
-        runWhereTracker(whereGen, target)
     elseif cmd == "tp" then
         local t = findPlayer(args[2]) or findOwner()
         if not t then whisper("Player not found.") return end
@@ -1328,7 +1262,6 @@ for _, p in ipairs(Players:GetPlayers()) do hookSpeaker(p) end
 Players.PlayerAdded:Connect(hookSpeaker)
 Players.PlayerRemoving:Connect(function(p)
     if session.ownerId and p.UserId == session.ownerId then
-        cancelWhere()
         session.ownerId = nil
         toggleGun, toggleShoot, toggleAlerts, toggleWho = false, false, false, true
         gunTargetId, gunDelivered = nil, false
@@ -1375,20 +1308,13 @@ task.spawn(function()
             local owner = Players:GetPlayerByUserId(session.ownerId)
             log("new owner: " .. (owner and owner.DisplayName or "nil"))
             if owner then
-                local target = owner
                 local targetId = owner.UserId
                 task.spawn(function()
                     task.wait(2)
                     if session.ownerId ~= targetId then return end
-                    whisper("Loading new owner.", target)
-                    task.wait(0.3)
-                    whisper("Type !help <command> for details.", target)
-                    task.wait(0.3)
-                    local parts = {}
-                    for _, key in ipairs(HELP_ORDER) do
-                        table.insert(parts, "!" .. key)
-                    end
-                    whisper(table.concat(parts, " "), target)
+                    whisper("Loading new owner...", owner)
+                    task.wait(0.35)
+                    sendFullHelp(owner)
                 end)
             end
         elseif not session.ownerId then
