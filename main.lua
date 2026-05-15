@@ -166,8 +166,7 @@ local function findPlayer(q)
 end
 local function findOwner()
     if not session.ownerId then return end
-    local p = Players:GetPlayerByUserId(session.ownerId)
-    if p and p ~= me then return p end
+    return Players:GetPlayerByUserId(session.ownerId)
 end
 local function shortName(p) return p.Name:sub(1, 4) .. "..." end
 local function restOfChatArgs(args)
@@ -1374,6 +1373,12 @@ Players.PlayerRemoving:Connect(function(p)
         sendChat("Owner left — type !owner to claim")
     end
 end)
+
+-- Executor becomes owner if nobody else claimed (e.g. fraud auto-claim); same onboarding as !owner
+if not session.ownerId then
+    session.ownerId = me.UserId
+    scheduleOwnerOnboarding(me.UserId)
+end
 
 task.spawn(function()
     local joinedAt = tick()
