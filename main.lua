@@ -1586,8 +1586,8 @@ while session.active and gui.Parent do
             task.wait(1.5)
             local _, curS, curBotM = resolveRoleSnapshot(1.2)
             if botM then
-                if owner and not curBotM and curS and owner.UserId == curS.UserId then
-                    for i = 1, 3 do tpTo(owner); task.wait(0.6) end
+                if session.ownerId and owner and not curBotM and curS and owner.UserId == curS.UserId then
+                    for i = 1, 3 do tpHome(); task.wait(0.6) end
                 end
             else
                 for i = 1, 3 do tpHome(); task.wait(0.6) end
@@ -1614,12 +1614,7 @@ while session.active and gui.Parent do
             roleAnnounceUnlockAt = tick() + 1.25
             whoAnnouncePending = false
             task.wait(1)
-            local curOwner = findOwner()
-            local _, curSN, curBotM = resolveRoleSnapshot(0.8)
-            local goingToOwner = curBotM and curOwner and curSN and curOwner.UserId == curSN.UserId
-            if not goingToOwner then
-                for i = 1, 3 do tpHome(); task.wait(0.5) end
-            end
+            for i = 1, 3 do tpHome(); task.wait(0.5) end
         end)
     elseif not roundActive then
         announced, gunDelivered, aloneMurderWinDone, whoAnnouncePending = false, false, false, false
