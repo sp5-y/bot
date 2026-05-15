@@ -474,7 +474,7 @@ local function flingApproachLead(root, hum)
     return vh.Unit * math.min(snap + ahead, 18)
 end
 
-local SHOOT_PREDICT_SEC = 0.24
+local SHOOT_PREDICT_SEC = 0.16
 local function shootPredictLead(root, hum, lastPos, lastT)
     if not root then return Vector3.zero end
     local v = root.AssemblyLinearVelocity
@@ -514,26 +514,9 @@ local function getShootAim(target, lastPos, lastT)
     local thum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
     if not th then return end
     local lead = shootPredictLead(th, thum, lastPos, lastT)
-    local v = th.Velocity
-    local vy = math.clamp(v.Y, -18, 22)
-    local aimPoint = th.Position + Vector3.new(0, 1.35, 0) + lead + Vector3.new(0, vy * 0.1, 0)
-    local flatLead = Vector3.new(lead.X, 0, lead.Z)
-    local mh = hrp()
-    local behind
-    if flatLead.Magnitude > 0.12 then
-        behind = -flatLead.Unit
-    else
-        behind = -Vector3.new(th.CFrame.LookVector.X, 0, th.CFrame.LookVector.Z)
-        if behind.Magnitude < 0.05 then behind = Vector3.new(0, 0, 1) else behind = behind.Unit end
-    end
-    local shootFrom = aimPoint + behind * 3.2 + Vector3.new(0, 0.85, 0)
-    if mh then
-        local blend = (aimPoint - mh.Position)
-        if blend.Magnitude > 0.5 then
-            shootFrom = aimPoint - blend.Unit * math.min(4, blend.Magnitude * 0.45)
-        end
-    end
-    return aimPoint, shootFrom, th.Position
+    local aimPoint = th.Position + Vector3.new(0, 1.25, 0) + lead
+    local above = aimPoint + Vector3.new(0, 16, 0)
+    return aimPoint, above, th.Position
 end
 
 local function isAlive(p)
@@ -598,7 +581,6 @@ local function dropGunAt(target)
     return true
 end
 local function bringGun(target)
-    stopFollow()
     target = target or findOwner()
     if not isAlive(target) then return end
     if botHasGun() then dropGunAt(target); return end
@@ -646,18 +628,6 @@ local function equipTool(tool)
     end
     return tool and tool.Parent == me.Character
 end
-
---- Teleport above target so the gun has a clear downward shot (MM2-style range).
-local function tpAboveForShoot(target)
-    local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-    local mh = hrp()
-    if not (th and mh and isAlive(target) and isAlive(me)) then return end
-    local aimAt = th.Position + Vector3.new(0, 1.25, 0)
-    local above = th.Position + Vector3.new(0, 16, 0)
-    zeroVel(mh)
-    mh.CFrame = CFrame.new(above, aimAt)
-    zeroVel(mh)
-end
 local function clickFire(x, y)
     if not VIM then return end
     x = tonumber(x) or 0
@@ -678,56 +648,47 @@ local function shootTarget(target)
     if not gun then return false, "No gun available" end
     if not equipTool(gun) then return false, "No gun available" end
     stopFollow()
-    local startHum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
-    local startHealth = startHum and startHum.Health or nil
+    local startHealth = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
+    startHealth = startHealth and startHealth.Health or nil
+    local fired = false
     local lastPos, lastT
-    local t0 = tick()
-    local maxT = 38
-    local sn = shortName(target)
-    while tick() - t0 < maxT and session.active do
-        if not isAlive(target) then
-            return true, "Shot " .. sn
-        end
-        if not isAlive(me) then
-            return false, "Player not found"
-        end
-        if not botHasGun() and not pickUpDroppedGun() then
-            task.wait(0.12)
-            if not botHasGun() then return false, "No gun available" end
-        end
-        gun = getHeldTool(me, {"Gun", "Revolver"})
-        if gun and equipTool(gun) then
-            tpAboveForShoot(target)
-            local mh = hrp()
-            local aimPoint, shootFrom, curPos = getShootAim(target, lastPos, lastT)
-            if mh and aimPoint and shootFrom then
-                if curPos then lastPos, lastT = curPos, tick() end
-                local lookCf = CFrame.new(shootFrom, aimPoint)
-                zeroVel(mh)
-                mh.CFrame = lookCf
-                zeroVel(mh)
-                local mouseX, mouseY = cam.ViewportSize.X * 0.5, cam.ViewportSize.Y * 0.45
-                pcall(function()
-                    cam.CFrame = lookCf
-                    local sp = cam:WorldToViewportPoint(aimPoint)
-                    if sp.Z > 0 then
-                        mouseX, mouseY = sp.X, sp.Y
-                    end
-                end)
-                for _ = 1, 4 do
-                    pcall(function() gun:Activate() end)
-                    clickFire(mouseX, mouseY)
-                    task.wait(0.03)
-                end
-                local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
-                if hum and startHealth and hum.Health < startHealth then
-                    return true, "Shot " .. sn
-                end
+    for _ = 1, 22 do
+        if not isAlive(target) or not isAlive(me) then break end
+        local mh = hrp()
+        local aimPoint, abovePos, curPos = getShootAim(target, lastPos, lastT)
+        if not (mh and aimPoint and abovePos) then break end
+        if curPos then lastPos, lastT = curPos, tick() end
+        local lookCf = CFrame.new(abovePos, aimPoint)
+        zeroVel(mh)
+        mh.CFrame = lookCf
+        zeroVel(mh)
+        local mouseX, mouseY = cam.ViewportSize.X * 0.5, cam.ViewportSize.Y * 0.45
+        pcall(function()
+            cam.CFrame = lookCf
+            local sp = cam:WorldToViewportPoint(aimPoint)
+            if sp.Z > 0 then
+                mouseX, mouseY = sp.X, sp.Y
             end
+        end)
+        pcall(function() gun:Activate() end)
+        clickFire(mouseX, mouseY)
+        task.wait(0.06)
+        pcall(function() gun:Activate() end)
+        clickFire(mouseX, mouseY)
+        fired = true
+        local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
+        if hum and startHealth and hum.Health < startHealth then
+            return true, "Shot " .. shortName(target)
         end
-        task.wait(0.07)
+        if not isAlive(target) then
+            return true, "Shot " .. shortName(target)
+        end
+        task.wait(0.1)
     end
-    return true, "Shot " .. sn
+    if fired then
+        return true, "Shot " .. shortName(target)
+    end
+    return false, "No gun available"
 end
 
 --[[ Fling ]]--
@@ -781,7 +742,6 @@ local function fling(target, onDone)
         if onDoneFn then onDoneFn(false) end
         return
     end
-    stopFollow()
     flingActive = true
     log("flinging " .. target.DisplayName)
     task.spawn(function()
@@ -954,16 +914,16 @@ local function runFlingLoop(mode, playerQuery, gen, continuousLoop)
                 cancelFlingWork()
                 return
             end
+            if mode == "player" and loopTargetUserId and not Players:GetPlayerByUserId(loopTargetUserId) then
+                whisper("Fling target left")
+                cancelFlingWork()
+                return
+            end
             if not isAlive(me) then
                 task.wait(0.5)
             else
                 local targets = collectTargets()
                 if #targets == 0 then
-                    if mode == "player" and loopTargetUserId and not Players:GetPlayerByUserId(loopTargetUserId) then
-                        whisper("Fling loop stopped")
-                        cancelFlingWork()
-                        return
-                    end
                     task.wait(0.6)
                 else
                     for _, tgt in ipairs(targets) do
@@ -996,7 +956,7 @@ local function runFlingLoop(mode, playerQuery, gen, continuousLoop)
     end)
 end
 
---[[ Follow ]]--
+--[[ Follow ]]-- (followTarget / stopFollow are under Movement)
 
 --[[ Round ]]--
 local function isRoundActive()
@@ -1023,14 +983,9 @@ end
 
 local function startFollowLoop()
     task.spawn(function()
-        local jumpTrackUid, targetWasJumping = nil, false
         while followTarget and session.active do
             local target = followTarget
             if target and isAlive(target) and isAlive(me) then
-                if target.UserId ~= jumpTrackUid then
-                    jumpTrackUid = target.UserId
-                    targetWasJumping = false
-                end
                 local thrp = target.Character:FindFirstChild("HumanoidRootPart")
                 local thum = target.Character:FindFirstChildOfClass("Humanoid")
                 local hum = me.Character:FindFirstChildOfClass("Humanoid")
@@ -1038,15 +993,14 @@ local function startFollowLoop()
                     hum:MoveTo(thrp.Position)
                     if thum then
                         local st = thum:GetState()
-                        local nowJump = (st == Enum.HumanoidStateType.Jumping)
-                        if nowJump and not targetWasJumping then
-                            pcall(function() hum:ChangeState(Enum.HumanoidStateType.Jumping) end)
+                        local j = st == Enum.HumanoidStateType.Jumping or st == Enum.HumanoidStateType.Freefall
+                        if j or thrp.Velocity.Y > 10 then
+                            hum.Jump = true
                         end
-                        targetWasJumping = nowJump
                     end
                 end
             end
-            task.wait(0.1)
+            task.wait(0.12)
         end
     end)
 end
@@ -1056,7 +1010,7 @@ local COMMAND_HELP = {
     owner = "Claim control of the bot",
     dethrone = "Release owner control",
     who = "Show current murderer and sheriff",
-    shoot = "<player> - Pick up gun if needed and try to shoot a player",
+    shoot = "<player> - Pick up gun if needed and shoot a player",
     toggleshoot = "Toggle auto-shooting the murderer when you have the gun",
     togglewho = "Toggle automatic role callout each round",
     togglealerts = "Toggle kill/drop/pickup alerts",
@@ -1142,7 +1096,7 @@ local function handleCommand(p, msg)
                 whisper("Fling loop stopped")
                 return
             end
-            whisper("!fling all | sheriff | murder | <name> — add loop to repeat. !fling alone stops")
+            whisper("!fling all | sheriff | murder | <name> — add loop to repeat, !fling alone stops")
             return
         end
 
@@ -1168,7 +1122,7 @@ local function handleCommand(p, msg)
 
         if mode == "player" then
             if not findOtherPlayer(work) then
-                whisper("Could not find player " .. work)
+                whisper("Could not find player: " .. work)
                 return
             end
         end
@@ -1200,7 +1154,7 @@ local function handleCommand(p, msg)
         session.ownerId = nil
         toggleGun, toggleShoot, toggleAlerts, toggleWho = false, false, false, true
         gunTargetId, gunDelivered = nil, false
-        sendChat("Owner released. Type !owner to claim")
+        sendChat("Owner released — type !owner to claim")
         return
     elseif cmd == "chat" then
         sendChat(rest)
@@ -1298,7 +1252,7 @@ local function handleCommand(p, msg)
     elseif cmd == "unfollow" then
         if not followTarget then whisper("Not following anyone") return end
         local name = shortName(followTarget)
-        stopFollow()
+        followTarget = nil
         whisper("Unfollowed " .. name)
     elseif cmd == "help" then
         local tail = restOfChatArgs(args)
@@ -1310,7 +1264,7 @@ local function handleCommand(p, msg)
         if helpCmd ~= "" and COMMAND_HELP[helpCmd] then
             whisper("!" .. helpCmd .. ": " .. COMMAND_HELP[helpCmd])
         elseif helpCmd ~= "" then
-            whisper("No help for !" .. helpCmd .. ". Use !help for the list")
+            whisper("No help for !" .. helpCmd .. " — use !help for the list")
         else
             sendFullHelp()
         end
@@ -1367,7 +1321,7 @@ Players.PlayerRemoving:Connect(function(p)
         session.ownerId = nil
         toggleGun, toggleShoot, toggleAlerts, toggleWho = false, false, false, true
         gunTargetId, gunDelivered = nil, false
-        sendChat("Owner left. Type !owner to claim")
+        sendChat("Owner left — type !owner to claim")
     end
 end)
 
@@ -1417,7 +1371,7 @@ task.spawn(function()
                         return session.ownerId == targetId and Players:GetPlayerByUserId(targetId)
                     end
                     if not stillOwner() then return end
-                    whisper("Loading new owner...", owner)
+                    whisper("Loading new owner", owner)
                     task.wait(0.7)
                     if not stillOwner() then return end
                     sendFullHelp(Players:GetPlayerByUserId(targetId), 0.65)
@@ -1469,7 +1423,7 @@ task.spawn(function()
                     local prev = alivePrev[p.UserId]
                     if prev == true and cur == false then
                         if p.UserId == knifeIdPrev then
-                            whisper("Sheriff killed Murderer")
+                            whisper("Sheriff eliminated the murderer")
                             suppressDrop = true
                         elseif p.UserId == gunIdPrev then
                             whisper("Murderer killed Sheriff")
