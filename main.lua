@@ -456,6 +456,7 @@ end
 
 local function hopServer(reason, continuePingSearch)
     if hopBusy then return false end
+    stopFollow()
     hopBusy = true
     if continuePingSearch then
         hopState.pingSearchActive = true
@@ -517,12 +518,14 @@ local function flingApproachLead(root, hum)
     return vh.Unit * math.min(snap + ahead, 18)
 end
 
-local function getShootAimSimple(target)
+-- Aim from a point above the target (gun hits rely on silent-aim hook; proximity matters).
+local function getShootAimFromAbove(target)
     local th = target.Character and (target.Character.PrimaryPart or target.Character:FindFirstChild("HumanoidRootPart"))
     local mh = hrp()
     if not (th and mh) then return end
     local aimPoint = th.Position + Vector3.new(0, 1.2, 0)
-    local shootFrom = mh.Position + Vector3.new(0, 1.5, 0)
+    local yAbove = math.clamp(5 + th.Size.Y * 0.5, 6, 14)
+    local shootFrom = Vector3.new(th.Position.X, th.Position.Y + yAbove, th.Position.Z)
     return aimPoint, shootFrom
 end
 
@@ -542,7 +545,62 @@ local function zeroVel(h)
     h.Velocity = Vector3.zero
     h.RotVelocity = Vector3.zero
 end
-local function tpTo(p)
+
+--[[ Follow: declared before teleports so any TP can clear follow ]]--
+local followTarget = nil
+local followJumpConn, followCharConn = nil, nil
+
+local function stopFollow()
+    followTarget = nil
+    if followJumpConn then
+        followJumpConn:Disconnect()
+        followJumpConn = nil
+    end
+    if followCharConn then
+        followCharConn:Disconnect()
+        followCharConn = nil
+    end
+end
+
+local function bindFollowJump(target)
+    if followJumpConn then
+        followJumpConn:Disconnect()
+        followJumpConn = nil
+    end
+    if followCharConn then
+        followCharConn:Disconnect()
+        followCharConn = nil
+    end
+    if not target then return end
+    local function hookHumanoid(hum)
+        if followJumpConn then
+            followJumpConn:Disconnect()
+        end
+        followJumpConn = hum.StateChanged:Connect(function(_, new)
+            if followTarget ~= target then return end
+            if new == Enum.HumanoidStateType.Jumping then
+                local myh = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+                if myh and myh.Health > 0 then
+                    pcall(function() myh.Jump = true end)
+                end
+            end
+        end)
+    end
+    local function onCharacter(char)
+        if not char or followTarget ~= target then return end
+        local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 10)
+        if hum then hookHumanoid(hum) end
+    end
+    if target.Character then
+        onCharacter(target.Character)
+    end
+    followCharConn = target.CharacterAdded:Connect(onCharacter)
+end
+
+local function tpTo(p, opts)
+    if not (opts and opts.keepFollow) then
+        stopFollow()
+    end
     local h, t = hrp(), p and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
     if h and t then
         zeroVel(h)
@@ -551,6 +609,7 @@ local function tpTo(p)
     end
 end
 local function tpHome()
+    stopFollow()
     local h = hrp()
     if h and SPAWN_CFRAME then
         zeroVel(h)
@@ -559,6 +618,7 @@ local function tpHome()
     end
 end
 local function reset()
+    stopFollow()
     local char = me.Character
     if not char then return end
     local h = char:FindFirstChild("HumanoidRootPart")
@@ -575,6 +635,7 @@ local function reset()
     pcall(function() me:LoadCharacter() end)
 end
 local function dropGunAt(target)
+    stopFollow()
     if not isAlive(target) then return false end
     local h = hrp()
     local oh = target.Character:FindFirstChild("HumanoidRootPart")
@@ -652,7 +713,7 @@ local function shootTarget(target)
     if not equipTool(gun) then return false, "No gun available" end
     installShootSilentHook()
     G.MM_ShootSilentTarget = target
-    followTarget = nil
+    stopFollow()
     local startHum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
     local startHealth = startHum and startHum.Health or nil
     local t0 = tick()
@@ -673,12 +734,13 @@ local function shootTarget(target)
             gun = getHeldTool(me, {"Gun", "Revolver"})
             if gun and equipTool(gun) then
                 local mh = hrp()
-                local aimPoint, shootFrom = getShootAimSimple(target)
+                local aimPoint, shootFrom = getShootAimFromAbove(target)
                 if mh and aimPoint and shootFrom then
                     local lookCf = CFrame.new(shootFrom, aimPoint)
                     zeroVel(mh)
                     mh.CFrame = lookCf
                     zeroVel(mh)
+                    task.wait(0.06)
                     local mouseX, mouseY = cam.ViewportSize.X * 0.5, cam.ViewportSize.Y * 0.45
                     pcall(function()
                         cam.CFrame = lookCf
@@ -765,6 +827,7 @@ local function fling(target, onDone)
         if onDoneFn then onDoneFn(false) end
         return
     end
+    stopFollow()
     flingActive = true
     log("flinging " .. target.DisplayName)
     task.spawn(function()
@@ -987,9 +1050,6 @@ local function runFlingLoop(mode, playerQuery, gen, continuousLoop)
     end)
 end
 
---[[ Follow ]]--
-local followTarget = nil
-
 --[[ Round ]]--
 local function isRoundActive()
     return findHolder({"Knife"}) or findHolder({"Gun", "Revolver"})
@@ -1018,11 +1078,12 @@ local function startFollowLoop()
         while followTarget and session.active do
             local target = followTarget
             if target and isAlive(target) and isAlive(me) then
-                local thrp = target.Character:FindFirstChild("HumanoidRootPart")
-                local hum = me.Character:FindFirstChildOfClass("Humanoid")
+                local char = target.Character
+                local thrp = char and char:FindFirstChild("HumanoidRootPart")
+                local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
                 if thrp and hum then hum:MoveTo(thrp.Position) end
             end
-            task.wait(0.3)
+            task.wait(0.22)
         end
     end)
 end
@@ -1198,6 +1259,7 @@ local function handleCommand(p, msg)
     if cmd == "dethrone" then
         if p.Name:lower() == FRAUD_NAME then fraudOptedOut = true end
         session.ownerId = nil
+        stopFollow()
         toggleGun, toggleShoot, toggleAlerts, toggleWho = false, false, false, true
         gunTargetId, gunDelivered = nil, false
         sendChat("Owner released. Type !owner to claim")
@@ -1337,13 +1399,16 @@ local function handleCommand(p, msg)
         local wasActive = followTarget ~= nil
         local switching = followTarget ~= t
         followTarget = t
-        if switching then tpTo(t) end
+        bindFollowJump(t)
+        if switching then
+            tpTo(t, { keepFollow = true })
+        end
         whisper("Following " .. shortName(t))
         if not wasActive then startFollowLoop() end
     elseif cmd == "unfollow" then
         if not followTarget then whisper("Not following anyone") return end
         local name = shortName(followTarget)
-        followTarget = nil
+        stopFollow()
         whisper("Unfollowed " .. name)
     elseif cmd == "help" then
         local tail = restOfChatArgs(args)
@@ -1410,6 +1475,7 @@ Players.PlayerAdded:Connect(hookSpeaker)
 Players.PlayerRemoving:Connect(function(p)
     if session.ownerId and p.UserId == session.ownerId then
         session.ownerId = nil
+        stopFollow()
         toggleGun, toggleShoot, toggleAlerts, toggleWho = false, false, false, true
         gunTargetId, gunDelivered = nil, false
         sendChat("Owner left. Type !owner to claim")
