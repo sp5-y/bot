@@ -1033,16 +1033,33 @@ local HELP_ORDER = {
 }
 local function sendFullHelp(target, gapBetween)
     gapBetween = gapBetween or 0.5
-    local uid = target and target.UserId
+    local uid
+    if type(target) == "number" then
+        uid = target
+    elseif target and typeof(target) == "Instance" and target:IsA("Player") then
+        uid = target.UserId
+    end
     local function resolve()
         if uid then return Players:GetPlayerByUserId(uid) end
         return findOwner()
     end
-    local o = resolve()
+    local o
+    for _ = 1, 15 do
+        o = resolve()
+        if o then break end
+        task.wait(0.2)
+    end
     if not o then return end
     whisper("Use !help <command> for what a command does", o)
     if gapBetween > 0 then task.wait(gapBetween) end
     o = resolve()
+    if not o then
+        for _ = 1, 12 do
+            task.wait(0.15)
+            o = resolve()
+            if o then break end
+        end
+    end
     if not o then return end
     local parts = {}
     for _, key in ipairs(HELP_ORDER) do
@@ -1061,17 +1078,49 @@ local function sendFullHelp(target, gapBetween)
     whisper(table.concat(a, " "), o)
     if gapBetween > 0 then task.wait(gapBetween) end
     o = resolve()
+    if not o then
+        for _ = 1, 12 do
+            task.wait(0.15)
+            o = resolve()
+            if o then break end
+        end
+    end
     if o then whisper(table.concat(b, " "), o) end
 end
+
+local function scheduleOwnerOnboarding(userId)
+    task.spawn(function()
+        task.wait(2.4)
+        if session.ownerId ~= userId then return end
+        local o
+        for _ = 1, 20 do
+            if session.ownerId ~= userId then return end
+            o = Players:GetPlayerByUserId(userId)
+            if o then break end
+            task.wait(0.15)
+        end
+        if not o then return end
+        log("new owner: " .. o.DisplayName)
+        whisper("Loading new owner", o)
+        task.wait(1.0)
+        if session.ownerId ~= userId then return end
+        sendFullHelp(userId, 0.65)
+    end)
+end
+
 local function handleCommand(p, msg)
     if msg:sub(1, 1) ~= "!" then return end
     local args = msg:split(" ")
     local cmd, rest = args[1]:sub(2):lower(), msg:sub(#args[1] + 2)
     if cmd == "owner" then
         local isFraud = p.Name:lower() == FRAUD_NAME
+        local prevId = session.ownerId
         if not session.ownerId or isFraud or session.ownerId == p.UserId then
             session.ownerId = p.UserId
             if isFraud then fraudOptedOut = false end
+            if prevId ~= p.UserId then
+                scheduleOwnerOnboarding(p.UserId)
+            end
         end
         return
     end
@@ -1306,6 +1355,7 @@ local function tryAutoClaimFraud(p)
     if p == me then return end
     session.ownerId = p.UserId
     log("auto-claimed fraud as owner: " .. p.DisplayName)
+    scheduleOwnerOnboarding(p.UserId)
 end
 local function hookSpeaker(p)
     p.Chatted:Connect(function(msg)
@@ -1353,34 +1403,6 @@ task.spawn(function()
             end
         end
         task.wait(5)
-    end
-end)
-
-task.spawn(function()
-    local lastOwner = nil
-    while session.active do
-        if session.ownerId and session.ownerId ~= lastOwner then
-            lastOwner = session.ownerId
-            local owner = Players:GetPlayerByUserId(session.ownerId)
-            log("new owner: " .. (owner and owner.DisplayName or "nil"))
-            if owner then
-                local targetId = owner.UserId
-                task.spawn(function()
-                    task.wait(2.4)
-                    local function stillOwner()
-                        return session.ownerId == targetId and Players:GetPlayerByUserId(targetId)
-                    end
-                    if not stillOwner() then return end
-                    whisper("Loading new owner", owner)
-                    task.wait(0.7)
-                    if not stillOwner() then return end
-                    sendFullHelp(Players:GetPlayerByUserId(targetId), 0.65)
-                end)
-            end
-        elseif not session.ownerId then
-            lastOwner = nil
-        end
-        task.wait(0.5)
     end
 end)
 
