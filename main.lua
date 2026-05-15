@@ -42,20 +42,22 @@ local function installShootSilentHook()
         local old = mt.__namecall
         local function hookImpl(obj, ...)
             local method = getnamecall()
-            local args = { ... }
             local tgt = G.MM_ShootSilentTarget
             if method == "InvokeServer" and tostring(obj) == "ShootGun" and tgt and tgt.Parent then
-                local ch = tgt.Character
-                local pp = ch and (ch.PrimaryPart or ch:FindFirstChild("HumanoidRootPart"))
-                if pp then
-                    local vel = pp.AssemblyLinearVelocity
-                    local pred = vel / 40
-                    if math.abs(vel.Y) < 10 then
-                        args[2] = pp.Position + pred
+                local n = select("#", ...)
+                if n >= 2 then
+                    local ch = tgt.Character
+                    local pp = ch and (ch.PrimaryPart or ch:FindFirstChild("HumanoidRootPart"))
+                    if pp then
+                        local vel = pp.AssemblyLinearVelocity
+                        if math.abs(vel.Y) < 10 then
+                            local pred = vel / 40
+                            return old(obj, select(1, ...), pp.Position + pred, select(3, ...))
+                        end
                     end
                 end
             end
-            return old(obj, table.unpack(args))
+            return old(obj, ...)
         end
         setro(mt, false)
         mt.__namecall = getnc and getnc(hookImpl) or hookImpl
