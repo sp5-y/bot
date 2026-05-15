@@ -942,6 +942,19 @@ local function runFlingLoop(mode, playerQuery, gen, continuousLoop)
             else
                 local targets = collectTargets()
                 if #targets == 0 then
+                    if mode == "player" then
+                        local gone = false
+                        if loopTargetUserId then
+                            gone = Players:GetPlayerByUserId(loopTargetUserId) == nil
+                        else
+                            gone = findOtherPlayer(playerQuery) == nil
+                        end
+                        if gone then
+                            whisper("Fling loop stopped (player left)")
+                            cancelFlingWork()
+                            return
+                        end
+                    end
                     task.wait(0.6)
                 else
                     for _, tgt in ipairs(targets) do
