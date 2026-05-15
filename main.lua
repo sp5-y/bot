@@ -211,45 +211,6 @@ local function findOwner()
     if p and p ~= me then return p end
 end
 local function shortName(p) return p.Name:sub(1, 4) .. "..." end
-local function restOfChatArgs(args)
-    if not args or #args < 2 then return "" end
-    return (table.concat(args, " ", 2)):match("^%s*(.-)%s*$") or ""
-end
--- Like findPlayer but never the bot; prefers exact username/display match (matches bot.lua intent for combat targets).
-local function findOtherPlayer(q)
-    if not q or q == "" then return end
-    q = tostring(q):lower()
-    local exactN, exactD, best, bestScore
-    for _, pl in ipairs(Players:GetPlayers()) do
-        if pl ~= me then
-            local nl, dl = pl.Name:lower(), tostring(pl.DisplayName or ""):lower()
-            if nl == q then exactN = pl end
-            if dl == q then exactD = pl end
-            local i = nl:find(q, 1, true) or dl:find(q, 1, true)
-            if i then
-                local score = i + math.abs(#nl - #q)
-                if not bestScore or score < bestScore then best, bestScore = pl, score end
-            end
-        end
-    end
-    return exactN or exactD or best
-end
-local function couldNotFindPlayerMsg(query)
-    query = tostring(query or ""):match("^%s*(.-)%s*$") or ""
-    if query == "" then
-        return "Player not found"
-    end
-    return 'Could not find player "' .. query .. '"'
-end
-local function getHeldTool(p, names)
-    for _, container in ipairs({p.Character, p:FindFirstChildOfClass("Backpack")}) do
-        for _, c in ipairs(container and container:GetChildren() or {}) do
-            if c:IsA("Tool") and table.find(names, c.Name) then
-                return c
-            end
-        end
-    end
-end
 --[[ Chat / Whisper ]]--
 local function sendChat(msg)
     if not msg or msg == "" then return end
@@ -334,6 +295,46 @@ local function whisper(m, target)
             end
         end
     end)
+end
+
+local function restOfChatArgs(args)
+    if not args or #args < 2 then return "" end
+    return (table.concat(args, " ", 2)):match("^%s*(.-)%s*$") or ""
+end
+-- Like findPlayer but never the bot; prefers exact username/display match (matches bot.lua intent for combat targets).
+local function findOtherPlayer(q)
+    if not q or q == "" then return end
+    q = tostring(q):lower()
+    local exactN, exactD, best, bestScore
+    for _, pl in ipairs(Players:GetPlayers()) do
+        if pl ~= me then
+            local nl, dl = pl.Name:lower(), tostring(pl.DisplayName or ""):lower()
+            if nl == q then exactN = pl end
+            if dl == q then exactD = pl end
+            local i = nl:find(q, 1, true) or dl:find(q, 1, true)
+            if i then
+                local score = i + math.abs(#nl - #q)
+                if not bestScore or score < bestScore then best, bestScore = pl, score end
+            end
+        end
+    end
+    return exactN or exactD or best
+end
+local function couldNotFindPlayerMsg(query)
+    query = tostring(query or ""):match("^%s*(.-)%s*$") or ""
+    if query == "" then
+        return "Player not found"
+    end
+    return 'Could not find player "' .. query .. '"'
+end
+local function getHeldTool(p, names)
+    for _, container in ipairs({p.Character, p:FindFirstChildOfClass("Backpack")}) do
+        for _, c in ipairs(container and container:GetChildren() or {}) do
+            if c:IsA("Tool") and table.find(names, c.Name) then
+                return c
+            end
+        end
+    end
 end
 
 local hiddenChatEvent = nil
@@ -767,7 +768,7 @@ local function shootTarget(target)
     local out = {}
     local ok, err = pcall(function()
         out[1], out[2] = shootBody()
-    end)
+    end)    
     G.MM_ShootSilentTarget = nil
     if not ok then
         warn("[shootTarget] " .. tostring(err))
