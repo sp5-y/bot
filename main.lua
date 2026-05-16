@@ -513,14 +513,32 @@ local function shootPredictLead(root, hum, lastPos, lastT)
     return vh.Unit * math.min(snap + ahead, 14)
 end
 
-local function getShootAim(target, lastPos, lastT)
+local function getShootAimBehind(target, lastPos, lastT)
     local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
     local thum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
     if not th then return end
     local lead = shootPredictLead(th, thum, lastPos, lastT)
     local aimPoint = th.Position + Vector3.new(0, 1.25, 0) + lead
-    local above = aimPoint + Vector3.new(0, 16, 0)
-    return aimPoint, above, th.Position
+    local back = -th.CFrame.LookVector
+    local flat = Vector3.new(back.X, 0, back.Z)
+    if flat.Magnitude < 0.05 then
+        flat = Vector3.new(0, 0, 1)
+    else
+        flat = flat.Unit
+    end
+    local behindPos = th.Position + flat * 3.5 + Vector3.new(0, 1.1, 0)
+    return aimPoint, behindPos, th.Position
+end
+
+local function tpBehind(target)
+    stopFollow()
+    local mh = hrp()
+    local aimPoint, behindPos = getShootAimBehind(target)
+    if not (mh and aimPoint and behindPos) then return false end
+    zeroVel(mh)
+    mh.CFrame = CFrame.new(behindPos, aimPoint)
+    zeroVel(mh)
+    return true
 end
 
 local function isAlive(p)
@@ -644,25 +662,21 @@ local function clickFire(x, y)
         VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
     end)
 end
-local function shootTarget(target)
-    if target == me then return false, "Invalid target" end
-    if not isAlive(target) or not isAlive(me) then return false, "Player not found" end
-    if not botHasGun() and not pickUpDroppedGun() then return false, "No gun available" end
+local function quickShootBurst(target)
+    if not isAlive(target) or not isAlive(me) then return false end
+    if not botHasGun() and not pickUpDroppedGun() then return false end
     local gun = getHeldTool(me, {"Gun", "Revolver"})
-    if not gun then return false, "No gun available" end
-    if not equipTool(gun) then return false, "No gun available" end
+    if not gun or not equipTool(gun) then return false end
+    if not tpBehind(target) then return false end
     stopFollow()
-    local startHealth = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
-    startHealth = startHealth and startHealth.Health or nil
-    local fired = false
     local lastPos, lastT
-    for _ = 1, 22 do
+    for _ = 1, 5 do
         if not isAlive(target) or not isAlive(me) then break end
         local mh = hrp()
-        local aimPoint, abovePos, curPos = getShootAim(target, lastPos, lastT)
-        if not (mh and aimPoint and abovePos) then break end
+        local aimPoint, behindPos, curPos = getShootAimBehind(target, lastPos, lastT)
+        if not (mh and aimPoint and behindPos) then break end
         if curPos then lastPos, lastT = curPos, tick() end
-        local lookCf = CFrame.new(abovePos, aimPoint)
+        local lookCf = CFrame.new(behindPos, aimPoint)
         zeroVel(mh)
         mh.CFrame = lookCf
         zeroVel(mh)
@@ -676,23 +690,156 @@ local function shootTarget(target)
         end)
         pcall(function() gun:Activate() end)
         clickFire(mouseX, mouseY)
-        task.wait(0.06)
         pcall(function() gun:Activate() end)
         clickFire(mouseX, mouseY)
-        fired = true
-        local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
-        if hum and startHealth and hum.Health < startHealth then
-            return true, "Shot " .. shortName(target)
+        if not isAlive(target) then return true end
+        task.wait(0.02)
+    end
+    return true
+end
+
+local function shootTarget(target)
+    if target == me then return false, "Invalid target" end
+    if not isAlive(target) or not isAlive(me) then return false, "Player not found" end
+    while session.active and isAlive(target) and isAlive(me) do
+        if not botHasGun() and not pickUpDroppedGun() then
+            return false, "No gun available"
         end
+        quickShootBurst(target)
+        tpHome()
         if not isAlive(target) then
             return true, "Shot " .. shortName(target)
         end
-        task.wait(0.1)
+        task.wait(1)
     end
-    if fired then
+    if not isAlive(target) then
         return true, "Shot " .. shortName(target)
     end
-    return false, "No gun available"
+    return false, "Player not found"
+end
+
+--[[ Stab ]]--
+local stabActive = false
+
+local function getKnifeTool()
+    local k = getHeldTool(me, {"Knife"})
+    if k then return k end
+    for _, container in ipairs({me.Character, me:FindFirstChildOfClass("Backpack")}) do
+        for _, c in ipairs(container and container:GetChildren() or {}) do
+            if c:IsA("Tool") and c.Name == "Knife" then
+                return c
+            end
+        end
+    end
+end
+
+local function equipKnifeFast()
+    local knife = getKnifeTool()
+    if not knife then return false end
+    if knife.Parent == me.Character then return true end
+    local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+    if hum then pcall(function() hum:EquipTool(knife) end) end
+    task.wait(0.05)
+    return knife.Parent == me.Character
+end
+
+local function tpInFront(target)
+    stopFollow()
+    local mh = hrp()
+    local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    if not (mh and th) then return false end
+    zeroVel(mh)
+    local front = th.CFrame * CFrame.new(0, 0, 0.9)
+    mh.CFrame = CFrame.new(front.Position, th.Position + Vector3.new(0, 1.1, 0))
+    zeroVel(mh)
+    return true
+end
+
+local function quickStabBurst(target)
+    if not isAlive(target) or not isAlive(me) then return false end
+    if not getKnifeTool() then return false end
+    if not equipKnifeFast() then return false end
+    if not tpInFront(target) then return false end
+    local knife = getKnifeTool()
+    if not knife then return false end
+    local handle = knife:FindFirstChild("Handle")
+    pcall(function()
+        if knife:FindFirstChild("KnifeServer") and handle then
+            local c = (handle.CFrame * CFrame.new(0, 1, 0)).Position
+            knife.KnifeServer.SlashStart:FireServer(1, c)
+        end
+    end)
+    pcall(function()
+        if knife:FindFirstChild("Stab") then
+            knife.Stab:FireServer()
+        end
+    end)
+    pcall(function() knife:Activate() end)
+    return true
+end
+
+local function stabTargetUntilDead(target)
+    if target == me or not isAlive(me) then return false end
+    while session.active and isAlive(target) and isAlive(me) and (botHasKnife() or getKnifeTool()) do
+        quickStabBurst(target)
+        tpHome()
+        if not isAlive(target) then return true end
+        task.wait(1)
+    end
+    return not isAlive(target)
+end
+
+local function collectStabTargets(mode, playerQuery)
+    local targets = {}
+    if mode == "all" then
+        for _, pl in ipairs(Players:GetPlayers()) do
+            if pl ~= me and isAlive(pl) then
+                if not session.ownerId or pl.UserId ~= session.ownerId then
+                    table.insert(targets, pl)
+                end
+            end
+        end
+    elseif mode == "sheriff" then
+        local sher = findHolder({"Gun", "Revolver"})
+        if sher and sher ~= me and isAlive(sher) then
+            table.insert(targets, sher)
+        end
+    else
+        local t = findOtherPlayer(playerQuery)
+        if t and isAlive(t) then
+            table.insert(targets, t)
+        end
+    end
+    return targets
+end
+
+local function runStab(mode, playerQuery)
+    task.spawn(function()
+        stabActive = true
+        local targets = collectStabTargets(mode, playerQuery)
+        if #targets == 0 then
+            stabActive = false
+            if mode == "sheriff" then
+                whisper("Sheriff not found")
+            elseif mode == "player" then
+                whisper("Could not find player: " .. tostring(playerQuery))
+            else
+                whisper("No targets to stab")
+            end
+            return
+        end
+        for i, tgt in ipairs(targets) do
+            if not session.active or not botHasKnife() then break end
+            if isAlive(tgt) then
+                local killed = stabTargetUntilDead(tgt)
+                if killed then
+                    whisper("Stabbed " .. shortName(tgt))
+                end
+            end
+            if i < #targets then task.wait(0.35) end
+        end
+        stabActive = false
+    end)
 end
 
 --[[ Fling ]]--
@@ -1015,7 +1162,7 @@ local COMMAND_HELP = {
     dethrone = "Release owner control",
     who = "Show current murderer and sheriff",
     shoot = "<player> - Pick up gun if needed and shoot a player",
-    toggleshoot = "Toggle auto-shooting the murderer when you have the gun",
+    toggleshoot = "Auto shoot murderer from behind, retreat to spawn (turns off togglegun)",
     togglewho = "Toggle automatic role callout each round",
     togglealerts = "Toggle kill/drop/pickup alerts",
     reset = "Force bot respawn",
@@ -1026,13 +1173,14 @@ local COMMAND_HELP = {
     follow = "<player> - Follow a player",
     unfollow = "Stop following current player",
     gun = "<player> - Deliver gun to a player",
-    togglegun = "<player> - Auto-deliver gun to a player",
+    togglegun = "<player> - Auto-deliver gun (turns off toggleshoot)",
     chat = "<msg> - Make bot send a public chat message",
     fling = "<player> - Flings player off the map",
+    stab = "all | sheriff | <name> - Stab targets (murderer only)",
     help = "<cmd> - Show command list or explain one command",
 }
 local HELP_ORDER = {
-    "owner", "dethrone", "tp", "who", "shoot", "toggleshoot", "gun", "fling", "togglegun", "togglewho", "togglealerts",
+    "owner", "dethrone", "tp", "who", "shoot", "toggleshoot", "gun", "fling", "stab", "togglegun", "togglewho", "togglealerts",
     "reset", "follow", "unfollow", "chat", "help",
 }
 local function sendFullHelp(target)
@@ -1074,6 +1222,43 @@ local function handleCommand(p, msg)
     if not session.ownerId or p.UserId ~= session.ownerId then return end
     if flingLoopContinuous and cmd ~= "fling" then
         whisper('You need to toggle off fling loop using "!fling"')
+        return
+    end
+    if cmd == "stab" then
+        if not botHasKnife() then
+            whisper("Not the murderer")
+            return
+        end
+        if stabActive or flingActive or flingLoopActive or _G.MM_GunBusy then
+            whisper("Busy, try again")
+            return
+        end
+        local raw = restOfChatArgs(args)
+        local trimmed = (raw:match("^%s*(.-)%s*$") or "")
+        local q = trimmed:lower()
+        if q == "" then
+            whisper("!stab all | sheriff | <name>")
+            return
+        end
+        local mode, playerQuery = "player", trimmed
+        local first = q:match("^(%S+)")
+        if first == "all" then
+            mode, playerQuery = "all", ""
+        elseif first == "sheriff" or first == "sher" or first == "sherif" then
+            mode, playerQuery = "sheriff", ""
+        end
+        if mode == "player" and not findOtherPlayer(trimmed) then
+            whisper("Could not find player: " .. trimmed)
+            return
+        end
+        if mode == "all" then
+            whisper("Stabbing everyone")
+        elseif mode == "sheriff" then
+            whisper("Stabbing sheriff")
+        else
+            whisper("Stabbing " .. trimmed)
+        end
+        runStab(mode, playerQuery)
         return
     end
     if cmd == "fling" then
@@ -1220,10 +1405,16 @@ local function handleCommand(p, msg)
             local t = findPlayer(args[2])
             if not t then whisper("Player not found") return end
             toggleGun, gunTargetId, gunDelivered = true, t.UserId, false
+            toggleShoot = false
             whisper("Auto-gun on: " .. shortName(t))
+            whisper("Auto-shoot murderer: off")
         else
             toggleGun = not toggleGun
             gunTargetId, gunDelivered = nil, false
+            if toggleGun then
+                toggleShoot = false
+                whisper("Auto-shoot murderer: off")
+            end
             whisper("Auto-gun: " .. (toggleGun and "on" or "off"))
         end
     elseif cmd == "togglealerts" then
@@ -1235,6 +1426,11 @@ local function handleCommand(p, msg)
     elseif cmd == "toggleshoot" then
         if ownerIsMurd or botHasKnife() then whisper("No gun available") return end
         toggleShoot = not toggleShoot
+        if toggleShoot then
+            toggleGun = false
+            gunTargetId, gunDelivered = nil, false
+            whisper("Auto-gun: off")
+        end
         whisper("Auto-shoot murderer: " .. (toggleShoot and "on" or "off"))
     elseif cmd == "follow" then
         local t = findPlayer(args[2]) or findOwner()
@@ -1578,7 +1774,7 @@ while session.active and gui.Parent do
     end
 
     local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or getOwnerPlayer()
-    if toggleGun and not flingLoopContinuous and not botM and not ownerIsMurd and not gunDelivered and not _G.MM_GunBusy and me.Character
+    if toggleGun and not toggleShoot and not flingLoopContinuous and not botM and not ownerIsMurd and not gunDelivered and not _G.MM_GunBusy and me.Character
        and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt
        and gunTarget and gunTarget ~= me and isAlive(gunTarget)
        and (botHasGun() or findDroppedGun()) then
@@ -1587,7 +1783,7 @@ while session.active and gui.Parent do
         task.spawn(function() bringGun(gunTarget); task.wait(3); _G.MM_GunBusy = false end)
     end
 
-    if toggleShoot and session.ownerId and not flingActive and not flingLoopActive and not flingLoopContinuous
+    if toggleShoot and not toggleGun and session.ownerId and not flingActive and not flingLoopActive and not flingLoopContinuous
         and not _G.MM_GunBusy and (tick() - lastToggleShootTry) >= 2.25
         and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt
         and not botM and not ownerIsMurd and m and m ~= me and isAlive(m) and isAlive(me)
@@ -1598,13 +1794,13 @@ while session.active and gui.Parent do
             local murd = findHolder({"Knife"})
             local ownerP = session.ownerId and Players:GetPlayerByUserId(session.ownerId)
             local om = ownerP and murd and murd.UserId == ownerP.UserId
-            if toggleShoot and session.ownerId and murd and murd ~= me and isAlive(murd) and isAlive(me)
+            if toggleShoot and not toggleGun and session.ownerId and murd and murd ~= me and isAlive(murd) and isAlive(me)
                 and not om and not botHasKnife()
             then
                 local _, status = shootTarget(murd)
                 log("toggleshoot " .. tostring(status))
             end
-            task.wait(1)
+            task.wait(0.5)
             _G.MM_GunBusy = false
         end)
     end
