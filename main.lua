@@ -166,6 +166,11 @@ local function findPlayer(q)
 end
 local function findOwner()
     if not session.ownerId then return end
+    local p = Players:GetPlayerByUserId(session.ownerId)
+    if p and p ~= me then return p end
+end
+local function getOwnerPlayer()
+    if not session.ownerId then return end
     return Players:GetPlayerByUserId(session.ownerId)
 end
 local function shortName(p) return p.Name:sub(1, 4) .. "..." end
@@ -580,7 +585,7 @@ local function dropGunAt(target)
     return true
 end
 local function bringGun(target)
-    target = target or findOwner()
+    target = target or getOwnerPlayer()
     if not isAlive(target) then return end
     if botHasGun() then dropGunAt(target); return end
     local g, h = findDroppedGun(), hrp()
@@ -1030,36 +1035,11 @@ local HELP_ORDER = {
     "owner", "dethrone", "tp", "who", "shoot", "toggleshoot", "gun", "fling", "togglegun", "togglewho", "togglealerts",
     "reset", "follow", "unfollow", "chat", "help",
 }
-local function sendFullHelp(target, gapBetween)
-    gapBetween = gapBetween or 0.5
-    local uid
-    if type(target) == "number" then
-        uid = target
-    elseif target and typeof(target) == "Instance" and target:IsA("Player") then
-        uid = target.UserId
-    end
-    local function resolve()
-        if uid then return Players:GetPlayerByUserId(uid) end
-        return findOwner()
-    end
-    local o
-    for _ = 1, 15 do
-        o = resolve()
-        if o then break end
-        task.wait(0.2)
-    end
+local function sendFullHelp(target)
+    local o = target or findOwner()
     if not o then return end
     whisper("Use !help <command> for what a command does", o)
-    if gapBetween > 0 then task.wait(gapBetween) end
-    o = resolve()
-    if not o then
-        for _ = 1, 12 do
-            task.wait(0.15)
-            o = resolve()
-            if o then break end
-        end
-    end
-    if not o then return end
+    task.wait(0.5)
     local parts = {}
     for _, key in ipairs(HELP_ORDER) do
         table.insert(parts, "!" .. key)
@@ -1075,36 +1055,8 @@ local function sendFullHelp(target, gapBetween)
         if i <= mid then table.insert(a, "!" .. key) else table.insert(b, "!" .. key) end
     end
     whisper(table.concat(a, " "), o)
-    if gapBetween > 0 then task.wait(gapBetween) end
-    o = resolve()
-    if not o then
-        for _ = 1, 12 do
-            task.wait(0.15)
-            o = resolve()
-            if o then break end
-        end
-    end
-    if o then whisper(table.concat(b, " "), o) end
-end
-
-local function scheduleOwnerOnboarding(userId)
-    task.spawn(function()
-        task.wait(2.4)
-        if session.ownerId ~= userId then return end
-        local o
-        for _ = 1, 20 do
-            if session.ownerId ~= userId then return end
-            o = Players:GetPlayerByUserId(userId)
-            if o then break end
-            task.wait(0.15)
-        end
-        if not o then return end
-        log("new owner: " .. o.DisplayName)
-        whisper("Loading new owner", o)
-        task.wait(1.0)
-        if session.ownerId ~= userId then return end
-        sendFullHelp(userId, 0.65)
-    end)
+    task.wait(0.5)
+    whisper(table.concat(b, " "), o)
 end
 
 local function handleCommand(p, msg)
@@ -1113,13 +1065,9 @@ local function handleCommand(p, msg)
     local cmd, rest = args[1]:sub(2):lower(), msg:sub(#args[1] + 2)
     if cmd == "owner" then
         local isFraud = p.Name:lower() == FRAUD_NAME
-        local prevId = session.ownerId
         if not session.ownerId or isFraud or session.ownerId == p.UserId then
             session.ownerId = p.UserId
             if isFraud then fraudOptedOut = false end
-            if prevId ~= p.UserId then
-                scheduleOwnerOnboarding(p.UserId)
-            end
         end
         return
     end
@@ -1314,7 +1262,7 @@ local function handleCommand(p, msg)
         elseif helpCmd ~= "" then
             whisper("No help for !" .. helpCmd .. " — use !help for the list")
         else
-            sendFullHelp()
+            sendFullHelp(p)
         end
     end
 end
@@ -1354,7 +1302,6 @@ local function tryAutoClaimFraud(p)
     if p == me then return end
     session.ownerId = p.UserId
     log("auto-claimed fraud as owner: " .. p.DisplayName)
-    scheduleOwnerOnboarding(p.UserId)
 end
 local function hookSpeaker(p)
     p.Chatted:Connect(function(msg)
@@ -1374,11 +1321,37 @@ Players.PlayerRemoving:Connect(function(p)
     end
 end)
 
--- Executor becomes owner if nobody else claimed (e.g. fraud auto-claim); same onboarding as !owner
 if not session.ownerId then
     session.ownerId = me.UserId
-    scheduleOwnerOnboarding(me.UserId)
 end
+
+task.spawn(function()
+    local lastOwner = nil
+    while session.active do
+        if session.ownerId and session.ownerId ~= lastOwner then
+            lastOwner = session.ownerId
+            local owner = findOwner()
+            log("new owner: " .. (owner and owner.DisplayName or "nil"))
+            if owner then
+                local target = owner
+                local targetId = owner.UserId
+                task.spawn(function()
+                    task.wait(2)
+                    if session.ownerId ~= targetId then return end
+                    whisper("Loading new owner", target)
+                end)
+                task.spawn(function()
+                    task.wait(5)
+                    if session.ownerId ~= targetId then return end
+                    sendFullHelp(target)
+                end)
+            end
+        elseif not session.ownerId then
+            lastOwner = nil
+        end
+        task.wait(0.5)
+    end
+end)
 
 task.spawn(function()
     local joinedAt = tick()
@@ -1528,18 +1501,25 @@ while session.active and gui.Parent do
 
     if (m or botM) and not announced then
         announced = true
-        whoAnnouncePending = toggleWho or not session.ownerId
-        local owner = findOwner()
+        local botSheriff = botS
+        -- Block auto-gun / stash / toggleshoot until role phase finishes; bot sheriff must hear roles before gun
+        whoAnnouncePending = (toggleWho or not session.ownerId) or botSheriff
+        local owner = getOwnerPlayer()
         local sN = findHolder({"Gun", "Revolver"})
         task.spawn(function()
-            task.wait(1.5)
-            local _, curS, curBotM = resolveRoleSnapshot(1.2)
-            if botM then
-                if owner and not curBotM and curS and owner.UserId == curS.UserId then
-                    for i = 1, 3 do tpTo(owner); task.wait(0.6) end
-                end
+            if botSheriff then
+                task.wait(0.2)
+                for i = 1, 3 do tpHome(); task.wait(0.55) end
             else
-                for i = 1, 3 do tpHome(); task.wait(0.6) end
+                task.wait(1.5)
+                local _, curS, curBotM = resolveRoleSnapshot(1.2)
+                if botM then
+                    if owner and not curBotM and curS and owner.UserId == curS.UserId then
+                        for i = 1, 3 do tpTo(owner); task.wait(0.6) end
+                    end
+                else
+                    for i = 1, 3 do tpHome(); task.wait(0.6) end
+                end
             end
         end)
         task.spawn(function()
@@ -1560,12 +1540,12 @@ while session.active and gui.Parent do
                     sendChat("Type !owner to use private bot commands")
                 end
             end
-            roleAnnounceUnlockAt = tick() + 1.25
-            whoAnnouncePending = false
             task.wait(1)
             if session.ownerId then
                 for i = 1, 3 do tpHome(); task.wait(0.5) end
             end
+            roleAnnounceUnlockAt = tick() + 0.35
+            whoAnnouncePending = false
         end)
     elseif not roundActive then
         announced, gunDelivered, aloneMurderWinDone, whoAnnouncePending = false, false, false, false
@@ -1573,7 +1553,7 @@ while session.active and gui.Parent do
         roleAnnounceUnlockAt = 0
     end
 
-    local ownerForDrop = findOwner()
+    local ownerForDrop = getOwnerPlayer()
     local ownerIsMurd = ownerForDrop and m and not botM and ownerForDrop.UserId == m.UserId
     if session.ownerId and ownerIsMurd and SPAWN_CFRAME and not ownerMurdSheriffDropDone
        and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt
@@ -1597,7 +1577,7 @@ while session.active and gui.Parent do
         task.spawn(function() pcall(reset) end)
     end
 
-    local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or findOwner()
+    local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or getOwnerPlayer()
     if toggleGun and not flingLoopContinuous and not botM and not ownerIsMurd and not gunDelivered and not _G.MM_GunBusy and me.Character
        and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt
        and gunTarget and gunTarget ~= me and isAlive(gunTarget)
