@@ -1,10 +1,42 @@
 --[[ MM2 Helper Bot ]]--
+local bootGui = Instance.new("ScreenGui")
+bootGui.Name, bootGui.ResetOnSpawn = "MM2Boot", false
+bootGui.Parent = game:GetService("CoreGui")
+local bootLbl = Instance.new("TextLabel", bootGui)
+bootLbl.Size = UDim2.new(0, 340, 0, 36)
+bootLbl.Position = UDim2.new(0.5, -170, 0, 8)
+bootLbl.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
+bootLbl.TextColor3 = Color3.new(1, 1, 1)
+bootLbl.Font, bootLbl.TextSize = Enum.Font.GothamBold, 14
+bootLbl.Text = "MM2 bot loading..."
+local function setBootStatus(t)
+    pcall(function() bootLbl.Text = tostring(t) end)
+end
+local function clearBoot()
+    pcall(function() bootGui:Destroy() end)
+end
+
+local loadOk, loadErr = xpcall(function()
+setBootStatus("starting...")
 local Players = game:GetService("Players")
 local me = Players.LocalPlayer
 if not me then
-    me = Players.PlayerAdded:Wait()
+    if Players.GetPropertyChangedSignal then
+        Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+        me = Players.LocalPlayer
+    end
+    while not me do
+        task.wait(0.05)
+        me = Players.LocalPlayer
+    end
 end
 local cam = workspace.CurrentCamera
+if not cam then
+    repeat
+        task.wait(0.05)
+        cam = workspace.CurrentCamera
+    until cam
+end
 local cref = cloneref or function(x) return x end
 local TCS = cref(game:GetService("TextChatService"))
 local Tween = game:GetService("TweenService")
@@ -40,9 +72,11 @@ if getgenv and getgenv().MM_Session then getgenv().MM_Session.active = false end
 if game.CoreGui:FindFirstChild("MM") then game.CoreGui.MM:Destroy() end
 local session = {active = true, ownerId = nil}
 if getgenv then getgenv().MM_Session = session end
-cam.FieldOfView = DEFAULT_FOV
-do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid") 
-   if h then cam.CameraSubject = h end end
+pcall(function()
+    cam.FieldOfView = DEFAULT_FOV
+    local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+    if h then cam.CameraSubject = h end
+end)
 
 --[[ Background mode (low CPU, muted, no 3D) ]]--
 -- Hold RightAlt to disable. Auto-disables when script is re-executed.
@@ -77,16 +111,8 @@ task.spawn(function()
 end)
 
 --[[ GUI ]]--
-local guiParent = game:GetService("CoreGui")
-if gethui then
-    pcall(function() guiParent = gethui() end)
-end
-local gui = Instance.new("ScreenGui")
+local gui = Instance.new("ScreenGui", game:GetService("CoreGui"))
 gui.Name, gui.ResetOnSpawn = "MM", false
-if syn and syn.protect_gui then
-    pcall(syn.protect_gui, gui)
-end
-gui.Parent = guiParent
 local f = Instance.new("Frame", gui)
 f.Size, f.Position = UDim2.new(0, 140, 0, 180), UDim2.new(1, -150, 0, 10)
 f.BackgroundColor3, f.Visible = Color3.fromRGB(20, 20, 20), false
@@ -137,6 +163,7 @@ local function log(msg)
     end
 end
 log("gui ready")
+setBootStatus("gui ready")
 
 --[[ Finders ]]--
 local function hasItem(parent, names)
@@ -1782,6 +1809,8 @@ local function resolveRoleSnapshot(timeout)
 end
 
 log("bot online")
+setBootStatus("bot online")
+clearBoot()
 
 --[[ Main loop ]]--
 local lastMurderId, announced, aloneMurderWinDone
@@ -1937,6 +1966,26 @@ while session.active and gui.Parent do
 end
 
 --[[ Cleanup ]]--
-cam.FieldOfView = DEFAULT_FOV
-do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
-   if h then cam.CameraSubject = h end end
+pcall(function()
+    if cam then
+        cam.FieldOfView = DEFAULT_FOV
+        local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+        if h then cam.CameraSubject = h end
+    end
+end)
+
+end, function(err)
+    return debug.traceback(tostring(err), 2)
+end)
+
+if not loadOk then
+    setBootStatus("FAILED - check console (F9)")
+    warn("[MM2 BOT FAILED]\n" .. tostring(loadErr))
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "MM2 Bot",
+            Text = tostring(loadErr):sub(1, 200),
+            Duration = 12,
+        })
+    end)
+end
