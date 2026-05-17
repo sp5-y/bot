@@ -607,29 +607,9 @@ local function getBehindCFrame(target)
     return CFrame.new(pos, aimPoint)
 end
 
-local function tpCFrame(cf)
-    local h = hrp()
-    if h and cf then
-        zeroVel(h)
-        h.CFrame = cf
-        zeroVel(h)
-    end
-end
-
-local function tpBehindTarget(target)
-    local cf = getBehindCFrame(target)
-    if cf then tpCFrame(cf) end
-    return cf ~= nil
-end
-
 local function isAlive(p)
     local h = p and p.Character and p.Character:FindFirstChildOfClass("Humanoid")
     return h and h.Health > 0
-end
-local function tweenTo(cf, dur)
-    local h = hrp(); if not h then return end
-    local tw = Tween:Create(h, TweenInfo.new(dur, Enum.EasingStyle.Linear), {CFrame = cf})
-    tw:Play(); tw.Completed:Wait()
 end
 local function zeroVel(h)
     if not h then return end
@@ -665,6 +645,24 @@ local function stowKnife()
         pcall(function() knife.Parent = me.Backpack end)
     end
 end
+local function tpCFrame(cf)
+    local h = hrp()
+    if h and cf then
+        zeroVel(h)
+        h.CFrame = cf
+        zeroVel(h)
+    end
+end
+local function tpBehindTarget(target)
+    local cf = getBehindCFrame(target)
+    if cf then tpCFrame(cf) end
+    return cf ~= nil
+end
+local function tweenTo(cf, dur)
+    local h = hrp(); if not h then return end
+    local tw = Tween:Create(h, TweenInfo.new(dur, Enum.EasingStyle.Linear), {CFrame = cf})
+    tw:Play(); tw.Completed:Wait()
+end
 local function tpTo(p)
     if not _G.MM_StabBusy and me.Character and me.Character:FindFirstChild("Knife") then
         stowKnife()
@@ -692,6 +690,10 @@ local function tpHomeBurst(count)
         if i < count then task.wait(0.06) end
     end
 end
+_G.MM_StabBusy = _G.MM_StabBusy or false
+_G.MM_ShootBusy = _G.MM_ShootBusy or false
+_G.MM_OwnerDiedPendingReset = _G.MM_OwnerDiedPendingReset or false
+
 local function reset()
     local char = me.Character
     if not char then return end
@@ -707,6 +709,13 @@ local function reset()
     end
     pcall(function() char:BreakJoints() end)
     pcall(function() me:LoadCharacter() end)
+end
+local function runDeferredOwnerResetIfIdle()
+    if _G.MM_OwnerDiedPendingReset and not _G.MM_ShootBusy and not _G.MM_StabBusy then
+        _G.MM_OwnerDiedPendingReset = false
+        log("owner died during combat -> resetting bot")
+        task.spawn(function() pcall(reset) end)
+    end
 end
 local function dropGunAt(target)
     if not isAlive(target) then return false end
@@ -747,15 +756,44 @@ local function stashGunAtSpawn()
 end
 local function pickUpDroppedGun()
     if botHasGun() then return true end
-    local g, h = findDroppedGun(), hrp()
-    if not (g and h and isAlive(me)) then return false end
-    g.CFrame = h.CFrame
+    local h = hrp()
+    if not (h and isAlive(me)) then return false end
+    local drop = workspace:FindFirstChild("GunDrop")
+    if drop then
+        pcall(function()
+            if drop:IsA("BasePart") then
+                drop.CFrame = h.CFrame
+            elseif drop:IsA("Model") and drop.PrimaryPart then
+                drop:SetPrimaryPartCFrame(h.CFrame)
+            end
+        end)
+        task.wait(0.08)
+        if botHasGun() then return true end
+    end
+    local g = findDroppedGun()
+    if g then
+        pcall(function() g.CFrame = h.CFrame end)
+    end
     local t0 = tick()
-    while session.active and tick() - t0 < 2.5 do
+    while session.active and tick() - t0 < 3 do
         if botHasGun() then return true end
         task.wait(0.05)
     end
-    return false
+    return botHasGun()
+end
+local function ensureShootGun()
+    if botHasGun() then return true end
+    return pickUpDroppedGun()
+end
+local function fireGunOnce(gun)
+    if not gun then return end
+    pcall(function() gun:Activate() end)
+    if getconnections then
+        pcall(function()
+            local c = getconnections(gun.Activated)
+            if c and c[1] then c[1]:Fire() end
+        end)
+    end
 end
 local function clickFire(x, y)
     if not VIM then return end
@@ -769,11 +807,11 @@ local function clickFire(x, y)
         VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
     end)
 end
--- Original working gun volley (aim above + Activate + click); used by hit-run loop
+-- Gun volley (aim above + Activate + click); used by hit-run loop
 local function fireGunVolley(target)
     if not isAlive(target) or not isAlive(me) then return false end
     enableShootRender()
-    if not botHasGun() and not pickUpDroppedGun() then return false end
+    if not ensureShootGun() then return false end
     local gun = getHeldTool(me, {"Gun", "Revolver"})
     if not gun or not equipTool(gun) then return false end
     local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
@@ -805,10 +843,10 @@ local function fireGunVolley(target)
                 end
             end)
         end
-        pcall(function() gun:Activate() end)
+        fireGunOnce(gun)
         clickFire(mouseX, mouseY)
         task.wait(0.06)
-        pcall(function() gun:Activate() end)
+        fireGunOnce(gun)
         clickFire(mouseX, mouseY)
         fired = true
         hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
@@ -823,27 +861,41 @@ local function fireGunVolley(target)
     return fired
 end
 
--- Hit-run: TP behind -> original volley -> spawn; repeat until target or bot dies
+-- One pass: grab gun, equip, TP behind, volley (like stabPass)
+local function shootPass(target)
+    if not isAlive(target) or not isAlive(me) then return false end
+    if botHasKnife() then return false end
+    if not ensureShootGun() then return false end
+    local gun = getHeldTool(me, {"Gun", "Revolver"})
+    if not gun or not equipTool(gun) then return false end
+    enableShootRender()
+    local cf = getBehindCFrame(target)
+    local mh = hrp()
+    if not (cf and mh) then return false end
+    zeroVel(mh)
+    mh.CFrame = cf
+    zeroVel(mh)
+    task.wait(0.08)
+    return fireGunVolley(target)
+end
+
+-- Hit-run: TP behind -> volley -> spawn; repeat until shoot target or bot dies (not owner)
 local function shootTargetLoop(target)
     if target == me then return false, "Invalid target" end
     if ownerIsMurderer() then return false, "Owner is murderer" end
     if not isAlive(target) then return false, "Player not found" end
     if botHasKnife() then return false, "No gun available" end
-    if not botHasGun() and not pickUpDroppedGun() then return false, "No gun available" end
+    if not ensureShootGun() then return false, "No gun available" end
     enableShootRender()
-    local passes = 0
     while session.active and isAlive(me) and isAlive(target) do
-        passes = passes + 1
         if ownerIsMurderer() then
             tpHome()
             return false, "Owner is murderer"
         end
-        if not botHasGun() and not pickUpDroppedGun() then
+        if not ensureShootGun() then
             return false, "No gun available"
         end
-        tpBehindTarget(target)
-        task.wait(0.08)
-        fireGunVolley(target)
+        shootPass(target)
         tpHome()
         task.wait(0.05)
         if not isAlive(target) then
@@ -1421,10 +1473,10 @@ local function handleCommand(p, msg)
         whisper("Shooting " .. shootName)
         task.spawn(function()
             local status = "Player not found"
-            local ok, err = xpcall(function()
+            local ok, err = pcall(function()
                 local tgt = Players:GetPlayerByUserId(targetUid)
                 if not tgt or not isAlive(tgt) then return end
-                if ownerIsMurderer() or botHasKnife() or not (botHasGun() or findDroppedGun()) then
+                if ownerIsMurderer() or botHasKnife() or not ensureShootGun() then
                     status = "No gun available"
                     return
                 end
@@ -1434,18 +1486,17 @@ local function handleCommand(p, msg)
                 else
                     status = "No gun available"
                 end
-            end, function(e)
-                return tostring(e) .. "\n" .. debug.traceback("", 2)
             end)
             if not ok then
                 status = "Shoot failed"
-                log(tostring(err))
+                log("shoot error: " .. tostring(err))
             end
             if status and status ~= "Bot died" and not status:match("^Killed ") then
                 task.wait(0.35)
             end
             whisperCombatResult(status)
             _G.MM_ShootBusy = false
+            runDeferredOwnerResetIfIdle()
         end)
     elseif cmd == "stab" then
         if not botHasKnife() then whisper("You need to be murderer") return end
@@ -1479,6 +1530,7 @@ local function handleCommand(p, msg)
             end
             whisperCombatResult(status)
             _G.MM_StabBusy = false
+            runDeferredOwnerResetIfIdle()
         end)
     elseif cmd == "gun" then
         local t = findPlayer(args[2]) or findOwner()
@@ -1607,8 +1659,6 @@ end)
 if not session.ownerId then
     session.ownerId = me.UserId
 end
-_G.MM_StabBusy = _G.MM_StabBusy or false
-_G.MM_ShootBusy = _G.MM_ShootBusy or false
 
 task.spawn(function()
     local lastOwner = nil
@@ -1696,8 +1746,13 @@ task.spawn(function()
                 local cur = aliveState(own)
                 local prev = alivePrev[own.UserId]
                 if prev == true and (cur == false or cur == nil) then
-                    log("owner died -> resetting bot")
-                    task.spawn(function() pcall(reset) end)
+                    if _G.MM_ShootBusy or _G.MM_StabBusy then
+                        _G.MM_OwnerDiedPendingReset = true
+                        log("owner died during combat (reset deferred)")
+                    else
+                        log("owner died -> resetting bot")
+                        task.spawn(function() pcall(reset) end)
+                    end
                 end
             end
         end
@@ -1921,6 +1976,7 @@ while session.active and gui.Parent do
                 end
             end)
             _G.MM_ShootBusy = false
+            runDeferredOwnerResetIfIdle()
         end)
     end
 
