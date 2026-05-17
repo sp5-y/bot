@@ -1283,80 +1283,113 @@ local HELP_ORDER = {
     "owner", "dethrone", "tp", "who", "shoot", "stab", "toggleshoot", "gun", "fling", "togglegun", "togglewho", "togglealerts",
     "reset", "follow", "unfollow", "chat", "help",
 }
+local function deliverWhisperLine(msg, uid)
+    local o = uid and Players:GetPlayerByUserId(uid)
+    if not o then return false end
+    for attempt = 1, 10 do
+        o = Players:GetPlayerByUserId(uid)
+        if not o then return false end
+        if not isLegacy then
+            local ch = ensureWhisperChannel(o)
+            if ch then
+                local ok = pcall(function() ch:SendAsync(msg) end)
+                if ok then return true end
+            end
+        end
+        whisper(msg, o)
+        task.wait(0.35 + attempt * 0.08)
+        if isLegacy then return true end
+        local ch2 = findWhisperChannel(uid)
+        if ch2 and pcall(function() ch2:SendAsync(msg) end) then
+            return true
+        end
+        task.wait(0.2)
+    end
+    return false
+end
+
 local function sendFullHelp(target, gapBetween)
-    gapBetween = gapBetween or 0.5
+    gapBetween = gapBetween or 0.65
     local uid
     if type(target) == "number" then
         uid = target
     elseif target and typeof(target) == "Instance" and target:IsA("Player") then
         uid = target.UserId
+    else
+        local o = findOwner()
+        uid = o and o.UserId
     end
-    local function resolve()
-        if uid then return Players:GetPlayerByUserId(uid) end
-        return findOwner()
+    if not uid then return false end
+    for _ = 1, 20 do
+        if Players:GetPlayerByUserId(uid) then break end
+        task.wait(0.15)
     end
-    local o
-    for _ = 1, 15 do
-        o = resolve()
-        if o then break end
-        task.wait(0.2)
-    end
-    if not o then return end
-    whisper("Use !help <command> for what a command does", o)
-    if gapBetween > 0 then task.wait(gapBetween) end
-    o = resolve()
-    if not o then
-        for _ = 1, 12 do
-            task.wait(0.15)
-            o = resolve()
-            if o then break end
-        end
-    end
-    if not o then return end
+    if not Players:GetPlayerByUserId(uid) then return false end
+
+    local lines = {"Use !help <command> for what a command does"}
     local parts = {}
     for _, key in ipairs(HELP_ORDER) do
         table.insert(parts, "!" .. key)
     end
     local line = table.concat(parts, " ")
     if #line <= 200 then
-        whisper(line, o)
-        return
-    end
-    local mid = math.ceil(#HELP_ORDER / 2)
-    local a, b = {}, {}
-    for i, key in ipairs(HELP_ORDER) do
-        if i <= mid then table.insert(a, "!" .. key) else table.insert(b, "!" .. key) end
-    end
-    whisper(table.concat(a, " "), o)
-    if gapBetween > 0 then task.wait(gapBetween) end
-    o = resolve()
-    if not o then
-        for _ = 1, 12 do
-            task.wait(0.15)
-            o = resolve()
-            if o then break end
+        table.insert(lines, line)
+    else
+        local mid = math.ceil(#HELP_ORDER / 2)
+        local a, b = {}, {}
+        for i, key in ipairs(HELP_ORDER) do
+            if i <= mid then table.insert(a, "!" .. key) else table.insert(b, "!" .. key) end
         end
+        table.insert(lines, table.concat(a, " "))
+        table.insert(lines, table.concat(b, " "))
     end
-    if o then whisper(table.concat(b, " "), o) end
+
+    for i, text in ipairs(lines) do
+        if not deliverWhisperLine(text, uid) then
+            log("sendFullHelp: failed line " .. i)
+            return false
+        end
+        if i < #lines and gapBetween > 0 then task.wait(gapBetween) end
+    end
+    return true
 end
 
+local ownerOnboardGen = 0
 local function scheduleOwnerOnboarding(userId)
+    ownerOnboardGen = ownerOnboardGen + 1
+    local gen = ownerOnboardGen
     task.spawn(function()
         task.wait(2.4)
-        if session.ownerId ~= userId then return end
+        if gen ~= ownerOnboardGen or session.ownerId ~= userId then return end
         local o
-        for _ = 1, 20 do
-            if session.ownerId ~= userId then return end
+        for _ = 1, 25 do
+            if gen ~= ownerOnboardGen or session.ownerId ~= userId then return end
             o = Players:GetPlayerByUserId(userId)
             if o then break end
             task.wait(0.15)
         end
         if not o then return end
         log("new owner: " .. o.DisplayName)
-        whisper("Loading new owner", o)
-        task.wait(1.0)
-        if session.ownerId ~= userId then return end
-        sendFullHelp(userId, 0.65)
+        deliverWhisperLine("Loading new owner", userId)
+        task.wait(1.5)
+        if gen ~= ownerOnboardGen or session.ownerId ~= userId then return end
+        if not isLegacy then
+            pcall(function() ensureWhisperChannel(o) end)
+            task.wait(0.7)
+        end
+        local helped = false
+        for attempt = 1, 4 do
+            if gen ~= ownerOnboardGen or session.ownerId ~= userId then return end
+            if sendFullHelp(userId, 0.85) then
+                helped = true
+                break
+            end
+            log("owner onboarding: help retry " .. attempt)
+            task.wait(1.25)
+        end
+        if not helped and gen == ownerOnboardGen and session.ownerId == userId then
+            deliverWhisperLine("Type !help for the command list", userId)
+        end
     end)
 end
 
