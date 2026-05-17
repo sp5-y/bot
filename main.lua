@@ -679,6 +679,9 @@ local function tpTo(p)
         stowKnife()
     end
     local h, t = hrp(), p and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+    if h then
+        pcall(function() h.Anchored = false end)
+    end
     if h and t then
         zeroVel(h)
         h.CFrame = t.CFrame + Vector3.new(0, 0, 3)
@@ -687,6 +690,9 @@ local function tpTo(p)
 end
 local function tpHome()
     local h = hrp()
+    if h then
+        pcall(function() h.Anchored = false end)
+    end
     if h and SPAWN_CFRAME then
         zeroVel(h)
         h.CFrame = SPAWN_CFRAME
@@ -799,96 +805,6 @@ local function ensureShootGun()
     if botHasGun() then return true end
     return pickUpDroppedGun()
 end
-local function gunCanShoot(gun)
-    if not gun or not gun.Parent then return false end
-    for _, name in ipairs({"Reloading", "IsReloading", "reloading"}) do
-        local v = gun:FindFirstChild(name, true)
-        if v and v:IsA("BoolValue") and v.Value then return false end
-    end
-    for _, name in ipairs({"Ammo", "Bullets", "ammo"}) do
-        local v = gun:FindFirstChild(name, true)
-        if v and (v:IsA("IntValue") or v:IsA("NumberValue")) and v.Value <= 0 then return false end
-    end
-    return true
-end
-
-local function waitGunReloadAfterShot(gun)
-    local t0 = tick()
-    task.wait(0.12)
-    local needLong = not gunCanShoot(gun)
-    local minWait = needLong and SHOOT_RELOAD_MIN or 0.4
-    while session.active and tick() - t0 < SHOOT_RELOAD_MAX do
-        if tick() - t0 >= minWait and gunCanShoot(gun) then return true end
-        task.wait(0.05)
-    end
-    if tick() - t0 < minWait then
-        task.wait(minWait - (tick() - t0))
-    end
-    return true
-end
-
-local function fireGunOnce(gun)
-    if not gun then return end
-    pcall(function() gun:Activate() end)
-    if getconnections then
-        pcall(function()
-            local c = getconnections(gun.Activated)
-            if c then
-                for _, conn in ipairs(c) do
-                    pcall(function() conn:Fire() end)
-                end
-            end
-        end)
-    end
-end
-
-local function shootGunRemote(gun, aimPoint)
-    if not gun or not aimPoint then return false end
-    local remote = gun:FindFirstChild("ShootGun", true)
-        or gun:FindFirstChild("Shoot", true)
-    if not remote then
-        for _, d in ipairs(gun:GetDescendants()) do
-            if d.Name == "ShootGun" and (d:IsA("RemoteFunction") or d:IsA("RemoteEvent")) then
-                remote = d
-                break
-            end
-        end
-    end
-    if not remote then return false end
-    local ok = false
-    pcall(function()
-        if remote:IsA("RemoteFunction") then
-            remote:InvokeServer(aimPoint)
-            ok = true
-        else
-            remote:FireServer(aimPoint)
-            ok = true
-        end
-    end)
-    if not ok then
-        pcall(function()
-            if remote:IsA("RemoteFunction") then
-                remote:InvokeServer(tick(), aimPoint)
-            else
-                remote:FireServer(tick(), aimPoint)
-            end
-            ok = true
-        end)
-    end
-    return ok
-end
-
-local function clickGunFire(gun, mouseX, mouseY)
-    fireGunOnce(gun)
-    if mouse1click then
-        pcall(mouse1click)
-    elseif mouse1press and mouse1release then
-        pcall(mouse1press)
-        task.wait(0.04)
-        pcall(mouse1release)
-    end
-    clickFire(mouseX, mouseY)
-end
 local function clickFire(x, y)
     if not VIM then return end
     x = tonumber(x) or 0
@@ -901,42 +817,92 @@ local function clickFire(x, y)
         VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
     end)
 end
--- Fire at target from behind TP; wait for reload before caller returns to spawn
-local function fireGunAtTarget(target, gun)
-    if not gun or not isAlive(target) or not isAlive(me) then return false end
-    enableShootRender()
-    local aimPoint = getShootAimPoint(target)
-    local mh = hrp()
-    if not (aimPoint and mh) then return false end
-    zeroVel(mh)
-    mh.CFrame = CFrame.new(mh.Position, aimPoint)
-    zeroVel(mh)
-    pcall(function() mh.Anchored = true end)
-    task.wait(0.05)
-    local shootCam = getActiveCam()
-    local mouseX, mouseY = 400, 300
-    if shootCam then
+
+local function fireGunOnce(gun)
+    if not gun then return end
+    pcall(function() gun:Activate() end)
+    if getconnections then
         pcall(function()
-            local lookCf = CFrame.new(mh.Position, aimPoint)
-            shootCam.CFrame = lookCf
-            local vs = shootCam.ViewportSize
-            mouseX, mouseY = vs.X * 0.5, vs.Y * 0.45
-            local sp = shootCam:WorldToViewportPoint(aimPoint)
-            if sp.Z > 0 then
-                mouseX, mouseY = sp.X, sp.Y
+            local c = getconnections(gun.Activated)
+            if type(c) == "table" and c[1] then
+                pcall(function() c[1]:Fire() end)
             end
         end)
     end
-    shootGunRemote(gun, aimPoint)
-    clickGunFire(gun, mouseX, mouseY)
-    task.wait(0.08)
-    clickGunFire(gun, mouseX, mouseY)
-    pcall(function() mh.Anchored = false end)
-    waitGunReloadAfterShot(gun)
-    return true
 end
 
--- One pass: gun -> equip -> TP behind -> shoot -> wait reload (then loop TPs spawn)
+local function tryShootGunRemote(gun, aimPoint)
+    if not gun or not aimPoint then return end
+    pcall(function()
+        local rf = gun:FindFirstChild("ShootGun", true)
+        if not rf then return end
+        if rf:IsA("RemoteFunction") then
+            pcall(function() rf:InvokeServer(aimPoint) end)
+            pcall(function() rf:InvokeServer(tick(), aimPoint) end)
+        elseif rf:IsA("RemoteEvent") then
+            pcall(function() rf:FireServer(aimPoint) end)
+        end
+    end)
+end
+
+local function tryExecutorClick()
+    local g = (getgenv and getgenv()) or _G
+    local fn = rawget(g, "mouse1click") or rawget(g, "mouse1press")
+    if type(fn) == "function" then
+        pcall(fn)
+    end
+end
+
+local function unanchorHrp()
+    local h = hrp()
+    if h then pcall(function() h.Anchored = false end) end
+end
+
+local function waitShootReload()
+    task.wait(SHOOT_RELOAD_MIN)
+end
+
+-- Fire from current behind-TP position; then wait reload before returning to spawn
+local function fireGunAtTarget(target, gun)
+    if not gun or not isAlive(target) or not isAlive(me) then return false end
+    local ok, err = pcall(function()
+        enableShootRender()
+        local aimPoint = getShootAimPoint(target)
+        local mh = hrp()
+        if not (aimPoint and mh) then return end
+        unanchorHrp()
+        zeroVel(mh)
+        mh.CFrame = CFrame.new(mh.Position, aimPoint)
+        zeroVel(mh)
+        task.wait(0.05)
+        local mouseX, mouseY = 400, 300
+        local shootCam = getActiveCam()
+        if shootCam then
+            pcall(function()
+                shootCam.CFrame = CFrame.new(mh.Position, aimPoint)
+                local sp = shootCam:WorldToViewportPoint(aimPoint)
+                if sp.Z > 0 then
+                    mouseX, mouseY = sp.X, sp.Y
+                end
+            end)
+        end
+        tryShootGunRemote(gun, aimPoint)
+        fireGunOnce(gun)
+        tryExecutorClick()
+        clickFire(mouseX, mouseY)
+        task.wait(0.07)
+        fireGunOnce(gun)
+        clickFire(mouseX, mouseY)
+        waitShootReload()
+    end)
+    unanchorHrp()
+    if not ok then
+        log("fireGunAtTarget: " .. tostring(err))
+    end
+    return ok
+end
+
+-- One pass: gun -> equip -> TP behind -> shoot -> reload wait
 local function shootPass(target)
     if not isAlive(target) or not isAlive(me) then return false end
     if botHasKnife() then return false end
@@ -946,6 +912,7 @@ local function shootPass(target)
     local cf = getShootCFrame(target)
     local mh = hrp()
     if not (cf and mh) then return false end
+    unanchorHrp()
     zeroVel(mh)
     mh.CFrame = cf
     zeroVel(mh)
@@ -967,7 +934,7 @@ local function shootTargetLoop(target)
         if not ensureShootGun() then
             return false, "No gun available"
         end
-        shootPass(target)
+        pcall(function() shootPass(target) end)
         tpHome()
         if not isAlive(target) then
             return true, "Killed " .. shortName(target)
