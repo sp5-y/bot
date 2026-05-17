@@ -419,7 +419,6 @@ end
 local function hopServer(reason, continuePingSearch)
     if hopBusy then return false end
     hopBusy = true
-    stopFollow()
     if continuePingSearch then
         hopState.pingSearchActive = true
         queuePingSearchOnTeleport()
@@ -443,10 +442,6 @@ end
 
 --[[ Movement ]]--
 local function hrp() return me.Character and me.Character:FindFirstChild("HumanoidRootPart") end
-local followTarget = nil
-local function stopFollow()
-    followTarget = nil
-end
 -- Horizontal lead from HRP velocity so handoffs stay ahead of walking targets.
 local function horizontalApproachLead(root)
     if not root then return Vector3.zero end
@@ -615,7 +610,6 @@ local function tpCFrame(cf)
 end
 
 local function tpBehindTarget(target)
-    stopFollow()
     local cf = getBehindCFrame(target)
     if cf then tpCFrame(cf) end
     return cf ~= nil
@@ -638,7 +632,6 @@ local function zeroVel(h)
     h.RotVelocity = Vector3.zero
 end
 local function tpTo(p)
-    stopFollow()
     local h, t = hrp(), p and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
     if h and t then
         zeroVel(h)
@@ -647,7 +640,6 @@ local function tpTo(p)
     end
 end
 local function tpHome()
-    stopFollow()
     local h = hrp()
     if h and SPAWN_CFRAME then
         zeroVel(h)
@@ -656,7 +648,6 @@ local function tpHome()
     end
 end
 local function reset()
-    stopFollow()
     local char = me.Character
     if not char then return end
     local h = char:FindFirstChild("HumanoidRootPart")
@@ -674,7 +665,6 @@ local function reset()
 end
 local function dropGunAt(target)
     if not isAlive(target) then return false end
-    stopFollow()
     local h = hrp()
     local oh = target.Character:FindFirstChild("HumanoidRootPart")
     if not (h and oh) then return false end
@@ -794,7 +784,6 @@ local function shootTargetLoop(target)
     if ownerIsMurderer() then return false, "Owner is murderer" end
     if not isAlive(target) then return false, "Player not found" end
     if botHasKnife() then return false, "No gun available" end
-    stopFollow()
     local passes = 0
     while session.active and isAlive(me) and isAlive(target) and passes < 36 do
         passes = passes + 1
@@ -835,7 +824,6 @@ local function stabPass(target, lastPos, lastT)
     local cf, curPos = getStabCFrame(target, lastPos, lastT)
     local mh = hrp()
     if not (cf and mh) then return false end
-    stopFollow()
     zeroVel(mh)
     mh.CFrame = cf
     zeroVel(mh)
@@ -865,7 +853,6 @@ local function stabTargetLoop(target)
     if target == me then return false, "Invalid target" end
     if not botHasKnife() then return false, "You need to be murderer" end
     if not isAlive(target) then return false, "Player not found" end
-    stopFollow()
     local started = tick()
     local lastPos, lastT
     while session.active and isAlive(me) and isAlive(target) and (tick() - started) < STAB_TIMEOUT_SEC do
@@ -1181,8 +1168,6 @@ local function runFlingLoop(mode, playerQuery, gen, continuousLoop)
     end)
 end
 
---[[ Follow ]]-- (followTarget / stopFollow are under Movement)
-
 --[[ Round ]]--
 local function isRoundActive()
     return findHolder({"Knife"}) or findHolder({"Gun", "Revolver"})
@@ -1206,30 +1191,6 @@ local function isOnlyMurdererLeftWithBot(murderer)
     return #alive == 1 and alive[1].UserId == murderer.UserId
 end
 
-local function startFollowLoop()
-    task.spawn(function()
-        while followTarget and session.active do
-            local target = followTarget
-            if target and isAlive(target) and isAlive(me) then
-                local thrp = target.Character:FindFirstChild("HumanoidRootPart")
-                local thum = target.Character:FindFirstChildOfClass("Humanoid")
-                local hum = me.Character:FindFirstChildOfClass("Humanoid")
-                if thrp and hum then
-                    hum:MoveTo(thrp.Position)
-                    if thum then
-                        local st = thum:GetState()
-                        local j = st == Enum.HumanoidStateType.Jumping or st == Enum.HumanoidStateType.Freefall
-                        if j or thrp.Velocity.Y > 10 then
-                            hum.Jump = true
-                        end
-                    end
-                end
-            end
-            task.wait(0.12)
-        end
-    end)
-end
-
 --[[ Commands ]]--
 local COMMAND_HELP = {
     owner = "Claim control of the bot",
@@ -1245,8 +1206,6 @@ local COMMAND_HELP = {
     tpmurd = "Teleport bot to the murderer",
     tpsher = "Teleport bot to the sheriff",
     spawn = "Teleport bot to spawn",
-    follow = "<player> - Follow a player",
-    unfollow = "Stop following current player",
     gun = "<player> - Deliver gun to a player",
     togglegun = "<player> - Auto-deliver gun to a player",
     chat = "<msg> - Make bot send a public chat message",
@@ -1255,7 +1214,7 @@ local COMMAND_HELP = {
 }
 local HELP_ORDER = {
     "owner", "dethrone", "tp", "who", "shoot", "stab", "toggleshoot", "gun", "fling", "togglegun", "togglewho", "togglealerts",
-    "reset", "follow", "unfollow", "chat", "help",
+    "reset", "chat", "help",
 }
 local function sendFullHelp(target)
     local o = target or findOwner()
@@ -1508,20 +1467,6 @@ local function handleCommand(p, msg)
             toggleShoot = true
             whisper("Auto-shoot murderer: on")
         end
-    elseif cmd == "follow" then
-        local t = findPlayer(args[2]) or findOwner()
-        if not t then whisper("Player not found") return end
-        local wasActive = followTarget ~= nil
-        local switching = followTarget ~= t
-        followTarget = t
-        if switching then tpTo(t) end
-        whisper("Following " .. shortName(t))
-        if not wasActive then startFollowLoop() end
-    elseif cmd == "unfollow" then
-        if not followTarget then whisper("Not following anyone") return end
-        local name = shortName(followTarget)
-        followTarget = nil
-        whisper("Unfollowed " .. name)
     elseif cmd == "help" then
         local tail = restOfChatArgs(args)
         tail = (tail:gsub("^!+", ""):match("^%s*(.-)%s*$") or "")
