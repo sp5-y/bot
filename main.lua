@@ -521,8 +521,8 @@ local function shootPredictLead(root, hum, lastPos, lastT)
     return vh.Unit * math.min(snap + ahead, 14)
 end
 
-local SHOOT_BEHIND_DIST = 13
-local SHOOT_BEHIND_HEIGHT = 4.5
+local SHOOT_RANGE = 12
+local SHOOT_HEIGHT = 7
 local STAB_PREDICT_T = 0.14
 local STAB_MAX_LEAD = 3
 local STAB_MELEE_OFFSET = 1.05
@@ -589,22 +589,23 @@ local function whisperCombatResult(msg)
     whisper(msg)
 end
 
-local function getShootAim(target, lastPos, lastT)
+-- Behind target, mid-air, sheriff gun range; look at chest with light lead
+local function getShootCFrame(target)
     local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-    local thum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
+    local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
     if not th then return end
-    local lead = shootPredictLead(th, thum, lastPos, lastT)
-    local aimPoint = th.Position + Vector3.new(0, 1.25, 0) + lead
-    local above = aimPoint + Vector3.new(0, 16, 0)
-    return aimPoint, above, th.Position
+    local lead = shootPredictLead(th, hum, nil, nil)
+    local aim = th.Position + Vector3.new(0, 1.2, 0) + Vector3.new(lead.X, 0, lead.Z)
+    local back = th.CFrame.LookVector
+    local flatBack = Vector3.new(-back.X, 0, -back.Z)
+    if flatBack.Magnitude < 0.05 then flatBack = Vector3.new(0, 0, 1) end
+    flatBack = flatBack.Unit
+    local pos = th.Position + flatBack * SHOOT_RANGE + Vector3.new(0, SHOOT_HEIGHT, 0)
+    return CFrame.new(pos, aim)
 end
 
 local function getBehindCFrame(target)
-    local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-    if not th then return end
-    local aimPoint = th.Position + Vector3.new(0, 1.25, 0)
-    local pos = th.Position - th.CFrame.LookVector * SHOOT_BEHIND_DIST + Vector3.new(0, SHOOT_BEHIND_HEIGHT, 0)
-    return CFrame.new(pos, aimPoint)
+    return getShootCFrame(target)
 end
 
 local function isAlive(p)
@@ -807,86 +808,59 @@ local function clickFire(x, y)
         VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
     end)
 end
--- Gun volley (aim above + Activate + click); used by hit-run loop
-local function fireGunVolley(target)
-    if not isAlive(target) or not isAlive(me) then return false end
+-- Fire at target from current position (no extra TP)
+local function fireGunAtTarget(target, gun)
+    if not gun or not isAlive(target) then return end
     enableShootRender()
-    if not ensureShootGun() then return false end
-    local gun = getHeldTool(me, {"Gun", "Revolver"})
-    if not gun or not equipTool(gun) then return false end
-    local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
-    local startHealth = hum and hum.Health or nil
-    local fired = false
-    local lastPos, lastT
-    for _ = 1, 22 do
-        if not isAlive(target) or not isAlive(me) then break end
-        local mh = hrp()
-        local aimPoint, abovePos, curPos = getShootAim(target, lastPos, lastT)
-        if not (mh and aimPoint and abovePos) then break end
-        if curPos then lastPos, lastT = curPos, tick() end
-        local lookCf = CFrame.new(abovePos, aimPoint)
-        zeroVel(mh)
-        mh.CFrame = lookCf
-        zeroVel(mh)
-        local shootCam = getActiveCam()
-        local mouseX, mouseY = 400, 300
-        if shootCam then
-            pcall(function()
-                local vs = shootCam.ViewportSize
-                mouseX, mouseY = vs.X * 0.5, vs.Y * 0.45
-            end)
-            pcall(function()
-                shootCam.CFrame = lookCf
-                local sp = shootCam:WorldToViewportPoint(aimPoint)
-                if sp.Z > 0 then
-                    mouseX, mouseY = sp.X, sp.Y
-                end
-            end)
-        end
-        fireGunOnce(gun)
-        clickFire(mouseX, mouseY)
-        task.wait(0.06)
-        fireGunOnce(gun)
-        clickFire(mouseX, mouseY)
-        fired = true
-        hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
-        if hum and startHealth and hum.Health < startHealth then
-            return true
-        end
-        if not isAlive(target) then
-            return true
-        end
-        task.wait(0.1)
+    local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    if not th then return end
+    local aimPoint = th.Position + Vector3.new(0, 1.2, 0)
+    local mh = hrp()
+    local shootCam = getActiveCam()
+    local mouseX, mouseY = 400, 300
+    if shootCam and mh then
+        pcall(function()
+            local lookCf = CFrame.new(mh.Position, aimPoint)
+            shootCam.CFrame = lookCf
+            local vs = shootCam.ViewportSize
+            mouseX, mouseY = vs.X * 0.5, vs.Y * 0.45
+            local sp = shootCam:WorldToViewportPoint(aimPoint)
+            if sp.Z > 0 then
+                mouseX, mouseY = sp.X, sp.Y
+            end
+        end)
     end
-    return fired
+    for _ = 1, 4 do
+        fireGunOnce(gun)
+        clickFire(mouseX, mouseY)
+        task.wait(0.04)
+    end
 end
 
--- One pass: grab gun, equip, TP behind, volley (like stabPass)
+-- One pass: gun ready -> equip -> TP behind (mid-air) -> shoot -> done (caller TPs spawn)
 local function shootPass(target)
     if not isAlive(target) or not isAlive(me) then return false end
     if botHasKnife() then return false end
     if not ensureShootGun() then return false end
     local gun = getHeldTool(me, {"Gun", "Revolver"})
     if not gun or not equipTool(gun) then return false end
-    enableShootRender()
-    local cf = getBehindCFrame(target)
+    local cf = getShootCFrame(target)
     local mh = hrp()
     if not (cf and mh) then return false end
     zeroVel(mh)
     mh.CFrame = cf
     zeroVel(mh)
-    task.wait(0.08)
-    return fireGunVolley(target)
+    fireGunAtTarget(target, gun)
+    return true
 end
 
--- Hit-run: TP behind -> volley -> spawn; repeat until shoot target or bot dies (not owner)
+-- Pick up / equip gun, TP behind, fire, spawn, wait 1.2-2s; until bot or target dies
 local function shootTargetLoop(target)
     if target == me then return false, "Invalid target" end
     if ownerIsMurderer() then return false, "Owner is murderer" end
     if not isAlive(target) then return false, "Player not found" end
     if botHasKnife() then return false, "No gun available" end
     if not ensureShootGun() then return false, "No gun available" end
-    enableShootRender()
     while session.active and isAlive(me) and isAlive(target) do
         if ownerIsMurderer() then
             tpHome()
@@ -897,7 +871,6 @@ local function shootTargetLoop(target)
         end
         shootPass(target)
         tpHome()
-        task.wait(0.05)
         if not isAlive(target) then
             return true, "Killed " .. shortName(target)
         end
@@ -905,7 +878,7 @@ local function shootTargetLoop(target)
             log("bot died during shoot")
             return false, "Bot died"
         end
-        task.wait(math.random(10, 20) / 10)
+        task.wait(math.random(12, 20) / 10)
     end
     if not isAlive(me) then
         log("bot died during shoot")
@@ -1467,7 +1440,9 @@ local function handleCommand(p, msg)
         local targetUid = picked.UserId
         local shootName = shortName(picked)
         if ownerIsMurd or botHasKnife() or ownerIsMurderer() then whisper("No gun available") return end
-        if not (botHasGun() or findDroppedGun()) then whisper("No gun available") return end
+        if not (botHasGun() or findDroppedGun() or workspace:FindFirstChild("GunDrop")) then
+            whisper("No gun available") return
+        end
         if _G.MM_ShootBusy then whisper("Shoot busy, try again") return end
         _G.MM_ShootBusy = true
         whisper("Shooting " .. shootName)
