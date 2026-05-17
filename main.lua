@@ -525,6 +525,7 @@ local SHOOT_BEHIND_HEIGHT = 4.5
 local STAB_MELEE_RANGE = 2.4
 local STAB_MOVE_MIN = 1.8
 local STAB_EXTRA_LEAD_SEC = 0.34
+local STAB_TIMEOUT_SEC = 45
 
 local function getStabMoveDir(th, hum)
     local best = Vector3.zero
@@ -859,10 +860,9 @@ local function stabTargetLoop(target)
     if not botHasKnife() then return false, "You need to be murderer" end
     if not isAlive(target) then return false, "Player not found" end
     stopFollow()
-    local passes = 0
     local lastPos, lastT
-    while session.active and isAlive(me) and isAlive(target) and passes < 36 do
-        passes = passes + 1
+    local t0 = tick()
+    while session.active and isAlive(me) and isAlive(target) and tick() - t0 < STAB_TIMEOUT_SEC do
         if not botHasKnife() then
             return false, "You need to be murderer"
         end
@@ -882,12 +882,14 @@ local function stabTargetLoop(target)
         end
         task.wait(math.random(10, 20) / 10)
     end
+    for _ = 1, 3 do tpHome(); task.wait(0.12) end
     if not isAlive(me) then
         log("bot died during stab")
         return false, "Bot died"
     end
     if not isAlive(target) then return true, "Killed " .. shortName(target) end
-    return true, "Stopped stabbing " .. shortName(target)
+    log("stab timed out after " .. STAB_TIMEOUT_SEC .. "s on " .. shortName(target))
+    return true, "Stab timed out"
 end
 
 local function disableToggleGun(notify)
@@ -1225,11 +1227,11 @@ local COMMAND_HELP = {
     dethrone = "Release owner control",
     who = "Show current murderer and sheriff",
     shoot = "<player> - Hit-run shoot until they die (TP behind, shoot, spawn)",
-    stab = "all | sheriff | <name> - Murderer only, stab loop until dead",
+    stab = "sheriff | <name> - Murderer only, stab until dead or 45s",
     toggleshoot = "Toggle auto hit-run shoot on murderer each round",
     togglewho = "Toggle automatic role callout each round",
     togglealerts = "Toggle kill/drop/pickup alerts",
-    toggledrop = "Toggle dropping gun at spawn when owner is murderer",
+    toggledrop = "Toggle auto drop gun at spawn (bot sheriff or owner murderer)",
     reset = "Force bot respawn",
     tp = "<player> - Teleport bot to a player",
     tpmurd = "Teleport bot to the murderer",
@@ -1415,38 +1417,32 @@ local function handleCommand(p, msg)
     elseif cmd == "stab" then
         if not botHasKnife() then whisper("You need to be murderer") return end
         local q = restOfChatArgs(args)
-        if q == "" then whisper("!stab all | sheriff | <name>") return end
+        if q == "" then whisper("!stab sheriff | <name>") return end
         local wl = q:lower()
         local first = wl:match("^(%S+)")
-        if first == "all" or first == "sheriff" or first == "sher" or first == "sherif" then
+        if first == "sheriff" or first == "sher" or first == "sherif" then
             if _G.MM_StabBusy then whisper("Stab busy, try again") return end
-            local targets = {}
-            if first == "all" then
-                for _, pl in ipairs(Players:GetPlayers()) do
-                    if pl ~= me and (not session.ownerId or pl.UserId ~= session.ownerId) then
-                        table.insert(targets, pl)
-                    end
-                end
-            else
-                local sher = findHolder({"Gun", "Revolver"})
-                if sher and sher ~= me then table.insert(targets, sher) end
-            end
-            if #targets == 0 then whisper("No targets") return end
+            local sher = findHolder({"Gun", "Revolver"})
+            if not sher or sher == me then whisper("Sheriff not found") return end
             _G.MM_StabBusy = true
-            whisper("Stabbing " .. first)
+            whisper("Stabbing sheriff")
+            local targetUid = sher.UserId
             task.spawn(function()
+                local status = "Sheriff not found"
                 local ok, err = pcall(function()
-                    for _, tgt in ipairs(targets) do
-                        if not session.active or not botHasKnife() then break end
-                        if isAlive(tgt) then
-                            local _, status = stabTargetLoop(tgt)
-                            whisperCombatResult(status)
-                        end
-                    end
+                    local tgt = Players:GetPlayerByUserId(targetUid)
+                    if not tgt or not isAlive(tgt) then return end
+                    local _, msg = stabTargetLoop(tgt)
+                    status = msg
                 end)
-                if not ok then whisper("Stab failed"); log(tostring(err)) end
+                if not ok then status = "Stab failed"; log(tostring(err)) end
+                whisperCombatResult(status)
                 _G.MM_StabBusy = false
             end)
+            return
+        end
+        if first == "all" then
+            whisper("Use !stab sheriff or !stab <name>")
             return
         end
         local picked = findOtherPlayer(q)
@@ -1807,13 +1803,11 @@ while session.active and gui.Parent do
             task.wait(0.35)
             local curM, curS, curBotM, curBotS = resolveRoleSnapshot(1.2)
 
-            -- 3) Drop at spawn before role msgs (bot sheriff / has gun, or owner murderer + toggledrop)
-            if isAlive(me) and not curBotM and (botHasGun() or findDroppedGun()) then
-                local stashNow = curBotS or botHasGun()
-                if not stashNow and owner and curM and owner.UserId == curM.UserId and toggleDrop then
-                    stashNow = true
-                end
-                if stashNow then
+            -- 3) Drop at spawn before role msgs (only when toggledrop is on)
+            if toggleDrop and isAlive(me) and not curBotM and (botHasGun() or findDroppedGun()) then
+                local ownerMurdNow = owner and curM and owner.UserId == curM.UserId
+                local botSheriffNow = curBotS or botHasGun()
+                if botSheriffNow or ownerMurdNow then
                     pcall(stashGunAtSpawn)
                     task.wait(0.45)
                 end
