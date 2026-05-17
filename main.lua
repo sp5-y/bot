@@ -125,27 +125,54 @@ local function log(msg)
 end
 
 --[[ Finders ]]--
+local GUN_NAMES = {"Gun", "Revolver"}
+local KNIFE_NAMES = {"Knife"}
+
 local function hasItem(parent, names)
     for _, c in ipairs(parent and parent:GetChildren() or {}) do
-        if table.find(names, c.Name) then return true end
+        if c:IsA("Tool") and table.find(names, c.Name) then return true end
     end
 end
 local function playerHas(p, names)
     return hasItem(p.Character, names) or hasItem(p:FindFirstChildOfClass("Backpack"), names)
 end
+local function findGunOnPlayer(p)
+    if not p then return end
+    for _, container in ipairs({p.Character, p:FindFirstChildOfClass("Backpack")}) do
+        if container then
+            for _, c in ipairs(container:GetChildren()) do
+                if c:IsA("Tool") and table.find(GUN_NAMES, c.Name) then
+                    return c
+                end
+            end
+        end
+    end
+end
+local function botHasGun() return findGunOnPlayer(me) ~= nil end
+local function holderWantsGun(names)
+    if type(names) ~= "table" then return false end
+    for _, n in ipairs(names) do
+        if n == "Gun" or n == "Revolver" then return true end
+    end
+    return false
+end
 local function findHolder(names)
+    if holderWantsGun(names) and botHasGun() then return me end
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= me and playerHas(p, names) then return p end
     end
 end
-local function botHasGun() return playerHas(me, {"Gun", "Revolver"}) end
-local function botHasKnife() return playerHas(me, {"Knife"}) end
+local function botHasKnife() return playerHas(me, KNIFE_NAMES) end
+local function ownerIsMurderer()
+    if not session.ownerId or session.ownerId == me.UserId then return false end
+    local o = Players:GetPlayerByUserId(session.ownerId)
+    return o and playerHas(o, KNIFE_NAMES)
+end
 local function findDroppedGun()
     for _, o in ipairs(workspace:GetDescendants()) do
-        if o:IsA("Tool") and (o.Name == "Gun" or o.Name == "Revolver" or o.Name == "GunDrop")
+        if o:IsA("Tool") and table.find(GUN_NAMES, o.Name)
            and not Players:GetPlayerFromCharacter(o.Parent) then
-            local h = o:FindFirstChild("Handle") or o:FindFirstChildWhichIsA("BasePart")
-            if h then return h end
+            return o:FindFirstChild("Handle") or o:FindFirstChildWhichIsA("BasePart") or o
         end
     end
     for _, o in ipairs(workspace:GetDescendants()) do
@@ -739,13 +766,13 @@ local function pickUpDroppedGun()
     if botHasGun() then return true end
     local g, h = findDroppedGun(), hrp()
     if not (g and h and isAlive(me)) then return false end
-    g.CFrame = h.CFrame
+    pcall(function() g.CFrame = h.CFrame + Vector3.new(0, 0, 2) end)
     local t0 = tick()
-    while session.active and tick() - t0 < 2.5 do
+    while session.active and tick() - t0 < 4 do
         if botHasGun() then return true end
         task.wait(0.05)
     end
-    return false
+    return botHasGun()
 end
 local function equipTool(tool)
     local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
@@ -757,7 +784,8 @@ local function equipTool(tool)
 end
 local function ensureShootGun()
     if botHasGun() then return true end
-    return pickUpDroppedGun()
+    if findDroppedGun() then return pickUpDroppedGun() end
+    return false
 end
 
 local function waitShootReload()
@@ -768,7 +796,7 @@ local function shootPass(target, lastPos, lastT)
     if not isAlive(target) or not isAlive(me) then return false end
     if botHasKnife() then return false end
     if not ensureShootGun() then return false end
-    local gun = getHeldTool(me, {"Gun", "Revolver"})
+    local gun = findGunOnPlayer(me) or getHeldTool(me, GUN_NAMES)
     if not gun or not equipGunTool(gun) then return false end
     stopFollow()
     pcall(function() ShootRunSvc:Set3dRenderingEnabled(true) end)
@@ -1520,8 +1548,8 @@ local function handleCommand(p, msg)
         end
         return
     end
-    local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
-    local ownerIsMurd = session.ownerId and m and not botHasKnife() and m.UserId == session.ownerId
+    local m, s = findHolder({"Knife"}), findHolder(GUN_NAMES)
+    local ownerIsMurd = ownerIsMurderer()
     if cmd == "dethrone" then
         if p.Name:lower() == FRAUD_NAME then fraudOptedOut = true end
         session.ownerId = nil
@@ -1558,7 +1586,8 @@ local function handleCommand(p, msg)
         local picked = findOtherPlayer(q)
         if not picked then whisper("Player not found") return end
         local targetUid = picked.UserId
-        if ownerIsMurd or botHasKnife() then whisper("No gun available") return end
+        if botHasKnife() then whisper("No gun available") return end
+        if not ensureShootGun() then whisper("No gun available") return end
         if _G.MM_StabBusy then whisper("Stab busy, try again") return end
         if _G.MM_GunBusy then whisper("Gun busy, try again") return end
         _G.MM_GunBusy = true
