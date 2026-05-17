@@ -12,22 +12,46 @@ local TeleportSvc = cref(game:GetService("TeleportService"))
 local VIM = pcall(function() return cref(game:GetService("VirtualInputManager")) end) and cref(game:GetService("VirtualInputManager")) or nil
 local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
 local me, cam = Players.LocalPlayer, workspace.CurrentCamera
-do
+local UIS = cref(game:GetService("UserInputService"))
+local function installShootHooks()
     local G = getgenv and getgenv() or _G
-    if hookmetamethod and not G.MM_ShootAimHook then
-        G.MM_ShootAimHook = true
-        local mouse = me:GetMouse()
-        local oldIndex
-        oldIndex = hookmetamethod(game, "__index", function(self, key)
-            local part, cf = G.MM_ShootAimPart, G.MM_ShootAimCf
-            if part and cf and self == mouse then
-                if key == "Hit" then return cf end
-                if key == "Target" then return part end
+    if G.MM_ShootHooksInstalled or not hookmetamethod then return end
+    G.MM_ShootHooksInstalled = true
+    local wrap = newcclosure or function(f) return f end
+    local mouse = me:GetMouse()
+    local oldIndex = hookmetamethod(game, "__index", wrap(function(self, key)
+        if G.MM_ShootActive and G.MM_ShootAimCf and self == mouse then
+            if key == "Hit" then return G.MM_ShootAimCf end
+            if key == "Target" and G.MM_ShootAimPart then return G.MM_ShootAimPart end
+        end
+        return oldIndex(self, key)
+    end))
+    local oldNamecall = hookmetamethod(game, "__namecall", wrap(function(self, ...)
+        if G.MM_ShootActive and G.MM_ShootAimPart and G.MM_ShootAimCf then
+            local method = getnamecallmethod()
+            local args = { ... }
+            local pos = G.MM_ShootAimCf.Position
+            local part = G.MM_ShootAimPart
+            local tag = tostring(self)
+            if method == "InvokeServer" and tag:find("ShootGun") then
+                if args[2] ~= nil then args[2] = pos
+                elseif args[1] ~= nil then args[1] = pos end
+                return oldNamecall(self, unpack(args))
             end
-            return oldIndex(self, key)
-        end)
-    end
+            if method == "Raycast" and self == workspace then
+                return {
+                    Position = pos,
+                    Instance = part,
+                    Normal = Vector3.new(0, 1, 0),
+                    Material = Enum.Material.Plastic,
+                    Distance = (pos - args[1]).Magnitude,
+                }
+            end
+        end
+        return oldNamecall(self, ...)
+    end))
 end
+installShootHooks()
 local DEFAULT_FOV, WIDE_FOV = 70, 100
 local SPAWN_CFRAME = CFrame.new(14.3513288, 505.044952, -58.2513657, 1, 0, 0, 0, 1, 0, 0, 0, 1)
 local FRAUD_NAME = "fraud4balenci"
@@ -626,14 +650,12 @@ local function getBehindCFrame(target)
     return getShootCFrame(target)
 end
 
-local function getShootAim(target, lastPos, lastT)
+local function getAimPoint(target)
     local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
     local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
     if not th then return end
-    local lead = shootPredictLead(th, hum, lastPos, lastT)
-    local aimPoint = th.Position + Vector3.new(0, 1.25, 0) + lead
-    local above = aimPoint + Vector3.new(0, 14, 0)
-    return aimPoint, above, th.Position
+    local lead = shootPredictLead(th, hum, nil, nil)
+    return th.Position + Vector3.new(0, 1.25, 0) + lead
 end
 
 local function setShootAimTarget(target)
@@ -650,7 +672,13 @@ end
 
 local function clearShootAimTarget()
     local G = getgenv and getgenv() or _G
+    G.MM_ShootActive = false
     G.MM_ShootAimPart, G.MM_ShootAimCf = nil, nil
+end
+
+local function setShootAimActive(on)
+    local G = getgenv and getgenv() or _G
+    G.MM_ShootActive = on and true or false
 end
 
 local function isAlive(p)
@@ -868,24 +896,38 @@ end
 
 local function tryShootGunRemote(gun, aimPoint)
     if not gun or not aimPoint then return end
+    local handle = gun:FindFirstChild("Handle")
     pcall(function()
         local rf = gun:FindFirstChild("ShootGun", true)
         if not rf then return end
         if rf:IsA("RemoteFunction") then
             pcall(function() rf:InvokeServer(aimPoint) end)
             pcall(function() rf:InvokeServer(tick(), aimPoint) end)
+            if handle then pcall(function() rf:InvokeServer(handle, aimPoint) end) end
+            pcall(function() rf:InvokeServer(aimPoint, Vector3.new(0, 1, 0)) end)
         elseif rf:IsA("RemoteEvent") then
             pcall(function() rf:FireServer(aimPoint) end)
+            pcall(function() rf:FireServer(tick(), aimPoint) end)
         end
     end)
 end
 
 local function tryExecutorClick()
     local g = (getgenv and getgenv()) or _G
-    local fn = rawget(g, "mouse1click") or rawget(g, "mouse1press")
-    if type(fn) == "function" then
-        pcall(fn)
+    local click = rawget(g, "mouse1click")
+    local press = rawget(g, "mouse1press")
+    local release = rawget(g, "mouse1release")
+    if type(click) == "function" then
+        pcall(click)
+    elseif type(press) == "function" and type(release) == "function" then
+        pcall(press)
+        task.wait(0.05)
+        pcall(release)
     end
+    pcall(function()
+        UIS:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+        UIS:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+    end)
 end
 
 local function unanchorHrp()
@@ -897,51 +939,50 @@ local function waitShootReload()
     task.wait(SHOOT_RELOAD_MIN)
 end
 
--- MM2 gun uses camera/mouse ray — aim above target (works), not sideways from behind
-local function fireGunAtTarget(target, gun)
-    if not gun or not isAlive(target) or not isAlive(me) then return false end
+-- Fire from behind TP (stay on getShootCFrame — hooks redirect ray/ShootGun to target)
+local function fireGunAtTarget(target, gun, shootCf)
+    if not gun or not isAlive(target) or not isAlive(me) or not shootCf then return false end
     local fired = false
     local ok, err = pcall(function()
+        installShootHooks()
         enableShootRender()
-        setShootAimTarget(target)
         if gun.Parent ~= me.Character then
             equipTool(gun)
-            task.wait(0.2)
+            task.wait(0.25)
         end
+        local aimPoint = getAimPoint(target)
+        if not aimPoint then return end
+        setShootAimTarget(target)
+        setShootAimActive(true)
         unanchorHrp()
-        local lastPos, lastT
-        for _ = 1, 10 do
+        local mh = hrp()
+        if not mh then return end
+        zeroVel(mh)
+        mh.CFrame = shootCf
+        zeroVel(mh)
+        local shootCam = getActiveCam()
+        if shootCam then
+            pcall(function() shootCam.CFrame = shootCf end)
+        end
+        task.wait(0.1)
+        local mouseX, mouseY = 400, 300
+        if shootCam then
+            pcall(function()
+                local sp = shootCam:WorldToViewportPoint(aimPoint)
+                if sp.Z > 0 then
+                    mouseX, mouseY = sp.X, sp.Y
+                end
+            end)
+        end
+        for _ = 1, 4 do
             if not isAlive(target) or not isAlive(me) then break end
-            if gun.Parent ~= me.Character then equipTool(gun) end
-            local mh = hrp()
-            local aimPoint, abovePos, curPos = getShootAim(target, lastPos, lastT)
-            if not (mh and aimPoint and abovePos) then break end
-            if curPos then lastPos, lastT = curPos, tick() end
-            local lookCf = CFrame.new(abovePos, aimPoint)
-            zeroVel(mh)
-            mh.CFrame = lookCf
-            zeroVel(mh)
-            task.wait(0.05)
-            local mouseX, mouseY = 400, 300
-            local shootCam = getActiveCam()
-            if shootCam then
-                pcall(function()
-                    shootCam.CFrame = lookCf
-                    local sp = shootCam:WorldToViewportPoint(aimPoint)
-                    if sp.Z > 0 then
-                        mouseX, mouseY = sp.X, sp.Y
-                    end
-                end)
-            end
             tryShootGunRemote(gun, aimPoint)
             fireGunOnce(gun)
             tryExecutorClick()
             clickFire(mouseX, mouseY)
             fired = true
-            local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
-            if hum and hum.Health <= 0 then break end
             if not isAlive(target) then break end
-            task.wait(0.1)
+            task.wait(0.12)
         end
         if fired then
             waitShootReload()
@@ -955,14 +996,12 @@ local function fireGunAtTarget(target, gun)
     return ok and fired
 end
 
--- TP behind first, then aim above + fire (MM2 needs camera ray on target)
 local function shootPass(target)
     if not isAlive(target) or not isAlive(me) then return false end
     if botHasKnife() then return false end
     if not ensureShootGun() then return false end
     local gun = getHeldTool(me, {"Gun", "Revolver"})
     if not gun or not equipTool(gun) then return false end
-    task.wait(0.15)
     local cf = getShootCFrame(target)
     local mh = hrp()
     if not (cf and mh) then return false end
@@ -970,8 +1009,8 @@ local function shootPass(target)
     zeroVel(mh)
     mh.CFrame = cf
     zeroVel(mh)
-    task.wait(0.06)
-    return fireGunAtTarget(target, gun)
+    task.wait(0.05)
+    return fireGunAtTarget(target, gun, cf)
 end
 
 -- Pick up / equip, TP behind, shoot, wait reload, spawn, wait 1.2-2s; until bot or target dies
