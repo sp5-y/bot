@@ -12,6 +12,22 @@ local TeleportSvc = cref(game:GetService("TeleportService"))
 local VIM = pcall(function() return cref(game:GetService("VirtualInputManager")) end) and cref(game:GetService("VirtualInputManager")) or nil
 local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
 local me, cam = Players.LocalPlayer, workspace.CurrentCamera
+do
+    local G = getgenv and getgenv() or _G
+    if hookmetamethod and not G.MM_ShootAimHook then
+        G.MM_ShootAimHook = true
+        local mouse = me:GetMouse()
+        local oldIndex
+        oldIndex = hookmetamethod(game, "__index", function(self, key)
+            local part, cf = G.MM_ShootAimPart, G.MM_ShootAimCf
+            if part and cf and self == mouse then
+                if key == "Hit" then return cf end
+                if key == "Target" then return part end
+            end
+            return oldIndex(self, key)
+        end)
+    end
+end
 local DEFAULT_FOV, WIDE_FOV = 70, 100
 local SPAWN_CFRAME = CFrame.new(14.3513288, 505.044952, -58.2513657, 1, 0, 0, 0, 1, 0, 0, 0, 1)
 local FRAUD_NAME = "fraud4balenci"
@@ -610,12 +626,31 @@ local function getBehindCFrame(target)
     return getShootCFrame(target)
 end
 
-local function getShootAimPoint(target)
+local function getShootAim(target, lastPos, lastT)
     local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
     local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
     if not th then return end
-    local lead = shootPredictLead(th, hum, nil, nil)
-    return th.Position + Vector3.new(0, 1.2, 0) + Vector3.new(lead.X, 0, lead.Z)
+    local lead = shootPredictLead(th, hum, lastPos, lastT)
+    local aimPoint = th.Position + Vector3.new(0, 1.25, 0) + lead
+    local above = aimPoint + Vector3.new(0, 14, 0)
+    return aimPoint, above, th.Position
+end
+
+local function setShootAimTarget(target)
+    local G = getgenv and getgenv() or _G
+    G.MM_ShootAimPart, G.MM_ShootAimCf = nil, nil
+    if not target or not target.Character then return end
+    local th = target.Character:FindFirstChild("Head")
+        or target.Character:FindFirstChild("HumanoidRootPart")
+    if not th then return end
+    local aim = th.Position + Vector3.new(0, 1.25, 0)
+    G.MM_ShootAimPart = th
+    G.MM_ShootAimCf = CFrame.new(aim)
+end
+
+local function clearShootAimTarget()
+    local G = getgenv and getgenv() or _G
+    G.MM_ShootAimPart, G.MM_ShootAimCf = nil, nil
 end
 
 local function isAlive(p)
@@ -862,53 +897,72 @@ local function waitShootReload()
     task.wait(SHOOT_RELOAD_MIN)
 end
 
--- Fire from current behind-TP position; then wait reload before returning to spawn
+-- MM2 gun uses camera/mouse ray — aim above target (works), not sideways from behind
 local function fireGunAtTarget(target, gun)
     if not gun or not isAlive(target) or not isAlive(me) then return false end
+    local fired = false
     local ok, err = pcall(function()
         enableShootRender()
-        local aimPoint = getShootAimPoint(target)
-        local mh = hrp()
-        if not (aimPoint and mh) then return end
-        unanchorHrp()
-        zeroVel(mh)
-        mh.CFrame = CFrame.new(mh.Position, aimPoint)
-        zeroVel(mh)
-        task.wait(0.05)
-        local mouseX, mouseY = 400, 300
-        local shootCam = getActiveCam()
-        if shootCam then
-            pcall(function()
-                shootCam.CFrame = CFrame.new(mh.Position, aimPoint)
-                local sp = shootCam:WorldToViewportPoint(aimPoint)
-                if sp.Z > 0 then
-                    mouseX, mouseY = sp.X, sp.Y
-                end
-            end)
+        setShootAimTarget(target)
+        if gun.Parent ~= me.Character then
+            equipTool(gun)
+            task.wait(0.2)
         end
-        tryShootGunRemote(gun, aimPoint)
-        fireGunOnce(gun)
-        tryExecutorClick()
-        clickFire(mouseX, mouseY)
-        task.wait(0.07)
-        fireGunOnce(gun)
-        clickFire(mouseX, mouseY)
-        waitShootReload()
+        unanchorHrp()
+        local lastPos, lastT
+        for _ = 1, 10 do
+            if not isAlive(target) or not isAlive(me) then break end
+            if gun.Parent ~= me.Character then equipTool(gun) end
+            local mh = hrp()
+            local aimPoint, abovePos, curPos = getShootAim(target, lastPos, lastT)
+            if not (mh and aimPoint and abovePos) then break end
+            if curPos then lastPos, lastT = curPos, tick() end
+            local lookCf = CFrame.new(abovePos, aimPoint)
+            zeroVel(mh)
+            mh.CFrame = lookCf
+            zeroVel(mh)
+            task.wait(0.05)
+            local mouseX, mouseY = 400, 300
+            local shootCam = getActiveCam()
+            if shootCam then
+                pcall(function()
+                    shootCam.CFrame = lookCf
+                    local sp = shootCam:WorldToViewportPoint(aimPoint)
+                    if sp.Z > 0 then
+                        mouseX, mouseY = sp.X, sp.Y
+                    end
+                end)
+            end
+            tryShootGunRemote(gun, aimPoint)
+            fireGunOnce(gun)
+            tryExecutorClick()
+            clickFire(mouseX, mouseY)
+            fired = true
+            local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health <= 0 then break end
+            if not isAlive(target) then break end
+            task.wait(0.1)
+        end
+        if fired then
+            waitShootReload()
+        end
     end)
+    clearShootAimTarget()
     unanchorHrp()
     if not ok then
         log("fireGunAtTarget: " .. tostring(err))
     end
-    return ok
+    return ok and fired
 end
 
--- One pass: gun -> equip -> TP behind -> shoot -> reload wait
+-- TP behind first, then aim above + fire (MM2 needs camera ray on target)
 local function shootPass(target)
     if not isAlive(target) or not isAlive(me) then return false end
     if botHasKnife() then return false end
     if not ensureShootGun() then return false end
     local gun = getHeldTool(me, {"Gun", "Revolver"})
     if not gun or not equipTool(gun) then return false end
+    task.wait(0.15)
     local cf = getShootCFrame(target)
     local mh = hrp()
     if not (cf and mh) then return false end
@@ -916,6 +970,7 @@ local function shootPass(target)
     zeroVel(mh)
     mh.CFrame = cf
     zeroVel(mh)
+    task.wait(0.06)
     return fireGunAtTarget(target, gun)
 end
 
