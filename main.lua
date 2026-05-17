@@ -522,40 +522,64 @@ end
 
 local SHOOT_BEHIND_DIST = 13
 local SHOOT_BEHIND_HEIGHT = 4.5
-local STAB_MELEE_RANGE = 2.0
-local STAB_MOVE_SPEED = 5
+local STAB_MELEE_RANGE = 2.4
+local STAB_MOVE_MIN = 1.8
+local STAB_EXTRA_LEAD_SEC = 0.34
 
-local function getStabCFrame(target)
+local function getStabMoveDir(th, hum)
+    local best = Vector3.zero
+    local bestSpd = 0
+    if hum then
+        local md = hum.MoveDirection
+        if md.Magnitude > 0.04 then
+            local hm = md * hum.WalkSpeed
+            best = Vector3.new(hm.X, 0, hm.Z)
+            bestSpd = best.Magnitude
+        end
+    end
+    local v = th.AssemblyLinearVelocity
+    if v.Magnitude < 1e-3 then v = th.Velocity end
+    local vh = Vector3.new(v.X, 0, v.Z)
+    if vh.Magnitude > bestSpd then
+        best, bestSpd = vh, vh.Magnitude
+    end
+    if bestSpd < STAB_MOVE_MIN then return end
+    return best.Unit, bestSpd
+end
+
+local function getStabCFrame(target, lastPos, lastT)
     local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
     local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
     if not th then return end
     local lead = flingApproachLead(th, hum)
-    local look = th.CFrame.LookVector
-    local flat = Vector3.new(look.X, 0, look.Z)
-    if flat.Magnitude > 0.05 then
-        look = flat.Unit
-    else
-        look = Vector3.new(0, 0, -1)
-    end
-    local center = th.Position + Vector3.new(0, 0.15, 0) + lead
-    local aim = center + Vector3.new(0, 1.15, 0)
-    local v = th.AssemblyLinearVelocity
-    if v.Magnitude < 1e-3 then v = th.Velocity end
-    local vh = Vector3.new(v.X, 0, v.Z)
-    local spd = vh.Magnitude
-    if hum then
-        local md = hum.MoveDirection
-        if md.Magnitude > 0.05 then
-            spd = math.max(spd, md.Magnitude * hum.WalkSpeed)
+    if lastPos and lastT then
+        local dt = tick() - lastT
+        if dt > 0.02 and dt < 0.45 then
+            local ev = (th.Position - lastPos) / dt
+            local evh = Vector3.new(ev.X, 0, ev.Z)
+            if evh.Magnitude > 1.2 then
+                lead = lead + evh.Unit * math.min(evh.Magnitude * STAB_EXTRA_LEAD_SEC, 12)
+            end
         end
     end
-    local pos
-    if spd >= STAB_MOVE_SPEED then
-        pos = center + look * STAB_MELEE_RANGE
-    else
-        pos = center - look * STAB_MELEE_RANGE
+    local moveDir, spd = getStabMoveDir(th, hum)
+    if moveDir and spd >= STAB_MOVE_MIN then
+        local extra = moveDir * math.min(spd * STAB_EXTRA_LEAD_SEC, 9)
+        local center = th.Position + Vector3.new(0, 0.2, 0) + lead + extra
+        local aim = th.Position + Vector3.new(0, 1.25, 0) + lead
+        local pos = center + moveDir * STAB_MELEE_RANGE
+        return CFrame.new(pos, aim), th.Position
     end
-    return CFrame.new(pos, aim)
+    return th.CFrame * CFrame.new(-1.2, 0.15, 3.25), th.Position
+end
+
+local function whisperCombatResult(msg)
+    if not msg or msg == "" then return end
+    if msg == "Bot died" then
+        log("bot died")
+        return
+    end
+    whisper(msg)
 end
 
 local function getShootAim(target, lastPos, lastT)
@@ -785,29 +809,39 @@ local function shootTargetLoop(target)
             return true, "Killed " .. shortName(target)
         end
         if not isAlive(me) then
+            log("bot died during shoot")
             return false, "Bot died"
         end
         task.wait(math.random(10, 20) / 10)
     end
-    if not isAlive(me) then return false, "Bot died" end
+    if not isAlive(me) then
+        log("bot died during shoot")
+        return false, "Bot died"
+    end
     if not isAlive(target) then return true, "Killed " .. shortName(target) end
     return true, "Stopped shooting " .. shortName(target)
 end
 
--- One stab pass: tight behind (or ahead on path if moving) + slash
-local function stabPass(target)
+local function stabPass(target, lastPos, lastT)
     if not isAlive(target) or not isAlive(me) then return false end
     if not botHasKnife() then return false end
     local knife = getHeldTool(me, {"Knife"})
     if not knife or not equipTool(knife) then return false end
-    local cf = getStabCFrame(target)
+    local cf, curPos = getStabCFrame(target, lastPos, lastT)
     local mh = hrp()
     if not (cf and mh) then return false end
     stopFollow()
     zeroVel(mh)
     mh.CFrame = cf
     zeroVel(mh)
-    task.wait(0.15)
+    task.wait(0.06)
+    cf = getStabCFrame(target, lastPos, lastT) or cf
+    if cf then
+        zeroVel(mh)
+        mh.CFrame = cf
+        zeroVel(mh)
+    end
+    task.wait(0.12)
     pcall(function()
         local handle = knife:FindFirstChild("Handle")
         if knife:FindFirstChild("KnifeServer") and handle then
@@ -816,35 +850,42 @@ local function stabPass(target)
         end
         knife:Activate()
     end)
-    return true
+    pcall(function() knife:Activate() end)
+    return true, curPos or (target.Character and target.Character:FindFirstChild("HumanoidRootPart") and target.Character.HumanoidRootPart.Position)
 end
 
--- Hit-run loop (same shape as shootTargetLoop)
 local function stabTargetLoop(target)
     if target == me then return false, "Invalid target" end
     if not botHasKnife() then return false, "You need to be murderer" end
     if not isAlive(target) then return false, "Player not found" end
     stopFollow()
     local passes = 0
+    local lastPos, lastT
     while session.active and isAlive(me) and isAlive(target) and passes < 36 do
         passes = passes + 1
         if not botHasKnife() then
             return false, "You need to be murderer"
         end
-        if not stabPass(target) then
+        local ok, curPos = stabPass(target, lastPos, lastT)
+        if not ok then
             return false, "Stab failed"
         end
+        if curPos then lastPos, lastT = curPos, tick() end
         tpHome()
         task.wait(0.05)
         if not isAlive(target) then
             return true, "Killed " .. shortName(target)
         end
         if not isAlive(me) then
+            log("bot died during stab")
             return false, "Bot died"
         end
         task.wait(math.random(10, 20) / 10)
     end
-    if not isAlive(me) then return false, "Bot died" end
+    if not isAlive(me) then
+        log("bot died during stab")
+        return false, "Bot died"
+    end
     if not isAlive(target) then return true, "Killed " .. shortName(target) end
     return true, "Stopped stabbing " .. shortName(target)
 end
@@ -1368,7 +1409,7 @@ local function handleCommand(p, msg)
                 status = "Shoot failed"
                 log(tostring(err))
             end
-            whisper(status)
+            whisperCombatResult(status)
             _G.MM_ShootBusy = false
         end)
     elseif cmd == "stab" then
@@ -1399,7 +1440,7 @@ local function handleCommand(p, msg)
                         if not session.active or not botHasKnife() then break end
                         if isAlive(tgt) then
                             local _, status = stabTargetLoop(tgt)
-                            whisper(status)
+                            whisperCombatResult(status)
                         end
                     end
                 end)
@@ -1426,7 +1467,7 @@ local function handleCommand(p, msg)
                 status = "Stab failed"
                 log(tostring(err))
             end
-            whisper(status)
+            whisperCombatResult(status)
             _G.MM_StabBusy = false
         end)
     elseif cmd == "gun" then
@@ -1474,7 +1515,7 @@ local function handleCommand(p, msg)
         whisper("Role callouts: " .. (toggleWho and "on" or "off"))
     elseif cmd == "toggledrop" then
         toggleDrop = not toggleDrop
-        whisper("Drop gun at spawn (owner murderer): " .. (toggleDrop and "on" or "off"))
+        whisper("Drop gun at spawn: " .. (toggleDrop and "on" or "off"))
     elseif cmd == "toggleshoot" then
         if ownerIsMurd or botHasKnife() then whisper("No gun available") return end
         if toggleShoot then
