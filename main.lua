@@ -511,24 +511,65 @@ local function shootPredictLead(root, hum, lastPos, lastT)
     return vh.Unit * math.min(snap + ahead, 14)
 end
 
-local SHOOT_RANGE = 13
-local SHOOT_HEIGHT = 6
+-- example.lua murderer TP: HRP * CFrame.new(-1.5, 0, 4) then wait(0.2) then slash
+local SHOOT_TP_LOCAL = CFrame.new(-1.5, 0, 4)
 local SHOOT_RELOAD_MIN = 2.35
 local SHOOT_TIMEOUT_SEC = 45
 
-local function getShootCFrame(target, lastPos, lastT)
+local function getShootAimPoint(target, lastPos, lastT)
     local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
     local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
     if not th then return end
     local lead = shootPredictLead(th, hum, lastPos, lastT)
-    local aim = th.Position + Vector3.new(0, 1.2, 0) + Vector3.new(lead.X, 0, lead.Z)
-    local back = th.CFrame.LookVector
-    local flatBack = Vector3.new(-back.X, 0, -back.Z)
-    if flatBack.Magnitude < 0.05 then flatBack = Vector3.new(0, 0, 1) end
-    flatBack = flatBack.Unit
-    local anchor = th.Position + Vector3.new(lead.X, 0, lead.Z)
-    local pos = anchor + flatBack * SHOOT_RANGE + Vector3.new(0, SHOOT_HEIGHT, 0)
-    return CFrame.new(pos, aim), aim, th.Position
+    return th.Position + Vector3.new(0, 1, 0) + lead, th.Position
+end
+
+local function getShootCFrame(target, lastPos, lastT)
+    local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    if not th then return end
+    local aim, curPos = getShootAimPoint(target, lastPos, lastT)
+    if not aim then return end
+    local tpPos = (th.CFrame * SHOOT_TP_LOCAL).Position
+    return CFrame.new(tpPos, aim), aim, curPos
+end
+
+local function equipGunTool(gun)
+    if not gun then return false end
+    if gun.Parent == me.Character then return true end
+    local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+    if not hum then return false end
+    pcall(function() hum:EquipTool(gun) end)
+    task.wait(0.2)
+    return gun.Parent == me.Character
+end
+
+local shootCamTypeRestore = nil
+local function aimCameraAt(fromPos, aimPoint)
+    if not (fromPos and aimPoint) then return end
+    pcall(function()
+        if not shootCamTypeRestore then
+            shootCamTypeRestore = cam.CameraType
+        end
+        cam.CameraType = Enum.CameraType.Scriptable
+        cam.CFrame = CFrame.new(fromPos, aimPoint)
+    end)
+end
+
+local function fireGunAtAim(gun, aimPoint)
+    if not gun or not aimPoint then return end
+    pcall(function()
+        local rf = gun:FindFirstChild("ShootGun", true)
+        if rf and rf:IsA("RemoteFunction") then
+            pcall(function() rf:InvokeServer(1, aimPoint) end)
+            pcall(function() rf:InvokeServer(aimPoint) end)
+        elseif rf and rf:IsA("RemoteEvent") then
+            pcall(function() rf:FireServer(aimPoint) end)
+            pcall(function() rf:FireServer(1, aimPoint) end)
+        end
+    end)
+    pcall(function() gun:Activate() end)
+    task.wait(0.05)
+    pcall(function() gun:Activate() end)
 end
 
 local function isAlive(p)
@@ -682,7 +723,7 @@ local function shootPass(target, lastPos, lastT)
     if botHasKnife() then return false end
     if not ensureShootGun() then return false end
     local gun = getHeldTool(me, {"Gun", "Revolver"})
-    if not gun or not equipTool(gun) then return false end
+    if not gun or not equipGunTool(gun) then return false end
     stopFollow()
     local lookCf, aimPoint, curPos = getShootCFrame(target, lastPos, lastT)
     local mh = hrp()
@@ -690,31 +731,21 @@ local function shootPass(target, lastPos, lastT)
     zeroVel(mh)
     mh.CFrame = lookCf
     zeroVel(mh)
-    task.wait(0.05)
+    aimCameraAt(mh.Position, aimPoint)
+    task.wait(0.2)
     lookCf, aimPoint = getShootCFrame(target, nil, nil)
     if lookCf and aimPoint then
         zeroVel(mh)
         mh.CFrame = lookCf
         zeroVel(mh)
+        aimCameraAt(mh.Position, aimPoint)
     end
-    task.wait(0.1)
-    pcall(function()
-        local handle = gun:FindFirstChild("Handle")
-        local rf = gun:FindFirstChild("ShootGun", true)
-        if rf then
-            if rf:IsA("RemoteFunction") then
-                pcall(function() rf:InvokeServer(1, aimPoint) end)
-                pcall(function() rf:InvokeServer(aimPoint) end)
-                pcall(function() rf:InvokeServer(tick(), aimPoint) end)
-                if handle then pcall(function() rf:InvokeServer(handle, aimPoint) end) end
-            elseif rf:IsA("RemoteEvent") then
-                pcall(function() rf:FireServer(aimPoint) end)
-                pcall(function() rf:FireServer(1, aimPoint) end)
-            end
-        end
-        gun:Activate()
-    end)
-    pcall(function() gun:Activate() end)
+    task.wait(0.05)
+    fireGunAtAim(gun, aimPoint)
+    if shootCamTypeRestore then
+        pcall(function() cam.CameraType = shootCamTypeRestore end)
+        shootCamTypeRestore = nil
+    end
     return true, curPos or (target.Character and target.Character:FindFirstChild("HumanoidRootPart") and target.Character.HumanoidRootPart.Position)
 end
 
