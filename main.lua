@@ -18,6 +18,7 @@ local toggleGun = false
 local toggleShoot = false
 local toggleAlerts = false
 local toggleWho = true
+local toggleDrop = true
 local fraudOptedOut = false
 local gunTargetId = nil
 local gunDelivered = false
@@ -521,6 +522,41 @@ end
 
 local SHOOT_BEHIND_DIST = 13
 local SHOOT_BEHIND_HEIGHT = 4.5
+local STAB_MELEE_RANGE = 2.0
+local STAB_MOVE_SPEED = 5
+
+local function getStabCFrame(target)
+    local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
+    if not th then return end
+    local lead = flingApproachLead(th, hum)
+    local look = th.CFrame.LookVector
+    local flat = Vector3.new(look.X, 0, look.Z)
+    if flat.Magnitude > 0.05 then
+        look = flat.Unit
+    else
+        look = Vector3.new(0, 0, -1)
+    end
+    local center = th.Position + Vector3.new(0, 0.15, 0) + lead
+    local aim = center + Vector3.new(0, 1.15, 0)
+    local v = th.AssemblyLinearVelocity
+    if v.Magnitude < 1e-3 then v = th.Velocity end
+    local vh = Vector3.new(v.X, 0, v.Z)
+    local spd = vh.Magnitude
+    if hum then
+        local md = hum.MoveDirection
+        if md.Magnitude > 0.05 then
+            spd = math.max(spd, md.Magnitude * hum.WalkSpeed)
+        end
+    end
+    local pos
+    if spd >= STAB_MOVE_SPEED then
+        pos = center + look * STAB_MELEE_RANGE
+    else
+        pos = center - look * STAB_MELEE_RANGE
+    end
+    return CFrame.new(pos, aim)
+end
 
 local function getShootAim(target, lastPos, lastT)
     local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
@@ -758,20 +794,20 @@ local function shootTargetLoop(target)
     return true, "Stopped shooting " .. shortName(target)
 end
 
--- One stab pass: TP in front (example.lua offset), slash, done (mirrors one shoot volley pass)
+-- One stab pass: tight behind (or ahead on path if moving) + slash
 local function stabPass(target)
     if not isAlive(target) or not isAlive(me) then return false end
     if not botHasKnife() then return false end
     local knife = getHeldTool(me, {"Knife"})
     if not knife or not equipTool(knife) then return false end
-    local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    local cf = getStabCFrame(target)
     local mh = hrp()
-    if not (th and mh) then return false end
+    if not (cf and mh) then return false end
     stopFollow()
     zeroVel(mh)
-    mh.CFrame = th.CFrame * CFrame.new(-1.5, 0, 4)
+    mh.CFrame = cf
     zeroVel(mh)
-    task.wait(0.2)
+    task.wait(0.15)
     pcall(function()
         local handle = knife:FindFirstChild("Handle")
         if knife:FindFirstChild("KnifeServer") and handle then
@@ -1152,6 +1188,7 @@ local COMMAND_HELP = {
     toggleshoot = "Toggle auto hit-run shoot on murderer each round",
     togglewho = "Toggle automatic role callout each round",
     togglealerts = "Toggle kill/drop/pickup alerts",
+    toggledrop = "Toggle dropping gun at spawn when owner is murderer",
     reset = "Force bot respawn",
     tp = "<player> - Teleport bot to a player",
     tpmurd = "Teleport bot to the murderer",
@@ -1166,7 +1203,7 @@ local COMMAND_HELP = {
     help = "<cmd> - Show command list or explain one command",
 }
 local HELP_ORDER = {
-    "owner", "dethrone", "tp", "who", "shoot", "stab", "toggleshoot", "gun", "fling", "togglegun", "togglewho", "togglealerts",
+    "owner", "dethrone", "tp", "who", "shoot", "stab", "toggleshoot", "gun", "fling", "togglegun", "toggledrop", "togglewho", "togglealerts",
     "reset", "follow", "unfollow", "chat", "help",
 }
 local function sendFullHelp(target)
@@ -1435,6 +1472,9 @@ local function handleCommand(p, msg)
     elseif cmd == "togglewho" then
         toggleWho = not toggleWho
         whisper("Role callouts: " .. (toggleWho and "on" or "off"))
+    elseif cmd == "toggledrop" then
+        toggleDrop = not toggleDrop
+        whisper("Drop gun at spawn (owner murderer): " .. (toggleDrop and "on" or "off"))
     elseif cmd == "toggleshoot" then
         if ownerIsMurd or botHasKnife() then whisper("No gun available") return end
         if toggleShoot then
@@ -1712,31 +1752,34 @@ while session.active and gui.Parent do
 
     if (m or botM) and not announced then
         announced = true
-        local botSheriff = botS
-        -- Block auto-gun / stash / toggleshoot until role phase finishes; bot sheriff must hear roles before gun
-        whoAnnouncePending = (toggleWho or not session.ownerId) or botSheriff
+        whoAnnouncePending = true
         local owner = getOwnerPlayer()
-        local sN = findHolder({"Gun", "Revolver"})
         task.spawn(function()
-            if botSheriff then
-                task.wait(0.2)
-                for i = 1, 3 do tpHome(); task.wait(0.55) end
-            else
-                task.wait(1.5)
-                local _, curS, curBotM = resolveRoleSnapshot(1.2)
-                if botM then
-                    if owner and not curBotM and curS and owner.UserId == curS.UserId then
-                        for i = 1, 3 do tpTo(owner); task.wait(0.6) end
-                    end
-                else
-                    for i = 1, 3 do tpHome(); task.wait(0.6) end
+            -- 1) Spawn TP first (always — avoid dying before anything else)
+            for i = 1, 3 do tpHome(); task.wait(0.2) end
+
+            -- 2) Wait for gun/knife to appear (sheriff pick-up can be a tick late)
+            for _ = 1, 35 do
+                if botHasGun() or findDroppedGun() or botHasKnife() then break end
+                task.wait(0.1)
+            end
+            task.wait(0.35)
+            local curM, curS, curBotM, curBotS = resolveRoleSnapshot(1.2)
+
+            -- 3) Drop at spawn before role msgs (bot sheriff / has gun, or owner murderer + toggledrop)
+            if isAlive(me) and not curBotM and (botHasGun() or findDroppedGun()) then
+                local stashNow = curBotS or botHasGun()
+                if not stashNow and owner and curM and owner.UserId == curM.UserId and toggleDrop then
+                    stashNow = true
+                end
+                if stashNow then
+                    pcall(stashGunAtSpawn)
+                    task.wait(0.45)
                 end
             end
-        end)
-        task.spawn(function()
-            task.wait(2.5)
+
+            -- 4) Role callouts / public msgs (before any main-loop automations)
             if toggleWho or not session.ownerId then
-                local curM, curS, curBotM, curBotS = resolveRoleSnapshot(1.4)
                 local mLabel = curBotM and "Me" or (curM and shortName(curM)) or "?"
                 local sLabel = curBotS and "Me" or (curS and shortName(curS)) or "?"
                 if session.ownerId then
@@ -1751,10 +1794,17 @@ while session.active and gui.Parent do
                     sendChat("Type !owner to use private bot commands")
                 end
             end
-            task.wait(1)
-            if session.ownerId then
+
+            -- 5) Post-msg movement (not spawn-gun stash — that already ran)
+            task.wait(0.5)
+            if curBotM then
+                if owner and curS and owner.UserId == curS.UserId then
+                    for i = 1, 3 do tpTo(owner); task.wait(0.6) end
+                end
+            elseif session.ownerId then
                 for i = 1, 3 do tpHome(); task.wait(0.5) end
             end
+
             roleAnnounceUnlockAt = tick() + 0.35
             whoAnnouncePending = false
         end)
@@ -1772,8 +1822,9 @@ while session.active and gui.Parent do
         gunDelivered = false
     end
 
-    -- Owner is murderer: always stash gun at spawn whenever bot has it (overrides togglegun/toggleshoot/role delay)
-    if session.ownerId and ownerMurd and SPAWN_CFRAME and isAlive(me)
+    -- Owner is murderer: stash at spawn after role intro (intro also stashes once if needed)
+    if toggleDrop and session.ownerId and ownerMurd and SPAWN_CFRAME and isAlive(me)
+        and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt
         and (botHasGun() or findDroppedGun()) and not ownerMurdStashBusy
     then
         ownerMurdStashBusy = true
