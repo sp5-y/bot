@@ -521,55 +521,61 @@ end
 
 local SHOOT_BEHIND_DIST = 13
 local SHOOT_BEHIND_HEIGHT = 4.5
-local STAB_MELEE_RANGE = 2.4
-local STAB_MOVE_MIN = 1.8
-local STAB_EXTRA_LEAD_SEC = 0.34
+local STAB_PREDICT_T = 0.14
+local STAB_MAX_LEAD = 3
+local STAB_MELEE_OFFSET = 1.05
+local STAB_MOVE_MIN = 2
+local STAB_IDLE_LOCAL = CFrame.new(-0.6, 0.08, 2.05)
 
-local function getStabMoveDir(th, hum)
-    local best = Vector3.zero
-    local bestSpd = 0
+-- Real travel direction (velocity + MoveDirection + position delta); ignores where they face.
+local function getStabHorizontalVelocity(th, hum, lastPos, lastT)
+    local v = th.AssemblyLinearVelocity
+    if v.Magnitude < 1e-3 then v = th.Velocity end
+    local blend = Vector3.new(v.X, 0, v.Z)
     if hum then
         local md = hum.MoveDirection
         if md.Magnitude > 0.04 then
-            local hm = md * hum.WalkSpeed
-            best = Vector3.new(hm.X, 0, hm.Z)
-            bestSpd = best.Magnitude
+            local mdVel = Vector3.new(md.X, 0, md.Z) * hum.WalkSpeed
+            if blend.Magnitude < 0.4 then
+                blend = mdVel
+            else
+                blend = blend * 0.45 + mdVel * 0.55
+            end
         end
     end
-    local v = th.AssemblyLinearVelocity
-    if v.Magnitude < 1e-3 then v = th.Velocity end
-    local vh = Vector3.new(v.X, 0, v.Z)
-    if vh.Magnitude > bestSpd then
-        best, bestSpd = vh, vh.Magnitude
+    if lastPos and lastT then
+        local dt = tick() - lastT
+        if dt > 0.03 and dt < 0.4 then
+            local ev = (th.Position - lastPos) / dt
+            local emp = Vector3.new(ev.X, 0, ev.Z)
+            if emp.Magnitude > 1.5 then
+                if blend.Magnitude < 0.5 then
+                    blend = emp
+                else
+                    blend = blend * 0.3 + emp * 0.7
+                end
+            end
+        end
     end
-    if bestSpd < STAB_MOVE_MIN then return end
-    return best.Unit, bestSpd
+    return blend
 end
 
 local function getStabCFrame(target, lastPos, lastT)
     local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
     local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
     if not th then return end
-    local lead = flingApproachLead(th, hum)
-    if lastPos and lastT then
-        local dt = tick() - lastT
-        if dt > 0.02 and dt < 0.45 then
-            local ev = (th.Position - lastPos) / dt
-            local evh = Vector3.new(ev.X, 0, ev.Z)
-            if evh.Magnitude > 1.2 then
-                lead = lead + evh.Unit * math.min(evh.Magnitude * STAB_EXTRA_LEAD_SEC, 12)
-            end
-        end
+    local anchor = th.Position + Vector3.new(0, 0.25, 0)
+    local aim = th.Position + Vector3.new(0, 1.2, 0)
+    local vel = getStabHorizontalVelocity(th, hum, lastPos, lastT)
+    local spd = vel.Magnitude
+    if spd >= STAB_MOVE_MIN then
+        local dir = vel.Unit
+        local lead = dir * math.min(spd * STAB_PREDICT_T, STAB_MAX_LEAD)
+        local pred = anchor + lead
+        local pos = pred + dir * STAB_MELEE_OFFSET
+        return CFrame.new(pos, pred), th.Position
     end
-    local moveDir, spd = getStabMoveDir(th, hum)
-    if moveDir and spd >= STAB_MOVE_MIN then
-        local extra = moveDir * math.min(spd * STAB_EXTRA_LEAD_SEC, 9)
-        local center = th.Position + Vector3.new(0, 0.2, 0) + lead + extra
-        local aim = th.Position + Vector3.new(0, 1.25, 0) + lead
-        local pos = center + moveDir * STAB_MELEE_RANGE
-        return CFrame.new(pos, aim), th.Position
-    end
-    return th.CFrame * CFrame.new(-1.2, 0.15, 3.25), th.Position
+    return th.CFrame * STAB_IDLE_LOCAL, th.Position
 end
 
 local function whisperCombatResult(msg)
@@ -833,14 +839,14 @@ local function stabPass(target, lastPos, lastT)
     zeroVel(mh)
     mh.CFrame = cf
     zeroVel(mh)
-    task.wait(0.06)
-    cf = getStabCFrame(target, lastPos, lastT) or cf
+    task.wait(0.05)
+    cf = getStabCFrame(target, nil, nil) or cf
     if cf then
         zeroVel(mh)
         mh.CFrame = cf
         zeroVel(mh)
     end
-    task.wait(0.12)
+    task.wait(0.1)
     pcall(function()
         local handle = knife:FindFirstChild("Handle")
         if knife:FindFirstChild("KnifeServer") and handle then
