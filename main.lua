@@ -1404,16 +1404,17 @@ local function handleCommand(p, msg)
         if args[2] then
             local t = findPlayer(args[2])
             if not t then whisper("Player not found") return end
+            local hadShoot = toggleShoot
             toggleGun, gunTargetId, gunDelivered = true, t.UserId, false
             toggleShoot = false
             whisper("Auto-gun on: " .. shortName(t))
-            whisper("Auto-shoot murderer: off")
+            if hadShoot then whisper("Auto-shoot murderer: off") end
         else
             toggleGun = not toggleGun
             gunTargetId, gunDelivered = nil, false
             if toggleGun then
+                if toggleShoot then whisper("Auto-shoot murderer: off") end
                 toggleShoot = false
-                whisper("Auto-shoot murderer: off")
             end
             whisper("Auto-gun: " .. (toggleGun and "on" or "off"))
         end
@@ -1426,7 +1427,7 @@ local function handleCommand(p, msg)
     elseif cmd == "toggleshoot" then
         if ownerIsMurd or botHasKnife() then whisper("No gun available") return end
         toggleShoot = not toggleShoot
-        if toggleShoot then
+        if toggleShoot and toggleGun then
             toggleGun = false
             gunTargetId, gunDelivered = nil, false
             whisper("Auto-gun: off")
