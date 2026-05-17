@@ -543,33 +543,79 @@ local function equipGunTool(gun)
     return gun.Parent == me.Character
 end
 
-local shootCamTypeRestore = nil
+local ShootRunSvc = game:GetService("RunService")
+local shootCamTypeRestore, shootCamSubjectRestore = nil, nil
+
 local function aimCameraAt(fromPos, aimPoint)
     if not (fromPos and aimPoint) then return end
     pcall(function()
         if not shootCamTypeRestore then
             shootCamTypeRestore = cam.CameraType
+            shootCamSubjectRestore = cam.CameraSubject
         end
         cam.CameraType = Enum.CameraType.Scriptable
         cam.CFrame = CFrame.new(fromPos, aimPoint)
     end)
 end
 
-local function fireGunAtAim(gun, aimPoint)
-    if not gun or not aimPoint then return end
-    pcall(function()
-        local rf = gun:FindFirstChild("ShootGun", true)
-        if rf and rf:IsA("RemoteFunction") then
-            pcall(function() rf:InvokeServer(1, aimPoint) end)
-            pcall(function() rf:InvokeServer(aimPoint) end)
-        elseif rf and rf:IsA("RemoteEvent") then
-            pcall(function() rf:FireServer(aimPoint) end)
-            pcall(function() rf:FireServer(1, aimPoint) end)
-        end
+local function restoreShootCamera()
+    if shootCamTypeRestore then
+        pcall(function() cam.CameraType = shootCamTypeRestore end)
+        shootCamTypeRestore = nil
+    end
+    if shootCamSubjectRestore then
+        pcall(function() cam.CameraSubject = shootCamSubjectRestore end)
+        shootCamSubjectRestore = nil
+    end
+end
+
+local function getAimScreenPos(aimPoint)
+    local vx, vy = cam.ViewportSize.X * 0.5, cam.ViewportSize.Y * 0.5
+    if not aimPoint then return vx, vy end
+    local ok, sp = pcall(function()
+        return cam:WorldToViewportPoint(aimPoint)
     end)
+    if ok and sp and sp.Z > 0 then
+        return sp.X, sp.Y
+    end
+    return vx, vy
+end
+
+local function mouseLeftClick(x, y)
+    x = tonumber(x) or 0
+    y = tonumber(y) or 0
+    if VIM then
+        pcall(function() VIM:SendMouseMoveEvent(x, y, game) end)
+        task.wait(0.02)
+        pcall(function()
+            VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)
+            VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
+        end)
+    end
+    local g = getgenv and getgenv() or _G
+    local click = rawget(g, "mouse1click")
+    if type(click) == "function" then
+        pcall(click)
+    else
+        local press, release = rawget(g, "mouse1press"), rawget(g, "mouse1release")
+        if type(press) == "function" then
+            pcall(press)
+            task.wait(0.03)
+            if type(release) == "function" then pcall(release) end
+        end
+    end
+end
+
+local function fireGunLeftClick(gun, aimPoint)
+    if not gun or not aimPoint then return end
+    local mh = hrp()
+    if mh then aimCameraAt(mh.Position, aimPoint) end
+    task.wait(0.08)
+    local x, y = getAimScreenPos(aimPoint)
+    mouseLeftClick(x, y)
     pcall(function() gun:Activate() end)
-    task.wait(0.05)
-    pcall(function() gun:Activate() end)
+    task.wait(0.04)
+    mouseLeftClick(x, y)
 end
 
 local function isAlive(p)
@@ -725,9 +771,14 @@ local function shootPass(target, lastPos, lastT)
     local gun = getHeldTool(me, {"Gun", "Revolver"})
     if not gun or not equipGunTool(gun) then return false end
     stopFollow()
+    pcall(function() ShootRunSvc:Set3dRenderingEnabled(true) end)
+    task.wait(0.05)
     local lookCf, aimPoint, curPos = getShootCFrame(target, lastPos, lastT)
     local mh = hrp()
-    if not (lookCf and aimPoint and mh) then return false end
+    if not (lookCf and aimPoint and mh) then
+        restoreShootCamera()
+        return false
+    end
     zeroVel(mh)
     mh.CFrame = lookCf
     zeroVel(mh)
@@ -740,12 +791,8 @@ local function shootPass(target, lastPos, lastT)
         zeroVel(mh)
         aimCameraAt(mh.Position, aimPoint)
     end
-    task.wait(0.05)
-    fireGunAtAim(gun, aimPoint)
-    if shootCamTypeRestore then
-        pcall(function() cam.CameraType = shootCamTypeRestore end)
-        shootCamTypeRestore = nil
-    end
+    fireGunLeftClick(gun, aimPoint)
+    restoreShootCamera()
     return true, curPos or (target.Character and target.Character:FindFirstChild("HumanoidRootPart") and target.Character.HumanoidRootPart.Position)
 end
 
