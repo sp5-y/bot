@@ -719,6 +719,7 @@ local function runDeferredOwnerResetIfIdle()
     end
 end
 local function dropGunAt(target)
+    if _G.MM_ShootBusy or _G.MM_StabBusy then return false end
     if not isAlive(target) then return false end
     local h = hrp()
     local oh = target.Character:FindFirstChild("HumanoidRootPart")
@@ -728,6 +729,7 @@ local function dropGunAt(target)
     return true
 end
 local function bringGun(target)
+    if _G.MM_ShootBusy or _G.MM_StabBusy then return end
     target = target or getOwnerPlayer()
     if not isAlive(target) then return end
     if botHasGun() then dropGunAt(target); return end
@@ -738,6 +740,7 @@ local function bringGun(target)
     dropGunAt(target)
 end
 local function stashGunAtSpawn()
+    if _G.MM_ShootBusy or _G.MM_StabBusy or _G.MM_GunBusy then return false end
     if not SPAWN_CFRAME or not isAlive(me) then return false end
     if not botHasGun() then
         local g, h = findDroppedGun(), hrp()
@@ -923,13 +926,13 @@ local STAB_TIMEOUT_SEC = 45
 
 local function stabTargetLoop(target)
     if target == me then return false, "Invalid target" end
-    if not botHasKnife() then return false, "You need to be murderer" end
+    if not botHasKnife() then return false, "Bot needs to be murderer" end
     if not isAlive(target) then return false, "Player not found" end
     local started = tick()
     local lastPos, lastT
     while session.active and isAlive(me) and isAlive(target) and (tick() - started) < STAB_TIMEOUT_SEC do
         if not botHasKnife() then
-            return false, "You need to be murderer"
+            return false, "Bot needs to be murderer"
         end
         local ok, curPos = stabPass(target, lastPos, lastT)
         if not ok then
@@ -1474,7 +1477,7 @@ local function handleCommand(p, msg)
             runDeferredOwnerResetIfIdle()
         end)
     elseif cmd == "stab" then
-        if not botHasKnife() then whisper("You need to be murderer") return end
+        if not botHasKnife() then whisper("Bot needs to be murderer") return end
         local q = restOfChatArgs(args)
         if q == "" then whisper("!stab sheriff | <name>") return end
         local wl = q:lower()
@@ -1844,16 +1847,16 @@ while session.active and gui.Parent do
                 tpHomeBurst(2)
             end
 
-            -- Drop at spawn before role msgs (bot sheriff / has gun, or owner is murderer)
-            if isAlive(me) and not curBotM and (botHasGun() or findDroppedGun()) then
-                local stashNow = curBotS or botHasGun()
-                if not stashNow and owner and curM and owner.UserId == curM.UserId then
-                    stashNow = true
-                end
-                if stashNow then
-                    pcall(stashGunAtSpawn)
-                    task.wait(0.45)
-                end
+            local ownerIsMurdRound = owner and curM and owner.UserId == curM.UserId
+            -- Bot sheriff + owner murderer: stash after role msgs so owner sees them first
+            local deferGunStash = not curBotM and ownerIsMurdRound and (curBotS or botHasGun())
+
+            -- Drop gun at spawn only when owner is murderer (not just because bot is sheriff)
+            if isAlive(me) and not curBotM and ownerIsMurdRound
+                and (botHasGun() or findDroppedGun()) and not deferGunStash
+            then
+                pcall(stashGunAtSpawn)
+                task.wait(0.45)
             end
 
             -- Role callouts / public msgs (after spawn safety TPs)
@@ -1873,7 +1876,15 @@ while session.active and gui.Parent do
                 end
             end
 
-            -- Post-msg movement (not spawn-gun stash — that already ran)
+            if deferGunStash and isAlive(me) and (botHasGun() or findDroppedGun()) then
+                task.wait(1)
+                ownerMurdStashBusy = true
+                pcall(stashGunAtSpawn)
+                task.wait(0.45)
+                ownerMurdStashBusy = false
+            end
+
+            -- Post-msg movement
             task.wait(0.5)
             if curBotM then
                 if owner and curS and owner.UserId == curS.UserId then
@@ -1900,10 +1911,11 @@ while session.active and gui.Parent do
         gunDelivered = false
     end
 
-    -- Owner is murderer: always stash gun at spawn when bot has it
+    -- Owner is murderer: stash bot's gun at spawn (never during shoot/stab/gun delivery)
     if session.ownerId and ownerMurd and SPAWN_CFRAME and isAlive(me)
         and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt
-        and (botHasGun() or findDroppedGun()) and not ownerMurdStashBusy
+        and botHasGun() and not ownerMurdStashBusy
+        and not _G.MM_ShootBusy and not _G.MM_StabBusy and not _G.MM_GunBusy
     then
         ownerMurdStashBusy = true
         task.spawn(function()
@@ -1924,7 +1936,8 @@ while session.active and gui.Parent do
     end
 
     local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or getOwnerPlayer()
-    if toggleGun and not ownerMurd and not flingLoopContinuous and not botM and not gunDelivered and not _G.MM_GunBusy and me.Character
+    if toggleGun and not ownerMurd and not flingLoopContinuous and not botM and not gunDelivered and not _G.MM_GunBusy
+       and not _G.MM_ShootBusy and not _G.MM_StabBusy and me.Character
        and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt
        and gunTarget and gunTarget ~= me and isAlive(gunTarget)
        and (botHasGun() or findDroppedGun()) then
