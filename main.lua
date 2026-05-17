@@ -542,14 +542,18 @@ end
 local SHOOT_TP_LOCAL = CFrame.new(-1.5, 0.35, 3.5)
 local SHOOT_RELOAD_MIN = 2.35
 
-local function getShootAimPoint(target, lastPos, lastT)
+local function getShootAimPoint(target, lastPos, lastT, lateral)
     local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
     local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
     if not th then return end
     local lead = shootPredictLead(th, hum, lastPos, lastT)
-    local head = target.Character and target.Character:FindFirstChild("Head")
-    local base = head and head.Position or (th.Position + Vector3.new(0, 1.35, 0))
-    return base + lead, th.Position
+    local char = target.Character
+    local torso = char and (char:FindFirstChild("UpperTorso") or char:FindFirstChild("Torso"))
+    local base = torso and torso.Position or (th.Position + Vector3.new(0, 0.85, 0))
+    lateral = lateral or 0
+    local right = th.CFrame.RightVector
+    local spread = right * lateral + Vector3.new(0, lateral * 0.08, 0)
+    return base + lead + spread, th.Position
 end
 
 local function getShootCFrame(target, lastPos, lastT)
@@ -635,19 +639,24 @@ local function mouseLeftClick(x, y)
 end
 
 local function fireGunLeftClick(gun, target, lastPos, lastT)
-    if not gun then return end
-    local aimPoint = target and getShootAimPoint(target, lastPos, lastT)
-    if not aimPoint then return end
+    if not gun or not target then return end
     local mh = hrp()
-    if mh then aimCameraAt(mh.Position, aimPoint) end
-    task.wait(0.1)
-    aimPoint = target and getShootAimPoint(target, lastPos, lastT) or aimPoint
-    if mh and aimPoint then aimCameraAt(mh.Position, aimPoint) end
-    local x, y = getAimScreenPos(aimPoint)
-    mouseLeftClick(x, y)
-    pcall(function() gun:Activate() end)
+    if not mh then return end
+    local spreads = {0, 0.65, -0.65, 0.4, -0.4}
+    for i, lat in ipairs(spreads) do
+        local aimPoint = getShootAimPoint(target, lastPos, lastT, lat)
+        if aimPoint then
+            aimCameraAt(mh.Position, aimPoint)
+            task.wait(i == 1 and 0.1 or 0.03)
+            local x, y = getAimScreenPos(aimPoint)
+            mouseLeftClick(x, y)
+            if i == 1 then
+                pcall(function() gun:Activate() end)
+            end
+        end
+    end
     task.wait(0.04)
-    mouseLeftClick(x, y)
+    pcall(function() gun:Activate() end)
 end
 
 local function isAlive(p)
