@@ -3,8 +3,6 @@ local Players = game:GetService("Players")
 local cref = cloneref or function(x) return x end
 local TCS = cref(game:GetService("TextChatService"))
 local Tween = game:GetService("TweenService")
-local RunSvc = game:GetService("RunService")
-local UIS = cref(game:GetService("UserInputService"))
 local RS = cref(game:GetService("ReplicatedStorage"))
 local Http = cref(game:GetService("HttpService"))
 local Stats = cref(game:GetService("Stats"))
@@ -31,45 +29,6 @@ G.MM_HopState = G.MM_HopState or {pingSearchActive = false}
 local hopState = G.MM_HopState
 _G.MM_StabBusy = _G.MM_StabBusy or false
 _G.MM_OwnerDiedPendingReset = _G.MM_OwnerDiedPendingReset or false
-
-local function installShootHooks()
-    if G.MM_ShootHooksInstalled or not hookmetamethod then return end
-    G.MM_ShootHooksInstalled = true
-    local wrap = newcclosure or function(f) return f end
-    local mouse = me:GetMouse()
-    local oldIndex = hookmetamethod(game, "__index", wrap(function(self, key)
-        if G.MM_ShootActive and G.MM_ShootAimCf and self == mouse then
-            if key == "Hit" then return G.MM_ShootAimCf end
-            if key == "Target" and G.MM_ShootAimPart then return G.MM_ShootAimPart end
-        end
-        return oldIndex(self, key)
-    end))
-    local oldNamecall = hookmetamethod(game, "__namecall", wrap(function(self, ...)
-        if G.MM_ShootActive and G.MM_ShootAimPart and G.MM_ShootAimCf then
-            local method = getnamecallmethod()
-            local args = { ... }
-            local pos = G.MM_ShootAimCf.Position
-            local part = G.MM_ShootAimPart
-            local tag = tostring(self)
-            if method == "InvokeServer" and tag:find("ShootGun") then
-                if args[2] ~= nil then args[2] = pos
-                elseif args[1] ~= nil then args[1] = pos end
-                return oldNamecall(self, unpack(args))
-            end
-            if method == "Raycast" and self == workspace then
-                return {
-                    Position = pos,
-                    Instance = part,
-                    Normal = Vector3.new(0, 1, 0),
-                    Material = Enum.Material.Plastic,
-                    Distance = (pos - args[1]).Magnitude,
-                }
-            end
-        end
-        return oldNamecall(self, ...)
-    end))
-end
-pcall(installShootHooks)
 
 --[[ Session ]]--
 if getgenv and getgenv().MM_Session then getgenv().MM_Session.active = false end
@@ -572,44 +531,6 @@ local function getShootCFrame(target, lastPos, lastT)
     return CFrame.new(pos, aim), aim, th.Position
 end
 
-local function getAimPoint(target, lastPos, lastT)
-    local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-    local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
-    if not th then return end
-    local lead = shootPredictLead(th, hum, lastPos, lastT)
-    return th.Position + Vector3.new(0, 1.25, 0) + lead
-end
-
-local function setShootAimTarget(target, lastPos, lastT)
-    G.MM_ShootAimPart, G.MM_ShootAimCf = nil, nil
-    if not target or not target.Character then return end
-    local th = target.Character:FindFirstChild("Head")
-        or target.Character:FindFirstChild("HumanoidRootPart")
-    if not th then return end
-    local aim = getAimPoint(target, lastPos, lastT) or (th.Position + Vector3.new(0, 1.25, 0))
-    G.MM_ShootAimPart = th
-    G.MM_ShootAimCf = CFrame.new(aim)
-end
-
-local function clearShootAimTarget()
-    G.MM_ShootActive = false
-    G.MM_ShootAimPart, G.MM_ShootAimCf = nil, nil
-end
-
-local function setShootAimActive(on)
-    G.MM_ShootActive = on and true or false
-end
-
-local function getActiveCam()
-    local c = workspace.CurrentCamera
-    if c then cam = c end
-    return c or cam
-end
-
-local function enableShootRender()
-    pcall(function() RunSvc:Set3dRenderingEnabled(true) end)
-end
-
 local function isAlive(p)
     local h = p and p.Character and p.Character:FindFirstChildOfClass("Humanoid")
     return h and h.Health > 0
@@ -747,131 +668,13 @@ local function equipTool(tool)
     end
     return tool and tool.Parent == me.Character
 end
-local function clickFire(x, y)
-    if not VIM then return end
-    x = tonumber(x) or 0
-    y = tonumber(y) or 0
-    pcall(function()
-        VIM:SendMouseMoveEvent(x, y, game)
-    end)
-    pcall(function()
-        VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)
-        VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
-    end)
-end
-
 local function ensureShootGun()
     if botHasGun() then return true end
     return pickUpDroppedGun()
 end
 
-local function fireGunOnce(gun)
-    if not gun then return end
-    pcall(function() gun:Activate() end)
-    if getconnections then
-        pcall(function()
-            local c = getconnections(gun.Activated)
-            if type(c) == "table" and c[1] then
-                pcall(function() c[1]:Fire() end)
-            end
-        end)
-    end
-end
-
-local function tryShootGunRemote(gun, aimPoint)
-    if not gun or not aimPoint then return end
-    local handle = gun:FindFirstChild("Handle")
-    pcall(function()
-        local rf = gun:FindFirstChild("ShootGun", true)
-        if not rf then return end
-        if rf:IsA("RemoteFunction") then
-            pcall(function() rf:InvokeServer(aimPoint) end)
-            pcall(function() rf:InvokeServer(tick(), aimPoint) end)
-            if handle then pcall(function() rf:InvokeServer(handle, aimPoint) end) end
-            pcall(function() rf:InvokeServer(aimPoint, Vector3.new(0, 1, 0)) end)
-        elseif rf:IsA("RemoteEvent") then
-            pcall(function() rf:FireServer(aimPoint) end)
-            pcall(function() rf:FireServer(tick(), aimPoint) end)
-        end
-    end)
-end
-
-local function tryExecutorClick()
-    local click = rawget(G, "mouse1click")
-    local press = rawget(G, "mouse1press")
-    local release = rawget(G, "mouse1release")
-    if type(click) == "function" then
-        pcall(click)
-    elseif type(press) == "function" and type(release) == "function" then
-        pcall(press)
-        task.wait(0.05)
-        pcall(release)
-    end
-    pcall(function()
-        UIS:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-        UIS:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-    end)
-end
-
-local function unanchorHrp()
-    local h = hrp()
-    if h then pcall(function() h.Anchored = false end) end
-end
-
 local function waitShootReload()
     task.wait(SHOOT_RELOAD_MIN)
-end
-
-local function fireGunAtTarget(target, gun, shootCf, lastPos, lastT)
-    if not gun or not isAlive(target) or not isAlive(me) or not shootCf then return false end
-    local fired = false
-    local ok, err = pcall(function()
-        installShootHooks()
-        enableShootRender()
-        if gun.Parent ~= me.Character then
-            equipTool(gun)
-            task.wait(0.2)
-        end
-        setShootAimTarget(target, lastPos, lastT)
-        setShootAimActive(true)
-        unanchorHrp()
-        local mh = hrp()
-        if not mh then return end
-        zeroVel(mh)
-        mh.CFrame = shootCf
-        zeroVel(mh)
-        local shootCam = getActiveCam()
-        if shootCam then
-            pcall(function() shootCam.CFrame = shootCf end)
-        end
-        task.wait(0.12)
-        for _ = 1, 5 do
-            if not isAlive(target) or not isAlive(me) then break end
-            setShootAimTarget(target, lastPos, lastT)
-            local aimPoint = getAimPoint(target, lastPos, lastT)
-            if not aimPoint then break end
-            local mouseX, mouseY = 400, 300
-            if shootCam then
-                pcall(function()
-                    local sp = shootCam:WorldToViewportPoint(aimPoint)
-                    if sp.Z > 0 then mouseX, mouseY = sp.X, sp.Y end
-                end)
-            end
-            tryShootGunRemote(gun, aimPoint)
-            fireGunOnce(gun)
-            tryExecutorClick()
-            clickFire(mouseX, mouseY)
-            fired = true
-            if not isAlive(target) then break end
-            task.wait(0.1)
-        end
-    end)
-    clearShootAimTarget()
-    unanchorHrp()
-    if not ok then
-        log("fireGunAtTarget: " .. tostring(err))
-    end
-    return ok and fired
 end
 
 local function shootPass(target, lastPos, lastT)
@@ -881,23 +684,37 @@ local function shootPass(target, lastPos, lastT)
     local gun = getHeldTool(me, {"Gun", "Revolver"})
     if not gun or not equipTool(gun) then return false end
     stopFollow()
-    local lookCf, _, curPos = getShootCFrame(target, lastPos, lastT)
+    local lookCf, aimPoint, curPos = getShootCFrame(target, lastPos, lastT)
     local mh = hrp()
-    if not (lookCf and mh) then return false end
-    unanchorHrp()
+    if not (lookCf and aimPoint and mh) then return false end
     zeroVel(mh)
     mh.CFrame = lookCf
     zeroVel(mh)
-    task.wait(0.06)
-    lookCf = getShootCFrame(target, lastPos, lastT)
-    if lookCf then
+    task.wait(0.05)
+    lookCf, aimPoint = getShootCFrame(target, nil, nil)
+    if lookCf and aimPoint then
         zeroVel(mh)
         mh.CFrame = lookCf
         zeroVel(mh)
     end
-    if not lookCf then return false end
-    local fired = fireGunAtTarget(target, gun, lookCf, lastPos, lastT)
-    if not fired then return false end
+    task.wait(0.1)
+    pcall(function()
+        local handle = gun:FindFirstChild("Handle")
+        local rf = gun:FindFirstChild("ShootGun", true)
+        if rf then
+            if rf:IsA("RemoteFunction") then
+                pcall(function() rf:InvokeServer(1, aimPoint) end)
+                pcall(function() rf:InvokeServer(aimPoint) end)
+                pcall(function() rf:InvokeServer(tick(), aimPoint) end)
+                if handle then pcall(function() rf:InvokeServer(handle, aimPoint) end) end
+            elseif rf:IsA("RemoteEvent") then
+                pcall(function() rf:FireServer(aimPoint) end)
+                pcall(function() rf:FireServer(1, aimPoint) end)
+            end
+        end
+        gun:Activate()
+    end)
+    pcall(function() gun:Activate() end)
     return true, curPos or (target.Character and target.Character:FindFirstChild("HumanoidRootPart") and target.Character.HumanoidRootPart.Position)
 end
 
