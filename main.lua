@@ -3,6 +3,7 @@ local Players = game:GetService("Players")
 local cref = cloneref or function(x) return x end
 local TCS = cref(game:GetService("TextChatService"))
 local Tween = game:GetService("TweenService")
+local RunSvc = game:GetService("RunService")
 local RS = cref(game:GetService("ReplicatedStorage"))
 local Http = cref(game:GetService("HttpService"))
 local Stats = cref(game:GetService("Stats"))
@@ -203,10 +204,16 @@ local function findOtherPlayer(q)
     end
     return exactN or exactD or best
 end
+local function toolMatchesName(toolName, names)
+    for _, n in ipairs(names) do
+        if toolName == n then return true end
+    end
+    return false
+end
 local function getHeldTool(p, names)
     for _, container in ipairs({p.Character, p:FindFirstChildOfClass("Backpack")}) do
         for _, c in ipairs(container and container:GetChildren() or {}) do
-            if c:IsA("Tool") and table.find(names, c.Name) then
+            if c:IsA("Tool") and toolMatchesName(c.Name, names) then
                 return c
             end
         end
@@ -628,10 +635,40 @@ local function zeroVel(h)
     if not h then return end
     pcall(function() h.AssemblyLinearVelocity = Vector3.zero end)
     pcall(function() h.AssemblyAngularVelocity = Vector3.zero end)
-    h.Velocity = Vector3.zero
-    h.RotVelocity = Vector3.zero
+    pcall(function() h.Velocity = Vector3.zero end)
+    pcall(function() h.RotVelocity = Vector3.zero end)
+end
+local function getActiveCam()
+    local c = workspace.CurrentCamera
+    if c then cam = c end
+    return c or cam
+end
+local function enableShootRender()
+    pcall(function() RunSvc:Set3dRenderingEnabled(true) end)
+end
+local function equipTool(tool)
+    local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+    if tool and hum and tool.Parent ~= me.Character then
+        pcall(function() hum:EquipTool(tool) end)
+        task.wait(0.15)
+    end
+    return tool and tool.Parent == me.Character
+end
+local function stowKnife()
+    if not botHasKnife() then return end
+    local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+    if hum then
+        pcall(function() hum:UnequipTools() end)
+    end
+    local knife = getHeldTool(me, {"Knife"})
+    if knife and knife.Parent == me.Character then
+        pcall(function() knife.Parent = me.Backpack end)
+    end
 end
 local function tpTo(p)
+    if not _G.MM_StabBusy and me.Character and me.Character:FindFirstChild("Knife") then
+        stowKnife()
+    end
     local h, t = hrp(), p and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
     if h and t then
         zeroVel(h)
@@ -645,6 +682,14 @@ local function tpHome()
         zeroVel(h)
         h.CFrame = SPAWN_CFRAME
         zeroVel(h)
+    end
+end
+local function tpHomeBurst(count)
+    if not isAlive(me) or not SPAWN_CFRAME then return end
+    count = count or 3
+    for i = 1, count do
+        tpHome()
+        if i < count then task.wait(0.06) end
     end
 end
 local function reset()
@@ -712,14 +757,6 @@ local function pickUpDroppedGun()
     end
     return false
 end
-local function equipTool(tool)
-    local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
-    if tool and hum and tool.Parent ~= me.Character then
-        pcall(function() hum:EquipTool(tool) end)
-        task.wait(0.15)
-    end
-    return tool and tool.Parent == me.Character
-end
 local function clickFire(x, y)
     if not VIM then return end
     x = tonumber(x) or 0
@@ -735,6 +772,7 @@ end
 -- Original working gun volley (aim above + Activate + click); used by hit-run loop
 local function fireGunVolley(target)
     if not isAlive(target) or not isAlive(me) then return false end
+    enableShootRender()
     if not botHasGun() and not pickUpDroppedGun() then return false end
     local gun = getHeldTool(me, {"Gun", "Revolver"})
     if not gun or not equipTool(gun) then return false end
@@ -752,14 +790,21 @@ local function fireGunVolley(target)
         zeroVel(mh)
         mh.CFrame = lookCf
         zeroVel(mh)
-        local mouseX, mouseY = cam.ViewportSize.X * 0.5, cam.ViewportSize.Y * 0.45
-        pcall(function()
-            cam.CFrame = lookCf
-            local sp = cam:WorldToViewportPoint(aimPoint)
-            if sp.Z > 0 then
-                mouseX, mouseY = sp.X, sp.Y
-            end
-        end)
+        local shootCam = getActiveCam()
+        local mouseX, mouseY = 400, 300
+        if shootCam then
+            pcall(function()
+                local vs = shootCam.ViewportSize
+                mouseX, mouseY = vs.X * 0.5, vs.Y * 0.45
+            end)
+            pcall(function()
+                shootCam.CFrame = lookCf
+                local sp = shootCam:WorldToViewportPoint(aimPoint)
+                if sp.Z > 0 then
+                    mouseX, mouseY = sp.X, sp.Y
+                end
+            end)
+        end
         pcall(function() gun:Activate() end)
         clickFire(mouseX, mouseY)
         task.wait(0.06)
@@ -784,8 +829,10 @@ local function shootTargetLoop(target)
     if ownerIsMurderer() then return false, "Owner is murderer" end
     if not isAlive(target) then return false, "Player not found" end
     if botHasKnife() then return false, "No gun available" end
+    if not botHasGun() and not pickUpDroppedGun() then return false, "No gun available" end
+    enableShootRender()
     local passes = 0
-    while session.active and isAlive(me) and isAlive(target) and passes < 36 do
+    while session.active and isAlive(me) and isAlive(target) do
         passes = passes + 1
         if ownerIsMurderer() then
             tpHome()
@@ -867,6 +914,7 @@ local function stabTargetLoop(target)
         tpHome()
         task.wait(0.05)
         if not isAlive(target) then
+            stowKnife()
             return true, "Killed " .. shortName(target)
         end
         if not isAlive(me) then
@@ -880,7 +928,10 @@ local function stabTargetLoop(target)
         log("bot died during stab")
         return false, "Bot died"
     end
-    if not isAlive(target) then return true, "Killed " .. shortName(target) end
+    if not isAlive(target) then
+        stowKnife()
+        return true, "Killed " .. shortName(target)
+    end
     if (tick() - started) >= STAB_TIMEOUT_SEC then
         log("stab timed out on " .. shortName(target))
         return true, "Stab timed out"
@@ -1362,21 +1413,36 @@ local function handleCommand(p, msg)
         local picked = findOtherPlayer(q)
         if not picked then whisper("Player not found") return end
         local targetUid = picked.UserId
-        if ownerIsMurd or botHasKnife() then whisper("No gun available") return end
+        local shootName = shortName(picked)
+        if ownerIsMurd or botHasKnife() or ownerIsMurderer() then whisper("No gun available") return end
+        if not (botHasGun() or findDroppedGun()) then whisper("No gun available") return end
         if _G.MM_ShootBusy then whisper("Shoot busy, try again") return end
         _G.MM_ShootBusy = true
-        whisper("Shooting " .. shortName(picked))
+        whisper("Shooting " .. shootName)
         task.spawn(function()
             local status = "Player not found"
-            local ok, err = pcall(function()
+            local ok, err = xpcall(function()
                 local tgt = Players:GetPlayerByUserId(targetUid)
                 if not tgt or not isAlive(tgt) then return end
+                if ownerIsMurderer() or botHasKnife() or not (botHasGun() or findDroppedGun()) then
+                    status = "No gun available"
+                    return
+                end
                 local _, msg = shootTargetLoop(tgt)
-                status = msg
+                if msg and msg ~= "" then
+                    status = msg
+                else
+                    status = "No gun available"
+                end
+            end, function(e)
+                return tostring(e) .. "\n" .. debug.traceback("", 2)
             end)
             if not ok then
                 status = "Shoot failed"
                 log(tostring(err))
+            end
+            if status and status ~= "Bot died" and not status:match("^Killed ") then
+                task.wait(0.35)
             end
             whisperCombatResult(status)
             _G.MM_ShootBusy = false
@@ -1721,20 +1787,34 @@ while session.active and gui.Parent do
     if (m or botM) and not announced then
         announced = true
         whoAnnouncePending = true
+        -- Murderer / round detected: spawn TP immediately (main thread, before any msgs)
+        tpHomeBurst(3)
         local owner = getOwnerPlayer()
         task.spawn(function()
-            -- 1) Spawn TP first (always — avoid dying before anything else)
-            for i = 1, 3 do tpHome(); task.wait(0.2) end
-
-            -- 2) Wait for gun/knife to appear (sheriff pick-up can be a tick late)
-            for _ = 1, 35 do
-                if botHasGun() or findDroppedGun() or botHasKnife() then break end
-                task.wait(0.1)
+            local curM, curS, curBotM, curBotS
+            local murdKnown = false
+            -- Wait for roles; re-TP spawn as soon as murderer exists, before whispers
+            for _ = 1, 50 do
+                curM = findHolder({"Knife"})
+                curS = findHolder({"Gun", "Revolver"})
+                curBotM = botHasKnife()
+                curBotS = botHasGun()
+                if (curM or curBotM) and not murdKnown then
+                    murdKnown = true
+                    tpHomeBurst(3)
+                end
+                if (curBotM or curM) and (curBotS or curS) then break end
+                task.wait(0.05)
             end
-            task.wait(0.35)
-            local curM, curS, curBotM, curBotS = resolveRoleSnapshot(1.2)
+            if not murdKnown and (curM or curBotM) then
+                tpHomeBurst(3)
+            end
+            curM, curS, curBotM, curBotS = resolveRoleSnapshot(0.6)
+            if curM or curBotM then
+                tpHomeBurst(2)
+            end
 
-            -- 3) Drop at spawn before role msgs (bot sheriff / has gun, or owner is murderer)
+            -- Drop at spawn before role msgs (bot sheriff / has gun, or owner is murderer)
             if isAlive(me) and not curBotM and (botHasGun() or findDroppedGun()) then
                 local stashNow = curBotS or botHasGun()
                 if not stashNow and owner and curM and owner.UserId == curM.UserId then
@@ -1746,7 +1826,7 @@ while session.active and gui.Parent do
                 end
             end
 
-            -- 4) Role callouts / public msgs (before any main-loop automations)
+            -- Role callouts / public msgs (after spawn safety TPs)
             if toggleWho or not session.ownerId then
                 local mLabel = curBotM and "Me" or (curM and shortName(curM)) or "?"
                 local sLabel = curBotS and "Me" or (curS and shortName(curS)) or "?"
@@ -1763,7 +1843,7 @@ while session.active and gui.Parent do
                 end
             end
 
-            -- 5) Post-msg movement (not spawn-gun stash — that already ran)
+            -- Post-msg movement (not spawn-gun stash — that already ran)
             task.wait(0.5)
             if curBotM then
                 if owner and curS and owner.UserId == curS.UserId then
@@ -1847,13 +1927,23 @@ while session.active and gui.Parent do
     local subject = (s and s.Character and s.Character:FindFirstChildOfClass("Humanoid"))
                   or findDroppedGun()
                   or (me.Character and me.Character:FindFirstChildOfClass("Humanoid"))
-    if cam.CameraType ~= Enum.CameraType.Custom then cam.CameraType = Enum.CameraType.Custom end
-    if subject then cam.CameraSubject = subject end
-    cam.FieldOfView = WIDE_FOV
+    local loopCam = getActiveCam()
+    if loopCam then
+        pcall(function()
+            if loopCam.CameraType ~= Enum.CameraType.Custom then loopCam.CameraType = Enum.CameraType.Custom end
+            if subject then loopCam.CameraSubject = subject end
+            loopCam.FieldOfView = WIDE_FOV
+        end)
+    end
     task.wait(0.5)
 end
 
 --[[ Cleanup ]]--
-cam.FieldOfView = DEFAULT_FOV
-do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
-   if h then cam.CameraSubject = h end end
+do
+    local c = getActiveCam()
+    if c then
+        pcall(function() c.FieldOfView = DEFAULT_FOV end)
+        local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+        if h then pcall(function() c.CameraSubject = h end) end
+    end
+end
