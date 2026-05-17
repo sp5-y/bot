@@ -22,6 +22,10 @@ local fraudOptedOut = false
 local gunTargetId = nil
 local gunDelivered = false
 local hopBusy = false
+local toggleShootGen = 0
+local whoAnnouncePending = false
+local roleAnnounceUnlockAt = 0
+_G.MM_GunBusy = false
 local PING_MIN_MS, PING_MAX_MS = 50, 90
 local G = getgenv and getgenv() or _G
 G.MM_HopState = G.MM_HopState or {pingSearchActive = false}
@@ -700,22 +704,63 @@ end
 
 local function shootTarget(target)
     if target == me then return false, "Invalid target" end
-    if not isAlive(target) or not isAlive(me) then return false, "Player not found" end
-    while session.active and isAlive(target) and isAlive(me) do
-        if not botHasGun() and not pickUpDroppedGun() then
-            return false, "No gun available"
+    local uid = target.UserId
+    while session.active do
+        target = Players:GetPlayerByUserId(uid)
+        if not target or not isAlive(target) then
+            local done = Players:GetPlayerByUserId(uid)
+            return true, "Shot " .. shortName(done or {Name = "?"})
         end
-        quickShootBurst(target)
-        tpHome()
-        if not isAlive(target) then
-            return true, "Shot " .. shortName(target)
+        if not isAlive(me) then
+            task.wait(0.35)
+        else
+            if not botHasGun() and not pickUpDroppedGun() then
+                return false, "No gun available"
+            end
+            quickShootBurst(target)
+            tpHome()
+            if not isAlive(target) then
+                return true, "Shot " .. shortName(target)
+            end
+            task.wait(1)
         end
-        task.wait(1)
-    end
-    if not isAlive(target) then
-        return true, "Shot " .. shortName(target)
     end
     return false, "Player not found"
+end
+
+local function stopToggleShootWorker()
+    toggleShootGen = toggleShootGen + 1
+end
+
+local function startToggleShootWorker()
+    stopToggleShootWorker()
+    local gen = toggleShootGen
+    task.spawn(function()
+        while session.active and gen == toggleShootGen and toggleShoot and not toggleGun do
+            if whoAnnouncePending or tick() < roleAnnounceUnlockAt then
+                task.wait(0.4)
+            elseif _G.MM_GunBusy or stabActive or flingActive or flingLoopActive then
+                task.wait(0.35)
+            else
+                local murd = findHolder({"Knife"})
+                local ownerP = session.ownerId and Players:GetPlayerByUserId(session.ownerId)
+                local om = ownerP and murd and murd.UserId == ownerP.UserId
+                if murd and murd ~= me and isAlive(murd) and isAlive(me) and not botHasKnife() and not om then
+                    _G.MM_GunBusy = true
+                    local callOk, ok, status = pcall(shootTarget, murd)
+                    if not callOk then
+                        log("toggleshoot error: " .. tostring(ok))
+                    else
+                        log("toggleshoot " .. tostring(status))
+                    end
+                    _G.MM_GunBusy = false
+                    task.wait(0.75)
+                else
+                    task.wait(0.5)
+                end
+            end
+        end
+    end)
 end
 
 --[[ Stab ]]--
@@ -779,14 +824,22 @@ local function quickStabBurst(target)
 end
 
 local function stabTargetUntilDead(target)
-    if target == me or not isAlive(me) then return false end
-    while session.active and isAlive(target) and isAlive(me) and (botHasKnife() or getKnifeTool()) do
-        quickStabBurst(target)
-        tpHome()
-        if not isAlive(target) then return true end
-        task.wait(1)
+    if target == me then return false end
+    local uid = target.UserId
+    while session.active do
+        target = Players:GetPlayerByUserId(uid)
+        if not target or not isAlive(target) then return true end
+        if not (botHasKnife() or getKnifeTool()) then return false end
+        if not isAlive(me) then
+            task.wait(0.35)
+        else
+            quickStabBurst(target)
+            tpHome()
+            if not isAlive(target) then return true end
+            task.wait(1)
+        end
     end
-    return not isAlive(target)
+    return false
 end
 
 local function collectStabTargets(mode, playerQuery)
@@ -816,29 +869,36 @@ end
 local function runStab(mode, playerQuery)
     task.spawn(function()
         stabActive = true
-        local targets = collectStabTargets(mode, playerQuery)
-        if #targets == 0 then
-            stabActive = false
-            if mode == "sheriff" then
-                whisper("Sheriff not found")
-            elseif mode == "player" then
-                whisper("Could not find player: " .. tostring(playerQuery))
-            else
-                whisper("No targets to stab")
-            end
-            return
-        end
-        for i, tgt in ipairs(targets) do
-            if not session.active or not botHasKnife() then break end
-            if isAlive(tgt) then
-                local killed = stabTargetUntilDead(tgt)
-                if killed then
-                    whisper("Stabbed " .. shortName(tgt))
+        local ok, err = pcall(function()
+            local targets = collectStabTargets(mode, playerQuery)
+            if #targets == 0 then
+                if mode == "sheriff" then
+                    whisper("Sheriff not found")
+                elseif mode == "player" then
+                    whisper("Could not find player: " .. tostring(playerQuery))
+                else
+                    whisper("No targets to stab")
                 end
+                return
             end
-            if i < #targets then task.wait(0.35) end
-        end
+            for i, tgt in ipairs(targets) do
+                if not session.active or not botHasKnife() then break end
+                if isAlive(tgt) then
+                    local callOk, killed = pcall(stabTargetUntilDead, tgt)
+                    if not callOk then
+                        log("stab error: " .. tostring(killed))
+                    elseif killed then
+                        whisper("Stabbed " .. shortName(tgt))
+                    end
+                end
+                if i < #targets then task.wait(0.35) end
+            end
+        end)
         stabActive = false
+        if not ok then
+            log("stab run error: " .. tostring(err))
+            whisper("Stab failed")
+        end
     end)
 end
 
@@ -1229,8 +1289,12 @@ local function handleCommand(p, msg)
             whisper("Not the murderer")
             return
         end
-        if stabActive or flingActive or flingLoopActive or _G.MM_GunBusy then
-            whisper("Busy, try again")
+        if stabActive then
+            whisper("Already stabbing")
+            return
+        end
+        if flingActive or flingLoopActive or flingSettling then
+            whisper("Fling busy, try again")
             return
         end
         local raw = restOfChatArgs(args)
@@ -1335,6 +1399,7 @@ local function handleCommand(p, msg)
         session.ownerId = nil
         toggleGun, toggleShoot, toggleAlerts, toggleWho = false, false, false, true
         gunTargetId, gunDelivered = nil, false
+        stopToggleShootWorker()
         sendChat("Owner released — type !owner to claim")
         return
     elseif cmd == "chat" then
@@ -1368,18 +1433,20 @@ local function handleCommand(p, msg)
         local targetUid = picked.UserId
         if ownerIsMurd or botHasKnife() then whisper("No gun available") return end
         if _G.MM_GunBusy then whisper("Gun busy, try again") return end
-        _G.MM_GunBusy = true
         task.spawn(function()
+            _G.MM_GunBusy = true
             local tgt = Players:GetPlayerByUserId(targetUid)
             if not tgt or not isAlive(tgt) then
                 whisper("Player not found")
-                task.wait(0.2)
-                _G.MM_GunBusy = false
-                return
+            else
+                local callOk, ok, status = pcall(shootTarget, tgt)
+                if not callOk then
+                    log("shoot error: " .. tostring(ok))
+                    whisper("Shoot failed")
+                else
+                    whisper(status)
+                end
             end
-            local ok, status = shootTarget(tgt)
-            whisper(status)
-            task.wait(1)
             _G.MM_GunBusy = false
         end)
     elseif cmd == "gun" then
@@ -1431,6 +1498,11 @@ local function handleCommand(p, msg)
             toggleGun = false
             gunTargetId, gunDelivered = nil, false
             whisper("Auto-gun: off")
+        end
+        if toggleShoot then
+            startToggleShootWorker()
+        else
+            stopToggleShootWorker()
         end
         whisper("Auto-shoot murderer: " .. (toggleShoot and "on" or "off"))
     elseif cmd == "follow" then
@@ -1514,6 +1586,7 @@ Players.PlayerRemoving:Connect(function(p)
         session.ownerId = nil
         toggleGun, toggleShoot, toggleAlerts, toggleWho = false, false, false, true
         gunTargetId, gunDelivered = nil, false
+        stopToggleShootWorker()
         sendChat("Owner left — type !owner to claim")
     end
 end)
@@ -1678,10 +1751,7 @@ end
 
 --[[ Main loop ]]--
 local lastMurderId, announced, aloneMurderWinDone
-local whoAnnouncePending = false
 local ownerMurdSheriffDropDone = false
-local roleAnnounceUnlockAt = 0
-local lastToggleShootTry = 0
 while session.active and gui.Parent do
     local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
     local botM, botS = botHasKnife(), botHasGun()
@@ -1757,10 +1827,12 @@ while session.active and gui.Parent do
        and isAlive(me) and not _G.MM_GunBusy and (botHasGun() or findDroppedGun()) then
         _G.MM_GunBusy = true
         task.spawn(function()
-            if stashGunAtSpawn() then
-                ownerMurdSheriffDropDone = true
-                gunDelivered = true
-            end
+            pcall(function()
+                if stashGunAtSpawn() then
+                    ownerMurdSheriffDropDone = true
+                    gunDelivered = true
+                end
+            end)
             task.wait(2.5)
             _G.MM_GunBusy = false
         end)
@@ -1781,27 +1853,9 @@ while session.active and gui.Parent do
        and (botHasGun() or findDroppedGun()) then
         gunDelivered = true
         _G.MM_GunBusy = true
-        task.spawn(function() bringGun(gunTarget); task.wait(3); _G.MM_GunBusy = false end)
-    end
-
-    if toggleShoot and not toggleGun and session.ownerId and not flingActive and not flingLoopActive and not flingLoopContinuous
-        and not _G.MM_GunBusy and (tick() - lastToggleShootTry) >= 2.25
-        and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt
-        and not botM and not ownerIsMurd and m and m ~= me and isAlive(m) and isAlive(me)
-    then
-        lastToggleShootTry = tick()
-        _G.MM_GunBusy = true
         task.spawn(function()
-            local murd = findHolder({"Knife"})
-            local ownerP = session.ownerId and Players:GetPlayerByUserId(session.ownerId)
-            local om = ownerP and murd and murd.UserId == ownerP.UserId
-            if toggleShoot and not toggleGun and session.ownerId and murd and murd ~= me and isAlive(murd) and isAlive(me)
-                and not om and not botHasKnife()
-            then
-                local _, status = shootTarget(murd)
-                log("toggleshoot " .. tostring(status))
-            end
-            task.wait(0.5)
+            pcall(function() bringGun(gunTarget) end)
+            task.wait(3)
             _G.MM_GunBusy = false
         end)
     end
