@@ -523,6 +523,8 @@ end
 
 local SHOOT_RANGE = 12
 local SHOOT_HEIGHT = 7
+local SHOOT_RELOAD_MIN = 2.35
+local SHOOT_RELOAD_MAX = 4.5
 local STAB_PREDICT_T = 0.14
 local STAB_MAX_LEAD = 3
 local STAB_MELEE_OFFSET = 1.05
@@ -606,6 +608,14 @@ end
 
 local function getBehindCFrame(target)
     return getShootCFrame(target)
+end
+
+local function getShootAimPoint(target)
+    local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
+    if not th then return end
+    local lead = shootPredictLead(th, hum, nil, nil)
+    return th.Position + Vector3.new(0, 1.2, 0) + Vector3.new(lead.X, 0, lead.Z)
 end
 
 local function isAlive(p)
@@ -789,15 +799,95 @@ local function ensureShootGun()
     if botHasGun() then return true end
     return pickUpDroppedGun()
 end
+local function gunCanShoot(gun)
+    if not gun or not gun.Parent then return false end
+    for _, name in ipairs({"Reloading", "IsReloading", "reloading"}) do
+        local v = gun:FindFirstChild(name, true)
+        if v and v:IsA("BoolValue") and v.Value then return false end
+    end
+    for _, name in ipairs({"Ammo", "Bullets", "ammo"}) do
+        local v = gun:FindFirstChild(name, true)
+        if v and (v:IsA("IntValue") or v:IsA("NumberValue")) and v.Value <= 0 then return false end
+    end
+    return true
+end
+
+local function waitGunReloadAfterShot(gun)
+    local t0 = tick()
+    task.wait(0.12)
+    local needLong = not gunCanShoot(gun)
+    local minWait = needLong and SHOOT_RELOAD_MIN or 0.4
+    while session.active and tick() - t0 < SHOOT_RELOAD_MAX do
+        if tick() - t0 >= minWait and gunCanShoot(gun) then return true end
+        task.wait(0.05)
+    end
+    if tick() - t0 < minWait then
+        task.wait(minWait - (tick() - t0))
+    end
+    return true
+end
+
 local function fireGunOnce(gun)
     if not gun then return end
     pcall(function() gun:Activate() end)
     if getconnections then
         pcall(function()
             local c = getconnections(gun.Activated)
-            if c and c[1] then c[1]:Fire() end
+            if c then
+                for _, conn in ipairs(c) do
+                    pcall(function() conn:Fire() end)
+                end
+            end
         end)
     end
+end
+
+local function shootGunRemote(gun, aimPoint)
+    if not gun or not aimPoint then return false end
+    local remote = gun:FindFirstChild("ShootGun", true)
+        or gun:FindFirstChild("Shoot", true)
+    if not remote then
+        for _, d in ipairs(gun:GetDescendants()) do
+            if d.Name == "ShootGun" and (d:IsA("RemoteFunction") or d:IsA("RemoteEvent")) then
+                remote = d
+                break
+            end
+        end
+    end
+    if not remote then return false end
+    local ok = false
+    pcall(function()
+        if remote:IsA("RemoteFunction") then
+            remote:InvokeServer(aimPoint)
+            ok = true
+        else
+            remote:FireServer(aimPoint)
+            ok = true
+        end
+    end)
+    if not ok then
+        pcall(function()
+            if remote:IsA("RemoteFunction") then
+                remote:InvokeServer(tick(), aimPoint)
+            else
+                remote:FireServer(tick(), aimPoint)
+            end
+            ok = true
+        end)
+    end
+    return ok
+end
+
+local function clickGunFire(gun, mouseX, mouseY)
+    fireGunOnce(gun)
+    if mouse1click then
+        pcall(mouse1click)
+    elseif mouse1press and mouse1release then
+        pcall(mouse1press)
+        task.wait(0.04)
+        pcall(mouse1release)
+    end
+    clickFire(mouseX, mouseY)
 end
 local function clickFire(x, y)
     if not VIM then return end
@@ -811,17 +901,21 @@ local function clickFire(x, y)
         VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
     end)
 end
--- Fire at target from current position (no extra TP)
+-- Fire at target from behind TP; wait for reload before caller returns to spawn
 local function fireGunAtTarget(target, gun)
-    if not gun or not isAlive(target) then return end
+    if not gun or not isAlive(target) or not isAlive(me) then return false end
     enableShootRender()
-    local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-    if not th then return end
-    local aimPoint = th.Position + Vector3.new(0, 1.2, 0)
+    local aimPoint = getShootAimPoint(target)
     local mh = hrp()
+    if not (aimPoint and mh) then return false end
+    zeroVel(mh)
+    mh.CFrame = CFrame.new(mh.Position, aimPoint)
+    zeroVel(mh)
+    pcall(function() mh.Anchored = true end)
+    task.wait(0.05)
     local shootCam = getActiveCam()
     local mouseX, mouseY = 400, 300
-    if shootCam and mh then
+    if shootCam then
         pcall(function()
             local lookCf = CFrame.new(mh.Position, aimPoint)
             shootCam.CFrame = lookCf
@@ -833,14 +927,16 @@ local function fireGunAtTarget(target, gun)
             end
         end)
     end
-    for _ = 1, 4 do
-        fireGunOnce(gun)
-        clickFire(mouseX, mouseY)
-        task.wait(0.04)
-    end
+    shootGunRemote(gun, aimPoint)
+    clickGunFire(gun, mouseX, mouseY)
+    task.wait(0.08)
+    clickGunFire(gun, mouseX, mouseY)
+    pcall(function() mh.Anchored = false end)
+    waitGunReloadAfterShot(gun)
+    return true
 end
 
--- One pass: gun ready -> equip -> TP behind (mid-air) -> shoot -> done (caller TPs spawn)
+-- One pass: gun -> equip -> TP behind -> shoot -> wait reload (then loop TPs spawn)
 local function shootPass(target)
     if not isAlive(target) or not isAlive(me) then return false end
     if botHasKnife() then return false end
@@ -853,11 +949,10 @@ local function shootPass(target)
     zeroVel(mh)
     mh.CFrame = cf
     zeroVel(mh)
-    fireGunAtTarget(target, gun)
-    return true
+    return fireGunAtTarget(target, gun)
 end
 
--- Pick up / equip gun, TP behind, fire, spawn, wait 1.2-2s; until bot or target dies
+-- Pick up / equip, TP behind, shoot, wait reload, spawn, wait 1.2-2s; until bot or target dies
 local function shootTargetLoop(target)
     if target == me then return false, "Invalid target" end
     if ownerIsMurderer() then return false, "Owner is murderer" end
