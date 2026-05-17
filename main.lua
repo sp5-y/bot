@@ -25,6 +25,8 @@ local hopBusy = false
 local toggleShootGen = 0
 local whoAnnouncePending = false
 local roleAnnounceUnlockAt = 0
+local ownerMurdSheriffDropDone = false
+local ownerMurdStashBusy = false
 _G.MM_GunBusy = false
 local PING_MIN_MS, PING_MAX_MS = 50, 90
 local G = getgenv and getgenv() or _G
@@ -534,15 +536,34 @@ local function getShootAimBehind(target, lastPos, lastT)
     return aimPoint, behindPos, th.Position
 end
 
+local function setHrpLookAt(h, atPos, lookAt)
+    if not h or not atPos or not lookAt then return false end
+    local dir = lookAt - atPos
+    if dir.Magnitude < 0.05 then
+        dir = Vector3.new(0, 0, -1)
+    end
+    local ok = pcall(function()
+        h.CFrame = CFrame.new(atPos, atPos + dir.Unit)
+    end)
+    return ok
+end
+
 local function tpBehind(target)
     stopFollow()
     local mh = hrp()
     local aimPoint, behindPos = getShootAimBehind(target)
     if not (mh and aimPoint and behindPos) then return false end
     zeroVel(mh)
-    mh.CFrame = CFrame.new(behindPos, aimPoint)
+    if not setHrpLookAt(mh, behindPos, aimPoint) then return false end
     zeroVel(mh)
     return true
+end
+
+local function isOwnerMurderer()
+    if not session.ownerId then return false end
+    local owner = getOwnerPlayer()
+    local murd = findHolder({"Knife"})
+    return owner and murd and murd.UserId == owner.UserId
 end
 
 local function isAlive(p)
@@ -673,6 +694,7 @@ local function quickShootBurst(target)
     if not gun or not equipTool(gun) then return false end
     if not tpBehind(target) then return false end
     stopFollow()
+    local vp = (cam and cam.ViewportSize) or Vector2.new(1920, 1080)
     local lastPos, lastT
     for _ = 1, 5 do
         if not isAlive(target) or not isAlive(me) then break end
@@ -680,16 +702,17 @@ local function quickShootBurst(target)
         local aimPoint, behindPos, curPos = getShootAimBehind(target, lastPos, lastT)
         if not (mh and aimPoint and behindPos) then break end
         if curPos then lastPos, lastT = curPos, tick() end
-        local lookCf = CFrame.new(behindPos, aimPoint)
         zeroVel(mh)
-        mh.CFrame = lookCf
+        setHrpLookAt(mh, behindPos, aimPoint)
         zeroVel(mh)
-        local mouseX, mouseY = cam.ViewportSize.X * 0.5, cam.ViewportSize.Y * 0.45
+        local mouseX, mouseY = vp.X * 0.5, vp.Y * 0.45
         pcall(function()
-            cam.CFrame = lookCf
-            local sp = cam:WorldToViewportPoint(aimPoint)
-            if sp.Z > 0 then
-                mouseX, mouseY = sp.X, sp.Y
+            if cam then
+                cam.CFrame = CFrame.new(behindPos, aimPoint)
+                local sp = cam:WorldToViewportPoint(aimPoint)
+                if sp.Z > 0 then
+                    mouseX, mouseY = sp.X, sp.Y
+                end
             end
         end)
         pcall(function() gun:Activate() end)
@@ -747,11 +770,11 @@ local function startToggleShootWorker()
                 local om = ownerP and murd and murd.UserId == ownerP.UserId
                 if murd and murd ~= me and isAlive(murd) and isAlive(me) and not botHasKnife() and not om then
                     _G.MM_GunBusy = true
-                    local callOk, ok, status = pcall(shootTarget, murd)
+                    local callOk, shootOk, status = pcall(shootTarget, murd)
                     if not callOk then
-                        log("toggleshoot error: " .. tostring(ok))
+                        log("toggleshoot error: " .. tostring(shootOk))
                     else
-                        log("toggleshoot " .. tostring(status))
+                        log("toggleshoot " .. tostring(status or shootOk))
                     end
                     _G.MM_GunBusy = false
                     task.wait(0.75)
@@ -1439,12 +1462,16 @@ local function handleCommand(p, msg)
             if not tgt or not isAlive(tgt) then
                 whisper("Player not found")
             else
-                local callOk, ok, status = pcall(shootTarget, tgt)
+                local callOk, shootOk, status = pcall(shootTarget, tgt)
                 if not callOk then
-                    log("shoot error: " .. tostring(ok))
+                    log("shoot error: " .. tostring(shootOk))
                     whisper("Shoot failed")
-                else
+                elseif status then
                     whisper(status)
+                elseif shootOk then
+                    whisper("Shot " .. shortName(tgt))
+                else
+                    whisper("No gun available")
                 end
             end
             _G.MM_GunBusy = false
@@ -1751,7 +1778,6 @@ end
 
 --[[ Main loop ]]--
 local lastMurderId, announced, aloneMurderWinDone
-local ownerMurdSheriffDropDone = false
 while session.active and gui.Parent do
     local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
     local botM, botS = botHasKnife(), botHasGun()
@@ -1820,23 +1846,25 @@ while session.active and gui.Parent do
         roleAnnounceUnlockAt = 0
     end
 
-    local ownerForDrop = getOwnerPlayer()
-    local ownerIsMurd = ownerForDrop and m and not botM and ownerForDrop.UserId == m.UserId
-    if session.ownerId and ownerIsMurd and SPAWN_CFRAME and not ownerMurdSheriffDropDone
-       and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt
-       and isAlive(me) and not _G.MM_GunBusy and (botHasGun() or findDroppedGun()) then
-        _G.MM_GunBusy = true
+    if session.ownerId and isOwnerMurderer() and SPAWN_CFRAME and isAlive(me)
+       and not ownerMurdSheriffDropDone and not ownerMurdStashBusy
+       and (botHasGun() or findDroppedGun()) then
+        ownerMurdStashBusy = true
         task.spawn(function()
+            local stashed = false
             pcall(function()
-                if stashGunAtSpawn() then
-                    ownerMurdSheriffDropDone = true
-                    gunDelivered = true
-                end
+                stashed = stashGunAtSpawn() == true
             end)
-            task.wait(2.5)
-            _G.MM_GunBusy = false
+            if stashed then
+                ownerMurdSheriffDropDone = true
+                log("owner is murderer -> gun stashed at spawn")
+            end
+            task.wait(1.5)
+            ownerMurdStashBusy = false
         end)
     end
+    local ownerForDrop = getOwnerPlayer()
+    local ownerIsMurd = ownerForDrop and m and ownerForDrop.UserId == m.UserId
 
     if not session.ownerId and roundActive and m and not aloneMurderWinDone
         and isOnlyMurdererLeftWithBot(m)
