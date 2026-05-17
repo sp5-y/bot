@@ -52,7 +52,7 @@ pcall(function()
 end)
 local DEFAULT_FOV, WIDE_FOV = 70, 100
 local SPAWN_CFRAME = CFrame.new(14.3513288, 505.044952, -58.2513657, 1, 0, 0, 0, 1, 0, 0, 0, 1)
-local FRAUD_NAME = "fraud4balenci"
+local FRAUD_NAME = "2"
 local toggleGun = false
 local toggleShoot = false
 local toggleAlerts = false
