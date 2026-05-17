@@ -521,7 +521,6 @@ end
 
 local SHOOT_BEHIND_DIST = 13
 local SHOOT_BEHIND_HEIGHT = 4.5
-local STAB_FRONT_DIST = 2.4
 
 local function getShootAim(target, lastPos, lastT)
     local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
@@ -541,14 +540,6 @@ local function getBehindCFrame(target)
     return CFrame.new(pos, aimPoint)
 end
 
-local function getInFrontCFrame(target)
-    local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
-    if not th then return end
-    local aimPoint = th.Position + Vector3.new(0, 1.2, 0)
-    local pos = th.Position + th.CFrame.LookVector * STAB_FRONT_DIST + Vector3.new(0, 0.35, 0)
-    return CFrame.new(pos, aimPoint)
-end
-
 local function tpCFrame(cf)
     local h = hrp()
     if h and cf then
@@ -561,13 +552,6 @@ end
 local function tpBehindTarget(target)
     stopFollow()
     local cf = getBehindCFrame(target)
-    if cf then tpCFrame(cf) end
-    return cf ~= nil
-end
-
-local function tpInFrontOfTarget(target)
-    stopFollow()
-    local cf = getInFrontCFrame(target)
     if cf then tpCFrame(cf) end
     return cf ~= nil
 end
@@ -774,13 +758,20 @@ local function shootTargetLoop(target)
     return true, "Stopped shooting " .. shortName(target)
 end
 
-local function attemptStabOnce(target)
+-- One stab pass: TP in front (example.lua offset), slash, done (mirrors one shoot volley pass)
+local function stabPass(target)
     if not isAlive(target) or not isAlive(me) then return false end
     if not botHasKnife() then return false end
     local knife = getHeldTool(me, {"Knife"})
     if not knife or not equipTool(knife) then return false end
-    if not tpInFrontOfTarget(target) then return false end
     local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    local mh = hrp()
+    if not (th and mh) then return false end
+    stopFollow()
+    zeroVel(mh)
+    mh.CFrame = th.CFrame * CFrame.new(-1.5, 0, 4)
+    zeroVel(mh)
+    task.wait(0.2)
     pcall(function()
         local handle = knife:FindFirstChild("Handle")
         if knife:FindFirstChild("KnifeServer") and handle then
@@ -789,22 +780,26 @@ local function attemptStabOnce(target)
         end
         knife:Activate()
     end)
-    if th then
-        pcall(function()
-            knife:Activate()
-        end)
-    end
     return true
 end
 
+-- Hit-run loop (same shape as shootTargetLoop)
 local function stabTargetLoop(target)
     if target == me then return false, "Invalid target" end
     if not botHasKnife() then return false, "You need to be murderer" end
     if not isAlive(target) then return false, "Player not found" end
     stopFollow()
-    while session.active and isAlive(me) and isAlive(target) do
-        attemptStabOnce(target)
+    local passes = 0
+    while session.active and isAlive(me) and isAlive(target) and passes < 36 do
+        passes = passes + 1
+        if not botHasKnife() then
+            return false, "You need to be murderer"
+        end
+        if not stabPass(target) then
+            return false, "Stab failed"
+        end
         tpHome()
+        task.wait(0.05)
         if not isAlive(target) then
             return true, "Killed " .. shortName(target)
         end
@@ -814,6 +809,7 @@ local function stabTargetLoop(target)
         task.wait(math.random(10, 20) / 10)
     end
     if not isAlive(me) then return false, "Bot died" end
+    if not isAlive(target) then return true, "Killed " .. shortName(target) end
     return true, "Stopped stabbing " .. shortName(target)
 end
 
@@ -1340,47 +1336,60 @@ local function handleCommand(p, msg)
         end)
     elseif cmd == "stab" then
         if not botHasKnife() then whisper("You need to be murderer") return end
-        if _G.MM_StabBusy then whisper("Stab busy, try again") return end
-        local work = (restOfChatArgs(args):match("^%s*(.-)%s*$") or "")
-        local q = work:lower()
-        if q == "" then
-            whisper("!stab all | sheriff | <name>")
+        local q = restOfChatArgs(args)
+        if q == "" then whisper("!stab all | sheriff | <name>") return end
+        local wl = q:lower()
+        local first = wl:match("^(%S+)")
+        if first == "all" or first == "sheriff" or first == "sher" or first == "sherif" then
+            if _G.MM_StabBusy then whisper("Stab busy, try again") return end
+            local targets = {}
+            if first == "all" then
+                for _, pl in ipairs(Players:GetPlayers()) do
+                    if pl ~= me and (not session.ownerId or pl.UserId ~= session.ownerId) then
+                        table.insert(targets, pl)
+                    end
+                end
+            else
+                local sher = findHolder({"Gun", "Revolver"})
+                if sher and sher ~= me then table.insert(targets, sher) end
+            end
+            if #targets == 0 then whisper("No targets") return end
+            _G.MM_StabBusy = true
+            whisper("Stabbing " .. first)
+            task.spawn(function()
+                local ok, err = pcall(function()
+                    for _, tgt in ipairs(targets) do
+                        if not session.active or not botHasKnife() then break end
+                        if isAlive(tgt) then
+                            local _, status = stabTargetLoop(tgt)
+                            whisper(status)
+                        end
+                    end
+                end)
+                if not ok then whisper("Stab failed"); log(tostring(err)) end
+                _G.MM_StabBusy = false
+            end)
             return
         end
-        local mode, playerQuery = "player", work
-        local first = q:match("^(%S+)")
-        if first == "all" then
-            mode, playerQuery = "all", ""
-        elseif first == "sheriff" or first == "sher" or first == "sherif" then
-            mode, playerQuery = "sheriff", ""
-        end
-        local targets = {}
-        if mode == "all" then
-            for _, pl in ipairs(Players:GetPlayers()) do
-                if pl ~= me and (not session.ownerId or pl.UserId ~= session.ownerId) then
-                    table.insert(targets, pl)
-                end
-            end
-        elseif mode == "sheriff" then
-            local sher = findHolder({"Gun", "Revolver"})
-            if sher and sher ~= me then table.insert(targets, sher) end
-        else
-            local t = findOtherPlayer(work)
-            if not t then whisper("Could not find player: " .. work) return end
-            table.insert(targets, t)
-        end
-        if #targets == 0 then whisper("No targets") return end
+        local picked = findOtherPlayer(q)
+        if not picked then whisper("Player not found") return end
+        if _G.MM_StabBusy then whisper("Stab busy, try again") return end
+        local targetUid = picked.UserId
         _G.MM_StabBusy = true
-        local label = mode == "player" and work or mode
-        whisper("Stabbing " .. label)
+        whisper("Stabbing " .. shortName(picked))
         task.spawn(function()
-            for _, tgt in ipairs(targets) do
-                if not session.active or not botHasKnife() then break end
-                if isAlive(tgt) then
-                    local _, status = stabTargetLoop(tgt)
-                    whisper(status)
-                end
+            local status = "Player not found"
+            local ok, err = pcall(function()
+                local tgt = Players:GetPlayerByUserId(targetUid)
+                if not tgt or not isAlive(tgt) then return end
+                local _, msg = stabTargetLoop(tgt)
+                status = msg
+            end)
+            if not ok then
+                status = "Stab failed"
+                log(tostring(err))
             end
+            whisper(status)
             _G.MM_StabBusy = false
         end)
     elseif cmd == "gun" then
