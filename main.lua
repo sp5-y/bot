@@ -898,6 +898,10 @@ local function shootTarget(target)
     local gun = getHeldTool(me, {"Gun", "Revolver"})
     if not gun then return false, "No gun available" end
     if not equipTool(gun) then return false, "No gun available" end
+    enableShootRender()
+    unanchorHrp()
+    local shootCam = getActiveCam()
+    if not shootCam then return false, "No gun available" end
     local startHealth = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
     startHealth = startHealth and startHealth.Health or nil
     local fired = false
@@ -912,10 +916,10 @@ local function shootTarget(target)
         zeroVel(mh)
         mh.CFrame = lookCf
         zeroVel(mh)
-        local mouseX, mouseY = cam.ViewportSize.X * 0.5, cam.ViewportSize.Y * 0.45
+        local mouseX, mouseY = shootCam.ViewportSize.X * 0.5, shootCam.ViewportSize.Y * 0.45
         pcall(function()
-            cam.CFrame = lookCf
-            local sp = cam:WorldToViewportPoint(aimPoint)
+            shootCam.CFrame = lookCf
+            local sp = shootCam:WorldToViewportPoint(aimPoint)
             if sp.Z > 0 then
                 mouseX, mouseY = sp.X, sp.Y
             end
@@ -1658,20 +1662,27 @@ local function handleCommand(p, msg)
         if not picked then whisper("Player not found") return end
         local targetUid = picked.UserId
         if ownerIsMurd or botHasKnife() then whisper("No gun available") return end
-        if _G.MM_GunBusy then whisper("Gun busy, try again") return end
-        _G.MM_GunBusy = true
+        if _G.MM_ShootBusy or _G.MM_StabBusy or _G.MM_GunBusy then
+            whisper("Gun busy, try again")
+            return
+        end
+        _G.MM_ShootBusy = true
         task.spawn(function()
-            local tgt = Players:GetPlayerByUserId(targetUid)
-            if not tgt or not isAlive(tgt) then
-                whisper("Player not found")
-                task.wait(0.2)
-                _G.MM_GunBusy = false
-                return
+            local status = "Player not found"
+            local ok, err = pcall(function()
+                local tgt = Players:GetPlayerByUserId(targetUid)
+                if not tgt or not isAlive(tgt) then return end
+                local _, msg = shootTarget(tgt)
+                status = msg or "No gun available"
+            end)
+            if not ok then
+                log("shoot error: " .. tostring(err))
+                status = "Shoot failed"
             end
-            local ok, status = shootTarget(tgt)
             whisper(status)
             task.wait(1)
-            _G.MM_GunBusy = false
+            _G.MM_ShootBusy = false
+            runDeferredOwnerResetIfIdle()
         end)
     elseif cmd == "stab" then
         if not botHasKnife() then whisper("Bot needs to be murderer") return end
