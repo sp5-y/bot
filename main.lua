@@ -1,42 +1,5 @@
 --[[ MM2 Helper Bot ]]--
-local bootGui = Instance.new("ScreenGui")
-bootGui.Name, bootGui.ResetOnSpawn = "MM2Boot", false
-bootGui.Parent = game:GetService("CoreGui")
-local bootLbl = Instance.new("TextLabel", bootGui)
-bootLbl.Size = UDim2.new(0, 340, 0, 36)
-bootLbl.Position = UDim2.new(0.5, -170, 0, 8)
-bootLbl.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
-bootLbl.TextColor3 = Color3.new(1, 1, 1)
-bootLbl.Font, bootLbl.TextSize = Enum.Font.GothamBold, 14
-bootLbl.Text = "MM2 bot loading..."
-local function setBootStatus(t)
-    pcall(function() bootLbl.Text = tostring(t) end)
-end
-local function clearBoot()
-    pcall(function() bootGui:Destroy() end)
-end
-
-local loadOk, loadErr = xpcall(function()
-setBootStatus("starting...")
 local Players = game:GetService("Players")
-local me = Players.LocalPlayer
-if not me then
-    if Players.GetPropertyChangedSignal then
-        Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
-        me = Players.LocalPlayer
-    end
-    while not me do
-        task.wait(0.05)
-        me = Players.LocalPlayer
-    end
-end
-local cam = workspace.CurrentCamera
-if not cam then
-    repeat
-        task.wait(0.05)
-        cam = workspace.CurrentCamera
-    until cam
-end
 local cref = cloneref or function(x) return x end
 local TCS = cref(game:GetService("TextChatService"))
 local Tween = game:GetService("TweenService")
@@ -46,13 +9,11 @@ local Stats = cref(game:GetService("Stats"))
 local StarterGui = cref(game:GetService("StarterGui"))
 local TeleportSvc = cref(game:GetService("TeleportService"))
 local VIM = pcall(function() return cref(game:GetService("VirtualInputManager")) end) and cref(game:GetService("VirtualInputManager")) or nil
-local isLegacy = false
-pcall(function()
-    isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
-end)
+local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
+local me, cam = Players.LocalPlayer, workspace.CurrentCamera
 local DEFAULT_FOV, WIDE_FOV = 70, 100
 local SPAWN_CFRAME = CFrame.new(14.3513288, 505.044952, -58.2513657, 1, 0, 0, 0, 1, 0, 0, 0, 1)
-local FRAUD_NAME = "2"
+local FRAUD_NAME = "fraud4balenci"
 local toggleGun = false
 local toggleShoot = false
 local toggleAlerts = false
@@ -72,11 +33,9 @@ if getgenv and getgenv().MM_Session then getgenv().MM_Session.active = false end
 if game.CoreGui:FindFirstChild("MM") then game.CoreGui.MM:Destroy() end
 local session = {active = true, ownerId = nil}
 if getgenv then getgenv().MM_Session = session end
-pcall(function()
-    cam.FieldOfView = DEFAULT_FOV
-    local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
-    if h then cam.CameraSubject = h end
-end)
+cam.FieldOfView = DEFAULT_FOV
+do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid") 
+   if h then cam.CameraSubject = h end end
 
 --[[ Background mode (low CPU, muted, no 3D) ]]--
 -- Hold RightAlt to disable. Auto-disables when script is re-executed.
@@ -111,7 +70,7 @@ task.spawn(function()
 end)
 
 --[[ GUI ]]--
-local gui = Instance.new("ScreenGui", game:GetService("CoreGui"))
+local gui = Instance.new("ScreenGui", game.CoreGui)
 gui.Name, gui.ResetOnSpawn = "MM", false
 local f = Instance.new("Frame", gui)
 f.Size, f.Position = UDim2.new(0, 140, 0, 180), UDim2.new(1, -150, 0, 10)
@@ -162,8 +121,6 @@ local function log(msg)
         table.remove(labels, 1)
     end
 end
-log("gui ready")
-setBootStatus("gui ready")
 
 --[[ Finders ]]--
 local function hasItem(parent, names)
@@ -460,13 +417,6 @@ local function findHopServer()
     return fallback
 end
 
---[[ Movement ]]--
-local function hrp() return me.Character and me.Character:FindFirstChild("HumanoidRootPart") end
-local followTarget = nil
-local function stopFollow()
-    followTarget = nil
-end
-
 local function hopServer(reason, continuePingSearch)
     if hopBusy then return false end
     hopBusy = true
@@ -490,6 +440,13 @@ local function hopServer(reason, continuePingSearch)
         hopBusy = false
     end
     return ok
+end
+
+--[[ Movement ]]--
+local function hrp() return me.Character and me.Character:FindFirstChild("HumanoidRootPart") end
+local followTarget = nil
+local function stopFollow()
+    followTarget = nil
 end
 -- Horizontal lead from HRP velocity so handoffs stay ahead of walking targets.
 local function horizontalApproachLead(root)
@@ -568,7 +525,6 @@ local SHOOT_BEHIND_HEIGHT = 4.5
 local STAB_MELEE_RANGE = 2.4
 local STAB_MOVE_MIN = 1.8
 local STAB_EXTRA_LEAD_SEC = 0.34
-local STAB_TIMEOUT_SEC = 45
 
 local function getStabMoveDir(th, hum)
     local best = Vector3.zero
@@ -903,9 +859,10 @@ local function stabTargetLoop(target)
     if not botHasKnife() then return false, "You need to be murderer" end
     if not isAlive(target) then return false, "Player not found" end
     stopFollow()
+    local passes = 0
     local lastPos, lastT
-    local t0 = tick()
-    while session.active and isAlive(me) and isAlive(target) and tick() - t0 < STAB_TIMEOUT_SEC do
+    while session.active and isAlive(me) and isAlive(target) and passes < 36 do
+        passes = passes + 1
         if not botHasKnife() then
             return false, "You need to be murderer"
         end
@@ -925,14 +882,12 @@ local function stabTargetLoop(target)
         end
         task.wait(math.random(10, 20) / 10)
     end
-    for _ = 1, 3 do tpHome(); task.wait(0.12) end
     if not isAlive(me) then
         log("bot died during stab")
         return false, "Bot died"
     end
     if not isAlive(target) then return true, "Killed " .. shortName(target) end
-    log("stab timed out after " .. STAB_TIMEOUT_SEC .. "s on " .. shortName(target))
-    return true, "Stab timed out"
+    return true, "Stopped stabbing " .. shortName(target)
 end
 
 local function disableToggleGun(notify)
@@ -1269,12 +1224,12 @@ local COMMAND_HELP = {
     owner = "Claim control of the bot",
     dethrone = "Release owner control",
     who = "Show current murderer and sheriff",
-    shoot = "<player> - Shoot given player",
-    stab = "sheriff | <name> - Murderer only, stab given player,
+    shoot = "<player> - Hit-run shoot until they die (TP behind, shoot, spawn)",
+    stab = "all | sheriff | <name> - Murderer only, stab loop until dead",
     toggleshoot = "Toggle auto hit-run shoot on murderer each round",
     togglewho = "Toggle automatic role callout each round",
     togglealerts = "Toggle kill/drop/pickup alerts",
-    toggledrop = "Toggle auto drop gun at spawn when owner murderer",
+    toggledrop = "Toggle dropping gun at spawn when owner is murderer",
     reset = "Force bot respawn",
     tp = "<player> - Teleport bot to a player",
     tpmurd = "Teleport bot to the murderer",
@@ -1349,7 +1304,7 @@ local function handleCommand(p, msg)
                 whisper("Fling loop stopped")
                 return
             end
-            whisper("!fling all | sheriff | murder | <name> - add loop to repeat, !fling alone stops")
+            whisper("!fling all | sheriff | murder | <name> — add loop to repeat, !fling alone stops")
             return
         end
 
@@ -1407,7 +1362,7 @@ local function handleCommand(p, msg)
         session.ownerId = nil
         toggleGun, toggleShoot, toggleAlerts, toggleWho = false, false, false, true
         gunTargetId, gunDelivered = nil, false
-        sendChat("Owner released - type !owner to claim")
+        sendChat("Owner released — type !owner to claim")
         return
     elseif cmd == "chat" then
         sendChat(rest)
@@ -1460,32 +1415,38 @@ local function handleCommand(p, msg)
     elseif cmd == "stab" then
         if not botHasKnife() then whisper("You need to be murderer") return end
         local q = restOfChatArgs(args)
-        if q == "" then whisper("!stab sheriff | <name>") return end
+        if q == "" then whisper("!stab all | sheriff | <name>") return end
         local wl = q:lower()
         local first = wl:match("^(%S+)")
-        if first == "sheriff" or first == "sher" or first == "sherif" then
+        if first == "all" or first == "sheriff" or first == "sher" or first == "sherif" then
             if _G.MM_StabBusy then whisper("Stab busy, try again") return end
-            local sher = findHolder({"Gun", "Revolver"})
-            if not sher or sher == me then whisper("Sheriff not found") return end
+            local targets = {}
+            if first == "all" then
+                for _, pl in ipairs(Players:GetPlayers()) do
+                    if pl ~= me and (not session.ownerId or pl.UserId ~= session.ownerId) then
+                        table.insert(targets, pl)
+                    end
+                end
+            else
+                local sher = findHolder({"Gun", "Revolver"})
+                if sher and sher ~= me then table.insert(targets, sher) end
+            end
+            if #targets == 0 then whisper("No targets") return end
             _G.MM_StabBusy = true
-            whisper("Stabbing sheriff")
-            local targetUid = sher.UserId
+            whisper("Stabbing " .. first)
             task.spawn(function()
-                local status = "Sheriff not found"
                 local ok, err = pcall(function()
-                    local tgt = Players:GetPlayerByUserId(targetUid)
-                    if not tgt or not isAlive(tgt) then return end
-                    local _, msg = stabTargetLoop(tgt)
-                    status = msg
+                    for _, tgt in ipairs(targets) do
+                        if not session.active or not botHasKnife() then break end
+                        if isAlive(tgt) then
+                            local _, status = stabTargetLoop(tgt)
+                            whisperCombatResult(status)
+                        end
+                    end
                 end)
-                if not ok then status = "Stab failed"; log(tostring(err)) end
-                whisperCombatResult(status)
+                if not ok then whisper("Stab failed"); log(tostring(err)) end
                 _G.MM_StabBusy = false
             end)
-            return
-        end
-        if first == "all" then
-            whisper("Use !stab sheriff or !stab <name>")
             return
         end
         local picked = findOtherPlayer(q)
@@ -1589,7 +1550,7 @@ local function handleCommand(p, msg)
         if helpCmd ~= "" and COMMAND_HELP[helpCmd] then
             whisper("!" .. helpCmd .. ": " .. COMMAND_HELP[helpCmd])
         elseif helpCmd ~= "" then
-            whisper("No help for !" .. helpCmd .. " - use !help for the list")
+            whisper("No help for !" .. helpCmd .. " — use !help for the list")
         else
             sendFullHelp(p)
         end
@@ -1646,11 +1607,11 @@ Players.PlayerRemoving:Connect(function(p)
         session.ownerId = nil
         toggleGun, toggleShoot, toggleAlerts, toggleWho = false, false, false, true
         gunTargetId, gunDelivered = nil, false
-        sendChat("Owner left - type !owner to claim")
+        sendChat("Owner left — type !owner to claim")
     end
 end)
 
-if not session.ownerId and me then
+if not session.ownerId then
     session.ownerId = me.UserId
 end
 _G.MM_StabBusy = _G.MM_StabBusy or false
@@ -1791,6 +1752,8 @@ task.spawn(function()
     end
 end)
 
+log("bot online")
+
 local function resolveRoleSnapshot(timeout)
     local deadline = tick() + (timeout or 0)
     local curM, curS, curBotM, curBotS
@@ -1807,10 +1770,6 @@ local function resolveRoleSnapshot(timeout)
     until false
     return curM, curS, curBotM, curBotS
 end
-
-log("bot online")
-setBootStatus("bot online")
-clearBoot()
 
 --[[ Main loop ]]--
 local lastMurderId, announced, aloneMurderWinDone
@@ -1837,7 +1796,7 @@ while session.active and gui.Parent do
         whoAnnouncePending = true
         local owner = getOwnerPlayer()
         task.spawn(function()
-            -- 1) Spawn TP first (always - avoid dying before anything else)
+            -- 1) Spawn TP first (always — avoid dying before anything else)
             for i = 1, 3 do tpHome(); task.wait(0.2) end
 
             -- 2) Wait for gun/knife to appear (sheriff pick-up can be a tick late)
@@ -1848,11 +1807,13 @@ while session.active and gui.Parent do
             task.wait(0.35)
             local curM, curS, curBotM, curBotS = resolveRoleSnapshot(1.2)
 
-            -- 3) Drop at spawn before role msgs (only when toggledrop is on)
-            if toggleDrop and isAlive(me) and not curBotM and (botHasGun() or findDroppedGun()) then
-                local ownerMurdNow = owner and curM and owner.UserId == curM.UserId
-                local botSheriffNow = curBotS or botHasGun()
-                if botSheriffNow or ownerMurdNow then
+            -- 3) Drop at spawn before role msgs (bot sheriff / has gun, or owner murderer + toggledrop)
+            if isAlive(me) and not curBotM and (botHasGun() or findDroppedGun()) then
+                local stashNow = curBotS or botHasGun()
+                if not stashNow and owner and curM and owner.UserId == curM.UserId and toggleDrop then
+                    stashNow = true
+                end
+                if stashNow then
                     pcall(stashGunAtSpawn)
                     task.wait(0.45)
                 end
@@ -1875,7 +1836,7 @@ while session.active and gui.Parent do
                 end
             end
 
-            -- 5) Post-msg movement (not spawn-gun stash - that already ran)
+            -- 5) Post-msg movement (not spawn-gun stash — that already ran)
             task.wait(0.5)
             if curBotM then
                 if owner and curS and owner.UserId == curS.UserId then
@@ -1966,26 +1927,6 @@ while session.active and gui.Parent do
 end
 
 --[[ Cleanup ]]--
-pcall(function()
-    if cam then
-        cam.FieldOfView = DEFAULT_FOV
-        local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
-        if h then cam.CameraSubject = h end
-    end
-end)
-
-end, function(err)
-    return debug.traceback(tostring(err), 2)
-end)
-
-if not loadOk then
-    setBootStatus("FAILED - check console (F9)")
-    warn("[MM2 BOT FAILED]\n" .. tostring(loadErr))
-    pcall(function()
-        game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = "MM2 Bot",
-            Text = tostring(loadErr):sub(1, 200),
-            Duration = 12,
-        })
-    end)
-end
+cam.FieldOfView = DEFAULT_FOV
+do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+   if h then cam.CameraSubject = h end end
