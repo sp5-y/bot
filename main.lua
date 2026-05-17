@@ -1,5 +1,10 @@
 --[[ MM2 Helper Bot ]]--
 local Players = game:GetService("Players")
+local me = Players.LocalPlayer
+if not me then
+    me = Players.PlayerAdded:Wait()
+end
+local cam = workspace.CurrentCamera
 local cref = cloneref or function(x) return x end
 local TCS = cref(game:GetService("TextChatService"))
 local Tween = game:GetService("TweenService")
@@ -9,8 +14,10 @@ local Stats = cref(game:GetService("Stats"))
 local StarterGui = cref(game:GetService("StarterGui"))
 local TeleportSvc = cref(game:GetService("TeleportService"))
 local VIM = pcall(function() return cref(game:GetService("VirtualInputManager")) end) and cref(game:GetService("VirtualInputManager")) or nil
-local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
-local me, cam = Players.LocalPlayer, workspace.CurrentCamera
+local isLegacy = false
+pcall(function()
+    isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
+end)
 local DEFAULT_FOV, WIDE_FOV = 70, 100
 local SPAWN_CFRAME = CFrame.new(14.3513288, 505.044952, -58.2513657, 1, 0, 0, 0, 1, 0, 0, 0, 1)
 local FRAUD_NAME = "fraud4balenci"
@@ -70,8 +77,16 @@ task.spawn(function()
 end)
 
 --[[ GUI ]]--
-local gui = Instance.new("ScreenGui", game.CoreGui)
+local guiParent = game:GetService("CoreGui")
+if gethui then
+    pcall(function() guiParent = gethui() end)
+end
+local gui = Instance.new("ScreenGui")
 gui.Name, gui.ResetOnSpawn = "MM", false
+if syn and syn.protect_gui then
+    pcall(syn.protect_gui, gui)
+end
+gui.Parent = guiParent
 local f = Instance.new("Frame", gui)
 f.Size, f.Position = UDim2.new(0, 140, 0, 180), UDim2.new(1, -150, 0, 10)
 f.BackgroundColor3, f.Visible = Color3.fromRGB(20, 20, 20), false
@@ -121,6 +136,7 @@ local function log(msg)
         table.remove(labels, 1)
     end
 end
+log("gui ready")
 
 --[[ Finders ]]--
 local function hasItem(parent, names)
@@ -417,6 +433,13 @@ local function findHopServer()
     return fallback
 end
 
+--[[ Movement ]]--
+local function hrp() return me.Character and me.Character:FindFirstChild("HumanoidRootPart") end
+local followTarget = nil
+local function stopFollow()
+    followTarget = nil
+end
+
 local function hopServer(reason, continuePingSearch)
     if hopBusy then return false end
     hopBusy = true
@@ -440,13 +463,6 @@ local function hopServer(reason, continuePingSearch)
         hopBusy = false
     end
     return ok
-end
-
---[[ Movement ]]--
-local function hrp() return me.Character and me.Character:FindFirstChild("HumanoidRootPart") end
-local followTarget = nil
-local function stopFollow()
-    followTarget = nil
 end
 -- Horizontal lead from HRP velocity so handoffs stay ahead of walking targets.
 local function horizontalApproachLead(root)
@@ -1306,7 +1322,7 @@ local function handleCommand(p, msg)
                 whisper("Fling loop stopped")
                 return
             end
-            whisper("!fling all | sheriff | murder | <name> — add loop to repeat, !fling alone stops")
+            whisper("!fling all | sheriff | murder | <name> - add loop to repeat, !fling alone stops")
             return
         end
 
@@ -1364,7 +1380,7 @@ local function handleCommand(p, msg)
         session.ownerId = nil
         toggleGun, toggleShoot, toggleAlerts, toggleWho = false, false, false, true
         gunTargetId, gunDelivered = nil, false
-        sendChat("Owner released — type !owner to claim")
+        sendChat("Owner released - type !owner to claim")
         return
     elseif cmd == "chat" then
         sendChat(rest)
@@ -1546,7 +1562,7 @@ local function handleCommand(p, msg)
         if helpCmd ~= "" and COMMAND_HELP[helpCmd] then
             whisper("!" .. helpCmd .. ": " .. COMMAND_HELP[helpCmd])
         elseif helpCmd ~= "" then
-            whisper("No help for !" .. helpCmd .. " — use !help for the list")
+            whisper("No help for !" .. helpCmd .. " - use !help for the list")
         else
             sendFullHelp(p)
         end
@@ -1603,11 +1619,11 @@ Players.PlayerRemoving:Connect(function(p)
         session.ownerId = nil
         toggleGun, toggleShoot, toggleAlerts, toggleWho = false, false, false, true
         gunTargetId, gunDelivered = nil, false
-        sendChat("Owner left — type !owner to claim")
+        sendChat("Owner left - type !owner to claim")
     end
 end)
 
-if not session.ownerId then
+if not session.ownerId and me then
     session.ownerId = me.UserId
 end
 _G.MM_StabBusy = _G.MM_StabBusy or false
@@ -1748,8 +1764,6 @@ task.spawn(function()
     end
 end)
 
-log("bot online")
-
 local function resolveRoleSnapshot(timeout)
     local deadline = tick() + (timeout or 0)
     local curM, curS, curBotM, curBotS
@@ -1766,6 +1780,8 @@ local function resolveRoleSnapshot(timeout)
     until false
     return curM, curS, curBotM, curBotS
 end
+
+log("bot online")
 
 --[[ Main loop ]]--
 local lastMurderId, announced, aloneMurderWinDone
@@ -1792,7 +1808,7 @@ while session.active and gui.Parent do
         whoAnnouncePending = true
         local owner = getOwnerPlayer()
         task.spawn(function()
-            -- 1) Spawn TP first (always — avoid dying before anything else)
+            -- 1) Spawn TP first (always - avoid dying before anything else)
             for i = 1, 3 do tpHome(); task.wait(0.2) end
 
             -- 2) Wait for gun/knife to appear (sheriff pick-up can be a tick late)
@@ -1830,7 +1846,7 @@ while session.active and gui.Parent do
                 end
             end
 
-            -- 5) Post-msg movement (not spawn-gun stash — that already ran)
+            -- 5) Post-msg movement (not spawn-gun stash - that already ran)
             task.wait(0.5)
             if curBotM then
                 if owner and curS and owner.UserId == curS.UserId then
