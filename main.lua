@@ -566,8 +566,10 @@ local function shootPredictLead(root, hum, lastPos, lastT)
     return vh.Unit * math.min(snap + ahead, 16)
 end
 
-local SHOOT_BEHIND_OFFSET = Vector3.new(-1.5, 0.5, 14)
-local SHOOT_AIM_SETTLE = 0.07
+local SHOOT_BEHIND_DIST = 14
+local SHOOT_BEHIND_MIN_DIST = 7
+local SHOOT_SIDE_OFFSET = 1.5
+local SHOOT_HEIGHT_ABOVE_ROOT = 1.2
 local SHOOT_RELOAD_MIN = 2.35
 local toggleShootGen = 0
 local toggleShootBusy = false
@@ -597,31 +599,58 @@ local function getTorsoAimPoint(target, lastPos, lastT)
     return torso.Position + Vector3.new(lead.X, 0, lead.Z)
 end
 
--- Behind target in their local space (example.lua AutoKillAsSheriff style), looking at torso
+local function getShootRayParams(target)
+    local params = RaycastParams.new()
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    local ignore = {}
+    if me.Character then table.insert(ignore, me.Character) end
+    if target and target.Character then table.insert(ignore, target.Character) end
+    params.FilterDescendantsInstances = ignore
+    return params
+end
+
+-- Pick open ground behind target (raycast so we do not TP into walls)
+local function findClearBehindPosition(th, aimPoint, targetPlayer)
+    local flatBack = Vector3.new(-th.CFrame.LookVector.X, 0, -th.CFrame.LookVector.Z)
+    if flatBack.Magnitude < 0.08 then flatBack = Vector3.new(0, 0, 1) end
+    flatBack = flatBack.Unit
+    local params = getShootRayParams(targetPlayer)
+    local best
+    for dist = SHOOT_BEHIND_DIST, SHOOT_BEHIND_MIN_DIST, -1.75 do
+        for side = -1, 1, 2 do
+            local offset = flatBack * dist + th.CFrame.RightVector * (SHOOT_SIDE_OFFSET * side)
+            local candidate = th.Position + offset + Vector3.new(0, SHOOT_HEIGHT_ABOVE_ROOT, 0)
+            local toBot = candidate - aimPoint
+            if toBot.Magnitude > 0.5 then
+                local wall = workspace:Raycast(aimPoint, toBot, params)
+                if wall and wall.Distance < toBot.Magnitude - 1.25 then
+                    candidate = wall.Position + wall.Normal * 2.5
+                end
+            end
+            local floor = workspace:Raycast(candidate + Vector3.new(0, 6, 0), Vector3.new(0, -14, 0), params)
+            if floor then
+                candidate = floor.Position + Vector3.new(0, 3.2, 0)
+            end
+            local probe = workspace:Raycast(candidate, flatBack * 2, params)
+            if not probe then
+                best = candidate
+                break
+            end
+        end
+        if best then break end
+    end
+    if not best then
+        best = th.Position + flatBack * SHOOT_BEHIND_MIN_DIST + Vector3.new(0, SHOOT_HEIGHT_ABOVE_ROOT, 0)
+    end
+    return best
+end
+
 local function getShootCFrame(target, lastPos, lastT)
     local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
     if not th then return end
-    local aim = getTorsoAimPoint(target, lastPos, lastT)
-    if not aim then return end
-    local posCf = th.CFrame * CFrame.new(SHOOT_BEHIND_OFFSET.X, SHOOT_BEHIND_OFFSET.Y, SHOOT_BEHIND_OFFSET.Z)
-    return CFrame.new(posCf.Position, aim), th.Position
-end
-
-local function aimAtTorso(target, lastPos, lastT)
-    local aimPoint = getTorsoAimPoint(target, lastPos, lastT)
-    if not aimPoint then return end
-    local shootCam = getActiveCam()
-    local mh = hrp()
-    if shootCam then
-        local from = (mh and mh.Position) or shootCam.CFrame.Position
-        pcall(function() shootCam.CFrame = CFrame.new(from, aimPoint) end)
-    end
-    if mh then
-        local keepPos = mh.Position
-        pcall(function() mh.CFrame = CFrame.new(keepPos, aimPoint) end)
-        zeroVel(mh)
-    end
-    return aimPoint
+    local aim = getTorsoAimPoint(target, lastPos, lastT) or (th.Position + Vector3.new(0, 1.2, 0))
+    local behind = findClearBehindPosition(th, aim, target)
+    return CFrame.new(behind, aim), th.Position
 end
 
 local function isAlive(p)
@@ -763,58 +792,78 @@ local function equipTool(tool)
     return tool and tool.Parent == me.Character
 end
 local function clickFire(x, y)
-    if not VIM then return end
     x = tonumber(x) or 0
     y = tonumber(y) or 0
-    pcall(function()
-        VIM:SendMouseMoveEvent(x, y, game)
-    end)
-    pcall(function()
-        VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)
-        VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
-    end)
-end
-local function shootPass(target, lastPos, lastT)
-    if not isAlive(target) or not isAlive(me) then return false end
-    if botHasKnife() then return false end
-    if not ensureShootGun() then return false end
-    local gun = getHeldTool(me, {"Gun", "Revolver"})
-    if not gun or not equipTool(gun) then return false end
-    if gun.Parent ~= me.Character then return false end
-    stopFollow()
-    local cf, curPos = getShootCFrame(target, lastPos, lastT)
-    local mh = hrp()
-    if not (cf and mh) then return false end
-    pcall(function() RunSvc:Set3dRenderingEnabled(true) end)
-    pcall(function() mh.Anchored = false end)
-    zeroVel(mh)
-    mh.CFrame = cf
-    zeroVel(mh)
-    local aimPoint
-    for _ = 1, 2 do
-        if not isAlive(target) or not isAlive(me) then break end
-        cf = getShootCFrame(target, lastPos, lastT) or cf
-        mh.CFrame = cf
-        zeroVel(mh)
-        aimPoint = aimAtTorso(target, lastPos, lastT)
-        task.wait(SHOOT_AIM_SETTLE)
+    if VIM then
+        pcall(function() VIM:SendMouseMoveEvent(x, y, game) end)
+        pcall(function()
+            VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)
+            VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
+        end)
     end
-    if not isAlive(target) or not isAlive(me) or not aimPoint then
+    pcall(function()
+        UIS:SendMouseButtonEvent(0, 0, 0, true, game, 0)
+        UIS:SendMouseButtonEvent(0, 0, 0, false, game, 0)
+    end)
+    local G = getgenv and getgenv() or _G
+    local click = G.mouse1click or G.mouse1press
+    if type(click) == "function" then
+        pcall(click)
+    elseif G.mouse1press and G.mouse1release then
+        pcall(G.mouse1press)
+        pcall(G.mouse1release)
+    end
+end
+
+local function shootPass(target, lastPos, lastT)
+    local curPos
+    local function bail()
         tpHome()
         return false
     end
-    aimPoint = aimAtTorso(target, lastPos, lastT) or aimPoint
+    if not isAlive(target) or not isAlive(me) then return bail() end
+    if botHasKnife() then return bail() end
+    if not ensureShootGun() then return bail() end
+    local gun = getHeldTool(me, {"Gun", "Revolver"})
+    if not gun then return bail() end
+    equipTool(gun)
+    gun = getHeldTool(me, {"Gun", "Revolver"}) or gun
+    stopFollow()
+    local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    if not th then return bail() end
+    curPos = th.Position
+    local aim = getTorsoAimPoint(target, lastPos, lastT) or (th.Position + Vector3.new(0, 1.2, 0))
+    local behind = findClearBehindPosition(th, aim, target)
+    local mh = hrp()
+    if not mh then return bail() end
+    pcall(function() RunSvc:Set3dRenderingEnabled(true) end)
+    pcall(function() mh.Anchored = false end)
+    local lookCf = CFrame.new(behind, aim)
+    zeroVel(mh)
+    mh.CFrame = lookCf
+    zeroVel(mh)
     local shootCam = getActiveCam()
+    if shootCam then
+        pcall(function() shootCam.CFrame = lookCf end)
+    end
+    aim = getTorsoAimPoint(target, lastPos, lastT) or aim
+    lookCf = CFrame.new(behind, aim)
+    if shootCam then
+        pcall(function() shootCam.CFrame = lookCf end)
+    end
+    pcall(function() mh.CFrame = lookCf end)
+    zeroVel(mh)
     local mouseX, mouseY = 400, 300
     if shootCam then
         pcall(function()
-            local sp = shootCam:WorldToViewportPoint(aimPoint)
+            local sp = shootCam:WorldToViewportPoint(aim)
             if sp.Z > 0 then mouseX, mouseY = sp.X, sp.Y end
         end)
     end
     clickFire(mouseX, mouseY)
+    pcall(function() gun:Activate() end)
     tpHome()
-    return true, curPos or (target.Character and target.Character:FindFirstChild("HumanoidRootPart") and target.Character.HumanoidRootPart.Position)
+    return true, curPos
 end
 
 local function shootTargetLoop(target)
