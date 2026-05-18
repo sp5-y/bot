@@ -1,974 +1,2153 @@
---[[
-   
-  __  __ __  __ ___                  _         __      _____  
- |  \/  |  \/  |__ \      /\        | |        \ \    / /__ \
- | \  / | \  / |  ) |    /  \  _   _| |_ ___    \ \  / /   ) |
- | |\/| | |\/| | / /    / /\ \| | | | __/ _ \    \ \/ /   / /
- | |  | | |  | |/ /_   / ____ \ |_| | || (_) |    \  /   / /_
- |_|  |_|_|  |_|____| /_/    \_\__,_|\__\___/      \/   |____|
-                                                             
- 
---]]
- 
-if game.GameId == 66654135 then
-    local blur = Instance.new("BlurEffect")
-    local Intro = Instance.new("ScreenGui")
-    local Header = Instance.new("TextLabel")
-    local SubHeader = Instance.new("TextLabel")
-     
-    blur.Parent = game.Lighting
-    blur.Size = 0
-     
-    Intro.Name = "Intro"
-    Intro.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
-    Intro.ResetOnSpawn = false
-     
-    Header.Name = "Header"
-    Header.Parent = Intro
-    Header.AnchorPoint = Vector2.new(0.5, 0.5)
-    Header.BackgroundColor3 = Color3.new(1, 1, 1)
-    Header.BackgroundTransparency = 1
-    Header.BorderSizePixel = 0
-    Header.Position = UDim2.new(0.5, 0, 0.5, 0)
-    Header.Size = UDim2.new(0.300000012, 0, 0.100000001, 0)
-    Header.Font = Enum.Font.SourceSansBold
-    Header.Text = "MM2 Auto V2"
-    Header.TextColor3 = Color3.new(1, 1, 1)
-    Header.TextScaled = true
-    Header.TextSize = 14
-    Header.TextTransparency = 1
-    Header.TextWrapped = true
-     
-    SubHeader.Name = "SubHeader"
-    SubHeader.Parent = Intro
-    SubHeader.AnchorPoint = Vector2.new(0.5, 0.5)
-    SubHeader.BackgroundColor3 = Color3.new(1, 1, 1)
-    SubHeader.BackgroundTransparency = 1
-    SubHeader.BorderSizePixel = 0
-    SubHeader.Position = UDim2.new(0.5, 0, 0.58395803, 0)
-    SubHeader.Size = UDim2.new(0.200000003, 0, 0.0700000003, 0)
-    SubHeader.Font = Enum.Font.SourceSansSemibold
-    SubHeader.Text = "Made by DemonizedFetus"
-    SubHeader.TextColor3 = Color3.new(0, 0, 0)
-    SubHeader.TextScaled = true
-    SubHeader.TextSize = 14
-    SubHeader.TextTransparency = 1
-    SubHeader.TextWrapped = true
-     
-    for i = 0,20 do
-        wait()
-        blur.Size = i
-    end
-    for i = 10,1,-1 do
-        Header.TextTransparency = i/10
-        SubHeader.TextTransparency = i/10
-        wait()
-    end
-    
-    wait(3.2)
-     
-    for i = 0,10 do
-        Header.TextTransparency = i/10
-        SubHeader.TextTransparency = i/10
-        wait()
-    end
-    for i = 20,1,-1 do
-        wait()
-        blur.Size = i
-    end
-     
-    local MM2AutoV2 = Instance.new("ScreenGui")
-    local Hub = Instance.new("Frame")
-    local Info = Instance.new("TextButton")
-    local Icon = Instance.new("ImageLabel")
-    local Title = Instance.new("TextLabel")
-    local Settings = Instance.new("TextButton")
-    local Icon_2 = Instance.new("ImageLabel")
-    local Title_2 = Instance.new("TextLabel")
-    local Donate = Instance.new("TextButton")
-    local Icon_3 = Instance.new("ImageLabel")
-    local Title_3 = Instance.new("TextLabel")
-    local Header = Instance.new("TextLabel")
-    local Task = Instance.new("TextLabel")
-    local Settings_2 = Instance.new("Frame")
-    local Title_4 = Instance.new("Frame")
-    local Title_5 = Instance.new("TextLabel")
-    local SettingsHolder = Instance.new("Frame")
-    local UIGridLayout = Instance.new("UIGridLayout")
-    local Info_2 = Instance.new("Frame")
-    local InfoHolder = Instance.new("Frame")
-    local Credits = Instance.new("TextLabel")
-    local YtInfo = Instance.new("TextLabel")
-    local YtHeader = Instance.new("TextLabel")
-    local CopyHeader = Instance.new("TextLabel")
-    local CopyInfo = Instance.new("TextLabel")
-    local Title_6 = Instance.new("Frame")
-    local Title_7 = Instance.new("TextLabel")
-    local Donate_2 = Instance.new("Frame")
-    local DonateHolder = Instance.new("Frame")
-    local Info_3 = Instance.new("TextLabel")
-    local DonationButtons = Instance.new("Frame")
-    local UIGridLayout_2 = Instance.new("UIGridLayout")
-    local Donate5 = Instance.new("TextButton")
-    local Donate10 = Instance.new("TextButton")
-    local Donate50 = Instance.new("TextButton")
-    local Donate100 = Instance.new("TextButton")
-    local Donate500 = Instance.new("TextButton")
-    local Donate1000 = Instance.new("TextButton")
-    local Title_8 = Instance.new("Frame")
-    local Title_9 = Instance.new("TextLabel")
-     
-    MM2AutoV2.Name = "MM2AutoV2"
-    MM2AutoV2.Parent = game.Players.LocalPlayer:WaitForChild("PlayerGui")
-    MM2AutoV2.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    MM2AutoV2.ResetOnSpawn = false
-     
-    Hub.Name = "Hub"
-    Hub.Parent = MM2AutoV2
-    Hub.BackgroundColor3 = Color3.new(0.101961, 0.101961, 0.101961)
-    Hub.BackgroundTransparency = 0.5
-    Hub.BorderSizePixel = 0
-    Hub.Position = UDim2.new(0.17, 0,1, -55)
-    Hub.Size = UDim2.new(0, 150, 0, 50)
-     
-    Info.Name = "Info"
-    Info.Parent = Hub
-    Info.BackgroundColor3 = Color3.new(1, 1, 1)
-    Info.BackgroundTransparency = 1
-    Info.Position = UDim2.new(0, 50, 0, 0)
-    Info.Size = UDim2.new(0, 50, 0, 50)
-    Info.ZIndex = 2
-    Info.Font = Enum.Font.SourceSansBold
-    Info.Text = ""
-    Info.TextColor3 = Color3.new(1, 1, 1)
-    Info.TextSize = 14
-    Info.TextStrokeTransparency = 0.69999998807907
-    Info.TextWrapped = true
-    Info.TextYAlignment = Enum.TextYAlignment.Bottom
-     
-    Icon.Name = "Icon"
-    Icon.Parent = Info
-    Icon.BackgroundColor3 = Color3.new(1, 1, 1)
-    Icon.BackgroundTransparency = 1
-    Icon.Position = UDim2.new(0, 3, 0, 3)
-    Icon.Size = UDim2.new(1, -6, 1, -6)
-    Icon.Image = "rbxassetid://2979400646"
-     
-    Title.Name = "Title"
-    Title.Parent = Info
-    Title.BackgroundColor3 = Color3.new(1, 1, 1)
-    Title.BackgroundTransparency = 1
-    Title.Size = UDim2.new(1, 0, 1, -3)
-    Title.Font = Enum.Font.SourceSansBold
-    Title.Text = "Info"
-    Title.TextColor3 = Color3.new(1, 1, 1)
-    Title.TextSize = 14
-    Title.TextStrokeTransparency = 0.69999998807907
-    Title.TextWrapped = true
-    Title.TextYAlignment = Enum.TextYAlignment.Bottom
-     
-    Settings.Name = "Settings"
-    Settings.Parent = Hub
-    Settings.BackgroundColor3 = Color3.new(1, 1, 1)
-    Settings.BackgroundTransparency = 1
-    Settings.Size = UDim2.new(0, 50, 0, 50)
-    Settings.Font = Enum.Font.SourceSansBold
-    Settings.Text = ""
-    Settings.TextColor3 = Color3.new(1, 1, 1)
-    Settings.TextSize = 14
-    Settings.TextStrokeTransparency = 0.69999998807907
-    Settings.TextYAlignment = Enum.TextYAlignment.Bottom
-     
-    Icon_2.Name = "Icon"
-    Icon_2.Parent = Settings
-    Icon_2.BackgroundColor3 = Color3.new(1, 1, 1)
-    Icon_2.BackgroundTransparency = 1
-    Icon_2.Position = UDim2.new(0, 2, 0, 2)
-    Icon_2.Size = UDim2.new(1, -4, 1, -4)
-    Icon_2.Image = "rbxassetid://2979397756"
-     
-    Title_2.Name = "Title"
-    Title_2.Parent = Settings
-    Title_2.BackgroundColor3 = Color3.new(1, 1, 1)
-    Title_2.BackgroundTransparency = 1
-    Title_2.Size = UDim2.new(1, 0, 1, -3)
-    Title_2.Font = Enum.Font.SourceSansBold
-    Title_2.Text = "Settings"
-    Title_2.TextColor3 = Color3.new(1, 1, 1)
-    Title_2.TextSize = 14
-    Title_2.TextStrokeTransparency = 0.69999998807907
-    Title_2.TextYAlignment = Enum.TextYAlignment.Bottom
-     
-    Donate.Name = "Donate"
-    Donate.Parent = Hub
-    Donate.BackgroundColor3 = Color3.new(1, 1, 1)
-    Donate.BackgroundTransparency = 1
-    Donate.Position = UDim2.new(0, 100, 0, 0)
-    Donate.Size = UDim2.new(0, 50, 0, 50)
-    Donate.ZIndex = 2
-    Donate.Font = Enum.Font.SourceSansBold
-    Donate.Text = ""
-    Donate.TextColor3 = Color3.new(1, 1, 1)
-    Donate.TextSize = 14
-    Donate.TextStrokeTransparency = 0.69999998807907
-    Donate.TextWrapped = true
-    Donate.TextYAlignment = Enum.TextYAlignment.Bottom
-     
-    Icon_3.Name = "Icon"
-    Icon_3.Parent = Donate
-    Icon_3.BackgroundColor3 = Color3.new(1, 1, 1)
-    Icon_3.BackgroundTransparency = 1
-    Icon_3.Position = UDim2.new(0, 3, 0, 3)
-    Icon_3.Size = UDim2.new(1, -6, 1, -6)
-    Icon_3.Image = "rbxassetid://2979370758"
-     
-    Title_3.Name = "Title"
-    Title_3.Parent = Donate
-    Title_3.BackgroundColor3 = Color3.new(1, 1, 1)
-    Title_3.BackgroundTransparency = 1
-    Title_3.Size = UDim2.new(1, 0, 1, -3)
-    Title_3.Font = Enum.Font.SourceSansBold
-    Title_3.Text = "Donate"
-    Title_3.TextColor3 = Color3.new(1, 1, 1)
-    Title_3.TextSize = 14
-    Title_3.TextStrokeTransparency = 0.69999998807907
-    Title_3.TextWrapped = true
-    Title_3.TextYAlignment = Enum.TextYAlignment.Bottom
-     
-    Header.Name = "Header"
-    Header.Parent = Hub
-    Header.AnchorPoint = Vector2.new(0, 1)
-    Header.BackgroundColor3 = Color3.new(1, 1, 1)
-    Header.BackgroundTransparency = 1
-    Header.Position = UDim2.new(0, 0, -0.300000012, 0)
-    Header.Size = UDim2.new(1, 0, 0.300000012, 0)
-    Header.Font = Enum.Font.SourceSansBold
-    Header.Text = "MM2 Auto V2"
-    Header.TextColor3 = Color3.new(1, 1, 1)
-    Header.TextSize = 14
-    Header.TextStrokeTransparency = 0.69999998807907
-     
-    Task.Name = "Task"
-    Task.Parent = Hub
-    Task.AnchorPoint = Vector2.new(0, 1)
-    Task.BackgroundColor3 = Color3.new(1, 1, 1)
-    Task.BackgroundTransparency = 1
-    Task.Size = UDim2.new(1, 0, 0.300000012, 0)
-    Task.Font = Enum.Font.SourceSansItalic
-    Task.Text = "Task: None"
-    Task.TextColor3 = Color3.new(1, 1, 1)
-    Task.TextScaled = true
-    Task.TextSize = 14
-    Task.TextStrokeTransparency = 0.69999998807907
-    Task.TextWrapped = true
-     
-    Settings_2.Name = "Settings"
-    Settings_2.Parent = MM2AutoV2
-    Settings_2.BackgroundColor3 = Color3.new(0.0666667, 0.0666667, 0.0666667)
-    Settings_2.BackgroundTransparency = 0.10000000149012
-    Settings_2.BorderColor3 = Color3.new(0, 0, 0)
-    Settings_2.BorderSizePixel = 0
-    Settings_2.ClipsDescendants = true
-    Settings_2.Position = UDim2.new(0.5, -250, 0.5, -200)
-    Settings_2.Size = UDim2.new(0, 500, 0, 400)
-    Settings_2.Visible = false
-     
-    Title_4.Name = "Title"
-    Title_4.Parent = Settings_2
-    Title_4.BackgroundColor3 = Color3.new(1, 1, 1)
-    Title_4.Size = UDim2.new(1.62, -310, 0, 45)
-    Title_4.Style = Enum.FrameStyle.DropShadow
-     
-    Title_5.Name = "Title"
-    Title_5.Parent = Title_4
-    Title_5.BackgroundColor3 = Color3.new(1, 1, 1)
-    Title_5.BackgroundTransparency = 1
-    Title_5.Size = UDim2.new(1, 0, 1, 0)
-    Title_5.Font = Enum.Font.SourceSansBold
-    Title_5.Text = "MM2 Auto V2 - Settings"
-    Title_5.TextColor3 = Color3.new(1, 1, 1)
-    Title_5.TextScaled = true
-    Title_5.TextSize = 32
-    Title_5.TextStrokeTransparency = 0.69999998807907
-    Title_5.TextWrapped = true
-     
-    SettingsHolder.Name = "SettingsHolder"
-    SettingsHolder.Parent = Settings_2
-    SettingsHolder.BackgroundColor3 = Color3.new(1, 1, 1)
-    SettingsHolder.Position = UDim2.new(0, 0, 0.100000001, 0)
-    SettingsHolder.Size = UDim2.new(0, 500, 0, 360)
-    SettingsHolder.Style = Enum.FrameStyle.DropShadow
-     
-    UIGridLayout.Parent = SettingsHolder
-    UIGridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    UIGridLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-    UIGridLayout.CellSize = UDim2.new(0, 170, 0, 50)
-     
-    Info_2.Name = "Info"
-    Info_2.Parent = MM2AutoV2
-    Info_2.BackgroundColor3 = Color3.new(0.0666667, 0.0666667, 0.0666667)
-    Info_2.BackgroundTransparency = 0.10000000149012
-    Info_2.BorderColor3 = Color3.new(0, 0, 0)
-    Info_2.BorderSizePixel = 0
-    Info_2.Position = UDim2.new(0.5, -200, 0.5, -150)
-    Info_2.Size = UDim2.new(0, 400, 0, 300)
-    Info_2.Visible = false
-     
-    InfoHolder.Name = "InfoHolder"
-    InfoHolder.Parent = Info_2
-    InfoHolder.BackgroundColor3 = Color3.new(1, 1, 1)
-    InfoHolder.Position = UDim2.new(0, 0, 0, 45)
-    InfoHolder.Size = UDim2.new(1, 0, 1, -45)
-    InfoHolder.Style = Enum.FrameStyle.DropShadow
-     
-    Credits.Name = "Credits"
-    Credits.Parent = InfoHolder
-    Credits.BackgroundColor3 = Color3.new(1, 1, 1)
-    Credits.BackgroundTransparency = 1
-    Credits.BorderSizePixel = 0
-    Credits.Size = UDim2.new(1, 0, 0.200000003, 0)
-    Credits.Font = Enum.Font.SourceSansItalic
-    Credits.Text = "MM2 Auto V2™ was developed and designed by DemonizedFetus. No code has been taken from any other source and was written by none other than DemonizedFetus. "
-    Credits.TextColor3 = Color3.new(1, 1, 1)
-    Credits.TextScaled = true
-    Credits.TextSize = 14
-    Credits.TextWrapped = true
-    Credits.TextXAlignment = Enum.TextXAlignment.Left
-    Credits.TextYAlignment = Enum.TextYAlignment.Top
-     
-    YtInfo.Name = "YtInfo"
-    YtInfo.Parent = InfoHolder
-    YtInfo.BackgroundColor3 = Color3.new(1, 1, 1)
-    YtInfo.BackgroundTransparency = 1
-    YtInfo.BorderSizePixel = 0
-    YtInfo.Position = UDim2.new(0, 0, 0.349999994, 0)
-    YtInfo.Size = UDim2.new(1, 0, 0.200000003, 0)
-    YtInfo.Font = Enum.Font.SourceSansItalic
-    YtInfo.Text = "We appreciate any content on Youtube/any other media sharing sites. Although we do ask that you give credit where it is due and link the original V3rmillion thread in your video."
-    YtInfo.TextColor3 = Color3.new(1, 1, 1)
-    YtInfo.TextScaled = true
-    YtInfo.TextSize = 14
-    YtInfo.TextWrapped = true
-    YtInfo.TextXAlignment = Enum.TextXAlignment.Left
-    YtInfo.TextYAlignment = Enum.TextYAlignment.Top
-     
-    YtHeader.Name = "YtHeader"
-    YtHeader.Parent = InfoHolder
-    YtHeader.BackgroundColor3 = Color3.new(1, 1, 1)
-    YtHeader.BackgroundTransparency = 1
-    YtHeader.BorderSizePixel = 0
-    YtHeader.Position = UDim2.new(0, 0, 0.25, 0)
-    YtHeader.Size = UDim2.new(1, 0, 0.100000001, 0)
-    YtHeader.Font = Enum.Font.SourceSansBold
-    YtHeader.Text = "Youtube Policy"
-    YtHeader.TextColor3 = Color3.new(1, 0, 0)
-    YtHeader.TextScaled = true
-    YtHeader.TextSize = 14
-    YtHeader.TextWrapped = true
-    YtHeader.TextYAlignment = Enum.TextYAlignment.Top
-     
-    CopyHeader.Name = "CopyHeader"
-    CopyHeader.Parent = InfoHolder
-    CopyHeader.BackgroundColor3 = Color3.new(1, 1, 1)
-    CopyHeader.BackgroundTransparency = 1
-    CopyHeader.BorderSizePixel = 0
-    CopyHeader.Position = UDim2.new(0, 0, 0.649999976, 0)
-    CopyHeader.Size = UDim2.new(1, 0, 0.100000001, 0)
-    CopyHeader.Font = Enum.Font.SourceSansBold
-    CopyHeader.Text = "Open-Source/Copying Policy"
-    CopyHeader.TextColor3 = Color3.new(0.333333, 0, 1)
-    CopyHeader.TextScaled = true
-    CopyHeader.TextSize = 14
-    CopyHeader.TextWrapped = true
-    CopyHeader.TextYAlignment = Enum.TextYAlignment.Top
-     
-    CopyInfo.Name = "CopyInfo"
-    CopyInfo.Parent = InfoHolder
-    CopyInfo.BackgroundColor3 = Color3.new(1, 1, 1)
-    CopyInfo.BackgroundTransparency = 1
-    CopyInfo.BorderSizePixel = 0
-    CopyInfo.Position = UDim2.new(0, 0, 0.75, 0)
-    CopyInfo.Size = UDim2.new(1, 0, 0.200000003, 0)
-    CopyInfo.Font = Enum.Font.SourceSansItalic
-    CopyInfo.Text = "MM2 Auto V2™ is an open source script, it is completely acceptable to copy some of the code into your work but we do ask that you give credit for taking our code."
-    CopyInfo.TextColor3 = Color3.new(1, 1, 1)
-    CopyInfo.TextScaled = true
-    CopyInfo.TextSize = 14
-    CopyInfo.TextWrapped = true
-    CopyInfo.TextXAlignment = Enum.TextXAlignment.Left
-    CopyInfo.TextYAlignment = Enum.TextYAlignment.Top
-     
-    Title_6.Name = "Title"
-    Title_6.Parent = Info_2
-    Title_6.BackgroundColor3 = Color3.new(1, 1, 1)
-    Title_6.Size = UDim2.new(1, 0, 0, 50)
-    Title_6.Style = Enum.FrameStyle.DropShadow
-     
-    Title_7.Name = "Title"
-    Title_7.Parent = Title_6
-    Title_7.BackgroundColor3 = Color3.new(1, 1, 1)
-    Title_7.BackgroundTransparency = 1
-    Title_7.Size = UDim2.new(1, 0, 1, 0)
-    Title_7.Font = Enum.Font.SourceSansBold
-    Title_7.Text = "MM2 Auto V2 - Info"
-    Title_7.TextColor3 = Color3.new(1, 1, 1)
-    Title_7.TextScaled = true
-    Title_7.TextSize = 32
-    Title_7.TextStrokeTransparency = 0.69999998807907
-    Title_7.TextWrapped = true
-     
-    Donate_2.Name = "Donate"
-    Donate_2.Parent = MM2AutoV2
-    Donate_2.BackgroundColor3 = Color3.new(0.0666667, 0.0666667, 0.0666667)
-    Donate_2.BackgroundTransparency = 0.10000000149012
-    Donate_2.BorderColor3 = Color3.new(0, 0, 0)
-    Donate_2.BorderSizePixel = 0
-    Donate_2.Position = UDim2.new(0.5, -200, 0.5, -150)
-    Donate_2.Size = UDim2.new(0, 400, 0, 300)
-    Donate_2.Visible = false
-     
-    DonateHolder.Name = "DonateHolder"
-    DonateHolder.Parent = Donate_2
-    DonateHolder.BackgroundColor3 = Color3.new(1, 1, 1)
-    DonateHolder.Position = UDim2.new(0, 0, 0, 45)
-    DonateHolder.Size = UDim2.new(1, 0, 1, -45)
-    DonateHolder.Style = Enum.FrameStyle.DropShadow
-     
-    Info_3.Name = "Info"
-    Info_3.Parent = DonateHolder
-    Info_3.BackgroundColor3 = Color3.new(1, 1, 1)
-    Info_3.BackgroundTransparency = 1
-    Info_3.BorderSizePixel = 0
-    Info_3.Size = UDim2.new(1, 0, 0.25, 0)
-    Info_3.Font = Enum.Font.SourceSansItalic
-    Info_3.Text = "Countless hours have been spent developing this GUI but this was not created with the intent to profit, any donations would be greatly appreciated as it is a great motivator for updates. I received quite a few donations from the original MM2 Auto and that was what motivated me to make this one"
-    Info_3.TextColor3 = Color3.new(1, 1, 1)
-    Info_3.TextScaled = true
-    Info_3.TextSize = 14
-    Info_3.TextWrapped = true
-    Info_3.TextXAlignment = Enum.TextXAlignment.Left
-    Info_3.TextYAlignment = Enum.TextYAlignment.Top
-     
-    DonationButtons.Name = "DonationButtons"
-    DonationButtons.Parent = DonateHolder
-    DonationButtons.BackgroundColor3 = Color3.new(0.254902, 0.254902, 0.254902)
-    DonationButtons.BorderSizePixel = 0
-    DonationButtons.Position = UDim2.new(0, 0, 0.270000011, 0)
-    DonationButtons.Size = UDim2.new(1, 0, 0.730000019, 0)
-     
-    UIGridLayout_2.Parent = DonationButtons
-    UIGridLayout_2.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    UIGridLayout_2.SortOrder = Enum.SortOrder.LayoutOrder
-    UIGridLayout_2.VerticalAlignment = Enum.VerticalAlignment.Center
-    UIGridLayout_2.CellSize = UDim2.new(0.400000006, -4, 0.200000003, -4)
-     
-    Donate5.Name = "Donate5"
-    Donate5.Parent = DonationButtons
-    Donate5.BackgroundColor3 = Color3.new(1, 1, 1)
-    Donate5.Size = UDim2.new(0, 200, 0, 50)
-    Donate5.Style = Enum.ButtonStyle.RobloxRoundDefaultButton
-    Donate5.Font = Enum.Font.SourceSansSemibold
-    Donate5.Text = "5R$"
-    Donate5.TextColor3 = Color3.new(0.254902, 0.254902, 0.254902)
-    Donate5.TextScaled = true
-    Donate5.TextSize = 14
-    Donate5.TextWrapped = true
-     
-    Donate10.Name = "Donate10"
-    Donate10.Parent = DonationButtons
-    Donate10.BackgroundColor3 = Color3.new(1, 1, 1)
-    Donate10.Size = UDim2.new(0, 200, 0, 50)
-    Donate10.Style = Enum.ButtonStyle.RobloxRoundDefaultButton
-    Donate10.Font = Enum.Font.SourceSansSemibold
-    Donate10.Text = "10R$"
-    Donate10.TextColor3 = Color3.new(0.254902, 0.254902, 0.254902)
-    Donate10.TextScaled = true
-    Donate10.TextSize = 14
-    Donate10.TextWrapped = true
-     
-    Donate50.Name = "Donate50"
-    Donate50.Parent = DonationButtons
-    Donate50.BackgroundColor3 = Color3.new(1, 1, 1)
-    Donate50.Size = UDim2.new(0, 200, 0, 50)
-    Donate50.Style = Enum.ButtonStyle.RobloxRoundDefaultButton
-    Donate50.Font = Enum.Font.SourceSansSemibold
-    Donate50.Text = "50R$"
-    Donate50.TextColor3 = Color3.new(0.254902, 0.254902, 0.254902)
-    Donate50.TextScaled = true
-    Donate50.TextSize = 14
-    Donate50.TextWrapped = true
-     
-    Donate100.Name = "Donate100"
-    Donate100.Parent = DonationButtons
-    Donate100.BackgroundColor3 = Color3.new(1, 1, 1)
-    Donate100.Size = UDim2.new(0, 200, 0, 50)
-    Donate100.Style = Enum.ButtonStyle.RobloxRoundDefaultButton
-    Donate100.Font = Enum.Font.SourceSansSemibold
-    Donate100.Text = "100R$"
-    Donate100.TextColor3 = Color3.new(0.254902, 0.254902, 0.254902)
-    Donate100.TextScaled = true
-    Donate100.TextSize = 14
-    Donate100.TextWrapped = true
-     
-    Donate500.Name = "Donate500"
-    Donate500.Parent = DonationButtons
-    Donate500.BackgroundColor3 = Color3.new(1, 1, 1)
-    Donate500.Size = UDim2.new(0, 200, 0, 50)
-    Donate500.Style = Enum.ButtonStyle.RobloxRoundDefaultButton
-    Donate500.Font = Enum.Font.SourceSansSemibold
-    Donate500.Text = "500R$"
-    Donate500.TextColor3 = Color3.new(0.254902, 0.254902, 0.254902)
-    Donate500.TextScaled = true
-    Donate500.TextSize = 14
-    Donate500.TextWrapped = true
-     
-    Donate1000.Name = "Donate1000"
-    Donate1000.Parent = DonationButtons
-    Donate1000.BackgroundColor3 = Color3.new(1, 1, 1)
-    Donate1000.Size = UDim2.new(0, 200, 0, 50)
-    Donate1000.Style = Enum.ButtonStyle.RobloxRoundDefaultButton
-    Donate1000.Font = Enum.Font.SourceSansSemibold
-    Donate1000.Text = "1000R$"
-    Donate1000.TextColor3 = Color3.new(0.254902, 0.254902, 0.254902)
-    Donate1000.TextScaled = true
-    Donate1000.TextSize = 14
-    Donate1000.TextWrapped = true
-     
-    Title_8.Name = "Title"
-    Title_8.Parent = Donate_2
-    Title_8.BackgroundColor3 = Color3.new(1, 1, 1)
-    Title_8.Size = UDim2.new(1, 0, 0, 50)
-    Title_8.Style = Enum.FrameStyle.DropShadow
-     
-    Title_9.Name = "Title"
-    Title_9.Parent = Title_8
-    Title_9.BackgroundColor3 = Color3.new(1, 1, 1)
-    Title_9.BackgroundTransparency = 1
-    Title_9.Size = UDim2.new(1, 0, 1, 0)
-    Title_9.Font = Enum.Font.SourceSansBold
-    Title_9.Text = "MM2 Auto V2 - Donate"
-    Title_9.TextColor3 = Color3.new(1, 1, 1)
-    Title_9.TextScaled = true
-    Title_9.TextSize = 32
-    Title_9.TextStrokeTransparency = 0.69999998807907
-    Title_9.TextWrapped = true
-     
-    -----------------------------------------------------------------------------------------------------------------------------------------------------
-    --UI Toggling
-    local openUI
-     
-    Donate.MouseButton1Click:Connect(function()
-        if openUI ~= Donate_2 then
-            if openUI ~= nil then
-                openUI.Visible = false
-            end
-            Donate_2.Visible = true
-            openUI = Donate_2
-        else
-            openUI = nil
-            Donate_2.Visible = false
-        end
-    end)
-     
-    Info.MouseButton1Click:Connect(function()
-        if openUI ~= Info_2 then
-            if openUI ~= nil then
-                openUI.Visible = false
-            end
-            Info_2.Visible = true
-            openUI = Info_2
-        else
-            openUI = nil
-            Info_2.Visible = false
-        end
-    end)
-     
-    Settings.MouseButton1Click:Connect(function()
-        if openUI ~= Settings_2 then
-            if openUI ~= nil then
-                openUI.Visible = false
-            end
-            Settings_2.Visible = true
-            openUI = Settings_2
-        else
-            openUI = nil
-            Settings_2.Visible = false
-        end
-    end)
-     
-    -----------------------------------------------------------------------------------------------------------------------------------------------------
-    --Settings/Variables
-     
-    local Players = game.Players
-    local Player = Players.LocalPlayer
-    local Lobby = true
-    local Dead = true
-    local lobby
-     
-    local function newTask(msg)
-        Task.Text = "Task: "..msg
-    end
-    local SettingsTable = {
-        GuiRunning = {
-            Name = "GUI Running",
-            Default = true,
-            Value = true,
-        },
-        FindNewServer = {
-            Name = "Find new server",
-            Default = false,
-            Btn1 = "Join",
-            Btn2 = "Joining..",
-            Func = function() newTask("Teleporting") game:GetService("TeleportService"):Teleport(142823291, Player) end
-        },
-        CustomLobby = {
-            Name = "Custom Lobby",
-            Default = true,
-            Value = true,
-            Func = function(unload) print("Lobby action") if unload == true then lobby = game:GetObjects("rbxassetid://2988765860")[1] lobby.Parent = workspace lobby:MoveTo(Vector3.new(-243.793, 379.8, 139.683)) else lobby:Destroy() end end
-        },
-        ResetCharacter = {
-            Name = "Reset Character",
-            Default = false,
-            Btn1 = "Reset",
-            Btn2 = "Reset",
-            Func = function() newTask("Waiting for character") repeat wait() until Player.Character Player.Character.Humanoid.Health = 0 end
-        },
-        AutoKillAsMurderer = {
-            Name = "Auto Kill As Murderer",
-            Default = true,
-            Value = true,
-        },
-        AutoKillAsSheriff = {
-            Name = "Auto Kill As Sheriff",
-            Default = true,
-            Value = true,
-        },
-        AutoGrabGun = {
-            Name = "Auto Grab Gun",
-            Default = true,
-            Value = true,
-        },
-        AutoCollectCoins = {
-            Name = "Auto Collect Coins",
-            Default = true,
-            Value = true,
-        },
-        AutoNoYou = {
-            Name = "Auto 'No u'",
-            Default = true,
-            Value = true
-        },
-    }
-     
-    local function newSetting(n,Data)
-        local Setting = Instance.new("Frame")
-        local SettingName = Instance.new("TextLabel")
-        local SettingToggle = Instance.new("TextButton")
-        Setting.Name = n
-        Setting.Parent = SettingsHolder
-        Setting.BackgroundColor3 = Color3.new(1, 1, 1)
-        Setting.BackgroundTransparency = 0.75
-        Setting.BorderSizePixel = 0
-        Setting.Size = UDim2.new(0, 100, 0, 100)
-        SettingName.Name = "SettingName"
-        SettingName.Parent = Setting
-        SettingName.BackgroundColor3 = Color3.new(1, 1, 1)
-        SettingName.BackgroundTransparency = 1
-        SettingName.BorderSizePixel = 0
-        SettingName.Size = UDim2.new(1, 0, 0.300000012, 0)
-        SettingName.Font = Enum.Font.SourceSansBold
-        SettingName.Text = Data.Name
-        SettingName.TextColor3 = Color3.new(1, 1, 1)
-        SettingName.TextScaled = true
-        SettingName.TextSize = 14
-        SettingName.TextStrokeTransparency = 0.69999998807907
-        SettingName.TextWrapped = true
-        SettingToggle.Name = "SettingToggle"
-        SettingToggle.Parent = Setting
-        SettingToggle.AnchorPoint = Vector2.new(0.5, 0)
-        SettingToggle.BackgroundColor3 = Color3.new(1, 1, 1)
-        SettingToggle.BorderSizePixel = 0
-        SettingToggle.Position = UDim2.new(0.5, 0, 0.400000006, 0)
-        SettingToggle.Size = UDim2.new(0.899999976, 0, 0.5, 0)
-        SettingToggle.Style = Enum.ButtonStyle.RobloxRoundDropdownButton
-        SettingToggle.Font = Enum.Font.SourceSansSemibold
-        if Data.Default == true then
-            if Data.Value == true then
-                SettingToggle.Text = "On"
-            else
-                SettingToggle.Text = "Off"
-            end
-        else
-            SettingToggle.Text = Data.Btn1
-        end
-        SettingToggle.TextColor3 = Color3.new(0.168627, 0.164706, 0.164706)
-        SettingToggle.TextSize = 14
-        SettingToggle.TextWrapped = true
-        if Data.Default == true and Data.Func then
-            Data.Func(Data.Value)
-        end
-        SettingToggle.MouseButton1Click:Connect(function()
-            if Data.Default == true then
-                if Data.Value == true then
-                    Data.Value = false
-                    SettingToggle.Text = "Off"
-                else
-                    Data.Value = true
-                    SettingToggle.Text = "On"
-                end
-                if Data.Func then
-                    Data.Func(Data.Value)
-                end
-            else
-                SettingToggle.Text = Data.Btn2
-                Data.Func()
-            end
+--[[ MM2 Helper Bot ]]--
+local Players = game:GetService("Players")
+local cref = cloneref or function(x) return x end
+local TCS = cref(game:GetService("TextChatService"))
+local Tween = game:GetService("TweenService")
+local RunSvc = game:GetService("RunService")
+local RS = cref(game:GetService("ReplicatedStorage"))
+local Http = cref(game:GetService("HttpService"))
+local Stats = cref(game:GetService("Stats"))
+local StarterGui = cref(game:GetService("StarterGui"))
+local TeleportSvc = cref(game:GetService("TeleportService"))
+local VIM = pcall(function() return cref(game:GetService("VirtualInputManager")) end) and cref(game:GetService("VirtualInputManager")) or nil
+local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
+local me, cam = Players.LocalPlayer, workspace.CurrentCamera
+local UIS = cref(game:GetService("UserInputService"))
+local DEFAULT_FOV, WIDE_FOV = 70, 100
+local SPAWN_CFRAME = CFrame.new(14.3513288, 505.044952, -58.2513657, 1, 0, 0, 0, 1, 0, 0, 0, 1)
+local FRAUD_NAME = "fraud4balenci"
+local BRAND_CLAIM = "XenoMM2 — Use !owner to claim free bot"
+local BRAND_PROMO = 'Try out "XenoBotsMM2" for more bots!'
+local BRAND_INTERVAL_SEC = 30 * 60
+local toggleGun = false
+local toggleShoot = false
+local toggleAlerts = false
+local toggleWho = true
+local fraudOptedOut = false
+local gunTargetId = nil
+local shootTargetId = nil
+local gunDelivered = false
+local hopBusy = false
+local PING_MIN_MS, PING_MAX_MS = 50, 90
+local G = getgenv and getgenv() or _G
+G.MM_HopState = G.MM_HopState or {pingSearchActive = false}
+local hopState = G.MM_HopState
+_G.MM_StabBusy = _G.MM_StabBusy or false
+_G.MM_OwnerDiedPendingReset = _G.MM_OwnerDiedPendingReset or false
+
+--[[ Session ]]--
+if getgenv and getgenv().MM_Session then getgenv().MM_Session.active = false end
+if game.CoreGui:FindFirstChild("MM") then game.CoreGui.MM:Destroy() end
+local session = {active = true, ownerId = nil}
+if getgenv then getgenv().MM_Session = session end
+cam.FieldOfView = DEFAULT_FOV
+do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid") 
+   if h then cam.CameraSubject = h end end
+
+--[[ Background mode (low CPU, muted, no 3D) ]]--
+-- Hold RightAlt to disable. Auto-disables when script is re-executed.
+task.spawn(function()
+    local UIS = game:GetService("UserInputService")
+    local VU = game:GetService("VirtualUser")
+    local RunSvc = game:GetService("RunService")
+    local UGS = UserSettings():GetService("UserGameSettings")
+    local origQuality = settings().Rendering.QualityLevel
+    local origVolume = UGS.MasterVolume
+    UGS.MasterVolume = 0
+    pcall(function()
+        Players.LocalPlayer.Idled:Connect(function()
+            VU:CaptureController()
+            VU:ClickButton2(Vector2.new(math.random(10, 50), math.random(10, 50)))
         end)
-    end
-     
-    for i,tab in pairs(SettingsTable) do
-        newSetting(i,tab)
-    end
-     
-    -----------------------------------------------------------------------------------------------------------------------------------------------------
-    --Automatic no u to hacking accusations
-     
-    local function bindPlayer(Plr)
-        if Plr and SettingsTable.AutoNoYou.Value == true then
-            Plr.Chatted:Connect(function(msg)
-                if string.match(string.lower(msg),string.lower(Player.Name)) or string.match(string.lower(msg), "hacker") then
-                    game:GetService("ReplicatedStorage").DefaultChatSystemChatEvents.SayMessageRequest:FireServer("No u", "normalchat")
-                end
-            end)
-        end
-    end
-     
-    for _,v in pairs(game.Players:GetChildren()) do
-        if v ~= Player then
-            bindPlayer(v)
-        end
-    end
-     
-    game.Players.PlayerAdded:Connect(function(plr)
-        bindPlayer(plr)
     end)
-     
-    -----------------------------------------------------------------------------------------------------------------------------------------------------
-    --Donations
-     
-    local DonationItems = {
-        [Donate5] = 2342466498,
-        [Donate10] = 2770616801,
-        [Donate50] = 2992188070,
-        [Donate100] = 2992193055,
-        [Donate500] = 2992194970,
-        [Donate1000] = 2992198744
-    }
-     
-    for i,v in pairs(DonationItems) do
-        i.MouseButton1Click:Connect(function()
-            game:GetService("MarketplaceService"):PromptPurchase(Player, v)
-        end)
-    end
-     
-    -----------------------------------------------------------------------------------------------------------------------------------------------------
-    --Functions
-     
-    local function weaponCheck()
-        local Sheriff
-        local Murderer
-        for _,v in pairs(Players:GetChildren()) do
-            if v.Character then
-                if v.Backpack:FindFirstChild("Gun") then Sheriff = v end
-                if v.Character:FindFirstChild("Revolver") then Sheriff = v end
-                if v.Backpack:FindFirstChild("Revolver") then Sheriff = v end
-                if v.Character:FindFirstChild("Gun") then Sheriff = v end
-                if v.Backpack:FindFirstChild("Knife") and Sheriff ~= v then Murderer = v end
-                if v.Character:FindFirstChild("Knife") and Sheriff ~= v then Murderer = v end
-            end
-            wait()
-        end
-        return Sheriff, Murderer
-    end
-     
-    local function getCoins()
-        local max = 0
-        local current = 0
-        local roundOver = false
-        local owns = game:GetService("MarketplaceService"):UserOwnsGamePassAsync(Player.UserId, 429957)
-        if owns then
-            max = 15
-        else
-            max = 10
-        end
-        repeat wait()
-            if Player.Character then
-                local char = Player.Character
-                for _,v in pairs(workspace:GetDescendants()) do
-                    if v.Name == "Coin" then
-                        v.CFrame = char.HumanoidRootPart.CFrame
-                    end
-                end
-            end
-            if Player.PlayerGui.MainGUI.Game.Waiting.Visible == true then roundOver = true end
-            local s,m = weaponCheck()
-            if m == nil then roundOver = true end
-            wait(0.5)
-        until tonumber(Player.PlayerGui.MainGUI.Game.CashBag.Coins.Text) == max or roundOver == true
-    end
-     
-    local function getEquipped()
-        local weapon
-        local equipped = false
-        for i = 1,4 do
-            if Player.Backpack:FindFirstChild("Gun") then weapon = Player.Backpack:FindFirstChild("Gun") end
-            if Player.Backpack:FindFirstChild("Revolver") then weapon = Player.Backpack:FindFirstChild("Revolver") end
-            if Player.Character:FindFirstChild("Revolver") then weapon = Player.Character:FindFirstChild("Revolver") equipped = true end
-            if Player.Character:FindFirstChild("Gun") then weapon = Player.Character:FindFirstChild("Gun") equipped = true end
-            if Player.Backpack:FindFirstChild("Knife") then weapon = Player.Backpack:FindFirstChild("Knife") end
-            if Player.Character:FindFirstChild("Knife") then weapon = Player.Character:FindFirstChild("Knife") equipped = true end
-            wait()
-        end
-        return weapon, equipped
-    end
-     
-    local function killMurderer(override)
-        newTask("Checking character")
-        wait()
-        repeat wait() until Player.Character
-        if SettingsTable.AutoCollectCoins.Value == true and not override then
-            getCoins()
-        end
-        local w,e = getEquipped()
-        if e == false then
-            Player.Character.Humanoid:EquipTool(w)
-        end
-        local done = false
+    while session.active and not UIS:IsKeyDown(Enum.KeyCode.RightAlt) do
         pcall(function()
-        repeat
-            local s,m = weaponCheck()
-            if m == nil then
-                 done = true
-            else
-                Player.Character.HumanoidRootPart.CFrame = m.Character.HumanoidRootPart.CFrame * CFrame.new(-1.5,0,4)
-                wait(0.2)
-                pcall(function()
-                    if w and w.Handle then
-                        local c = (w.Handle.CFrame * CFrame.new(0,1,0)).p
-                        w.KnifeServer.SlashStart:FireServer(1,c)
-                    end
-                end)
+            if setfpscap then setfpscap(15) end
+            settings().Rendering.QualityLevel = 1
+            RunSvc:Set3dRenderingEnabled(false)
+        end)
+        task.wait(1)
+    end
+    pcall(function()
+        RunSvc:Set3dRenderingEnabled(true)
+        settings().Rendering.QualityLevel = origQuality
+        UGS.MasterVolume = origVolume
+        if setfpscap then setfpscap(60) end
+    end)
+end)
+
+--[[ GUI ]]--
+local gui = Instance.new("ScreenGui", game.CoreGui)
+gui.Name, gui.ResetOnSpawn = "MM", false
+local f = Instance.new("Frame", gui)
+f.Size, f.Position = UDim2.new(0, 140, 0, 180), UDim2.new(1, -150, 0, 10)
+f.BackgroundColor3, f.Visible = Color3.fromRGB(20, 20, 20), false
+Instance.new("UICorner", f).CornerRadius = UDim.new(0, 8)
+local img = Instance.new("ImageLabel", f)
+img.Size, img.Position, img.BackgroundTransparency = UDim2.new(1, -10, 1, -40), UDim2.new(0, 5, 0, 5), 1
+local lbl = Instance.new("TextLabel", f)
+lbl.Size, lbl.Position, lbl.BackgroundTransparency = UDim2.new(1, -10, 0, 28), UDim2.new(0, 5, 1, -32), 1
+lbl.TextColor3, lbl.Font, lbl.TextScaled = Color3.new(1, 0, 0), Enum.Font.GothamBold, true
+
+--[[ Log GUI ]]--
+local logFrame = Instance.new("Frame", gui)
+logFrame.Size = UDim2.new(0, 260, 0, 130)
+logFrame.Position = UDim2.new(1, -270, 1, -140)
+logFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
+logFrame.BackgroundTransparency = 0.3
+logFrame.BorderSizePixel = 0
+Instance.new("UICorner", logFrame).CornerRadius = UDim.new(0, 6)
+local logList = Instance.new("UIListLayout", logFrame)
+logList.SortOrder = Enum.SortOrder.LayoutOrder
+logList.Padding = UDim.new(0, 1)
+local logPad = Instance.new("UIPadding", logFrame)
+logPad.PaddingLeft, logPad.PaddingRight = UDim.new(0, 6), UDim.new(0, 6)
+logPad.PaddingTop, logPad.PaddingBottom = UDim.new(0, 4), UDim.new(0, 4)
+local logCounter = 0
+local function log(msg)
+    logCounter = logCounter + 1
+    local order = logCounter
+    local t = Instance.new("TextLabel", logFrame)
+    t.Size = UDim2.new(1, 0, 0, 14)
+    t.BackgroundTransparency = 1
+    t.Font = Enum.Font.Code
+    t.TextSize = 12
+    t.TextXAlignment = Enum.TextXAlignment.Left
+    t.TextColor3 = Color3.fromRGB(180, 230, 180)
+    t.Text = "[" .. os.date("%X") .. "] " .. tostring(msg)
+    t.LayoutOrder = order
+    t.TextTruncate = Enum.TextTruncate.AtEnd
+    local kids = logFrame:GetChildren()
+    local labels = {}
+    for _, c in ipairs(kids) do
+        if c:IsA("TextLabel") then table.insert(labels, c) end
+    end
+    table.sort(labels, function(a, b) return a.LayoutOrder < b.LayoutOrder end)
+    while #labels > 8 do
+        labels[1]:Destroy()
+        table.remove(labels, 1)
+    end
+end
+
+--[[ Finders ]]--
+local function hasItem(parent, names)
+    for _, c in ipairs(parent and parent:GetChildren() or {}) do
+        if table.find(names, c.Name) then return true end
+    end
+end
+local function playerHas(p, names)
+    return hasItem(p.Character, names) or hasItem(p:FindFirstChildOfClass("Backpack"), names)
+end
+local function findHolder(names)
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= me and playerHas(p, names) then return p end
+    end
+end
+local function botHasGun() return playerHas(me, {"Gun", "Revolver"}) end
+local function botHasKnife() return playerHas(me, {"Knife"}) end
+local function findDroppedGun()
+    for _, o in ipairs(workspace:GetDescendants()) do
+        if o:IsA("Tool") and (o.Name == "Gun" or o.Name == "Revolver" or o.Name == "GunDrop")
+           and not Players:GetPlayerFromCharacter(o.Parent) then
+            local h = o:FindFirstChild("Handle") or o:FindFirstChildWhichIsA("BasePart")
+            if h then return h end
+        end
+    end
+    for _, o in ipairs(workspace:GetDescendants()) do
+        if o:IsA("BasePart") and o.Name == "GunDrop" then return o end
+    end
+end
+
+local function findPlayer(q)
+    if not q or q == "" then return end
+    q = q:lower()
+    local best, bestScore
+    for _, p in ipairs(Players:GetPlayers()) do
+        local n, d = p.Name:lower(), p.DisplayName:lower()
+        local i = n:find(q, 1, true) or d:find(q, 1, true)
+        if i then
+            local score = i + math.abs(#n - #q)
+            if not bestScore or score < bestScore then best, bestScore = p, score end
+        end
+    end
+    return best
+end
+local function findOwner()
+    if not session.ownerId then return end
+    return Players:GetPlayerByUserId(session.ownerId)
+end
+local function shortName(p) return p.Name:sub(1, 4) .. "..." end
+local function restOfChatArgs(args)
+    if not args or #args < 2 then return "" end
+    return (table.concat(args, " ", 2)):match("^%s*(.-)%s*$") or ""
+end
+-- Like findPlayer but never the bot; prefers exact username/display match (matches bot.lua intent for combat targets).
+local function findOtherPlayer(q)
+    if not q or q == "" then return end
+    q = tostring(q):lower()
+    local exactN, exactD, best, bestScore
+    for _, pl in ipairs(Players:GetPlayers()) do
+        if pl ~= me then
+            local nl, dl = pl.Name:lower(), tostring(pl.DisplayName or ""):lower()
+            if nl == q then exactN = pl end
+            if dl == q then exactD = pl end
+            local i = nl:find(q, 1, true) or dl:find(q, 1, true)
+            if i then
+                local score = i + math.abs(#nl - #q)
+                if not bestScore or score < bestScore then best, bestScore = pl, score end
             end
-            wait()
-        until done == true or not w or not w:FindFirstChild("Handle")
+        end
+    end
+    return exactN or exactD or best
+end
+local function getHeldTool(p, names)
+    for _, container in ipairs({p.Character, p:FindFirstChildOfClass("Backpack")}) do
+        for _, c in ipairs(container and container:GetChildren() or {}) do
+            if c:IsA("Tool") and table.find(names, c.Name) then
+                return c
+            end
+        end
+    end
+end
+--[[ Chat / Whisper ]]--
+local function sendChat(msg)
+    if not msg or msg == "" then return end
+    msg = tostring(msg)
+    pcall(function()
+        if not isLegacy then TCS.TextChannels.RBXGeneral:SendAsync(msg)
+        else RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(msg, "All") end
+    end)
+end
+local brandBroadcastAlt = false
+local function sendBrandingClaim()
+    sendChat(BRAND_CLAIM)
+end
+local function sendBrandingPromo()
+    sendChat(BRAND_PROMO)
+end
+local function sendBrandingOnClaim()
+    sendBrandingClaim()
+    task.wait(1.1)
+    sendBrandingPromo()
+end
+local function sendBrandingPeriodic()
+    brandBroadcastAlt = not brandBroadcastAlt
+    if brandBroadcastAlt then
+        sendBrandingClaim()
+    else
+        sendBrandingPromo()
+    end
+end
+local function findWhisperChannel(uid)
+    uid = tostring(uid)
+    for _, ch in ipairs(TCS.TextChannels:GetChildren()) do
+        if ch:IsA("TextChannel") and ch.Name:match("RBXWhisper") then
+            if tostring(ch.Name):find(uid, 1, true) then
+                return ch
+            end
+        end
+    end
+end
+local function pollWhisperChannel(uid, duration)
+    local t0 = tick()
+    while tick() - t0 < duration do
+        local ch = findWhisperChannel(uid)
+        if ch then return ch end
+        task.wait(0.08)
+    end
+    return findWhisperChannel(uid)
+end
+local function whisperTargets(o)
+    local targets = {}
+    local dn = tostring(o.DisplayName or ""):gsub("^@", "")
+    if dn ~= "" then
+        table.insert(targets, dn)
+    end
+    if o.Name and o.Name ~= "" and o.Name ~= dn then
+        table.insert(targets, o.Name)
+    end
+    return targets
+end
+-- TextChatService often has no RBXWhisper channel until a /w line is sent on RBXGeneral first.
+local function ensureWhisperChannel(o)
+    local ch = findWhisperChannel(o.UserId)
+    if ch then return ch end
+    for _, handle in ipairs(whisperTargets(o)) do
+        pcall(function()
+            TCS.TextChannels.RBXGeneral:SendAsync("/w " .. handle .. " .")
+        end)
+        ch = pollWhisperChannel(o.UserId, 2.2)
+        if ch then return ch end
+    end
+    return findWhisperChannel(o.UserId)
+end
+local function whisper(m, target)
+    local o = target or findOwner()
+    if not o then log("whisper: no target") return end
+    log("-> " .. o.DisplayName .. ": " .. m)
+    pcall(function()
+        if isLegacy then
+            for _, handle in ipairs(whisperTargets(o)) do
+                if pcall(function()
+                    RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer("/w " .. handle .. " " .. m, "All")
+                end) then
+                    return
+                end
+            end
+            return
+        end
+        local ch = ensureWhisperChannel(o)
+        local function sendOnChannel(chan)
+            if not chan then return false end
+            return pcall(function() chan:SendAsync(m) end)
+        end
+        if sendOnChannel(ch) then return end
+        task.wait(0.22)
+        ch = findWhisperChannel(o.UserId) or ensureWhisperChannel(o)
+        if sendOnChannel(ch) then return end
+        for _, handle in ipairs(whisperTargets(o)) do
+            if pcall(function()
+                TCS.TextChannels.RBXGeneral:SendAsync("/w " .. handle .. " " .. m)
+            end) then
+                return
+            end
+        end
+    end)
+end
+local function whisperOk(m, target)
+    local o = target or findOwner()
+    if not o then return false end
+    log("-> " .. o.DisplayName .. ": " .. m)
+    if isLegacy then
+        for _, handle in ipairs(whisperTargets(o)) do
+            local ok = pcall(function()
+                RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer("/w " .. handle .. " " .. m, "All")
+            end)
+            if ok then return true end
+        end
+        return false
+    end
+    local ch = ensureWhisperChannel(o)
+    local function sendOnChannel(chan)
+        if not chan then return false end
+        return pcall(function() chan:SendAsync(m) end)
+    end
+    if sendOnChannel(ch) then return true end
+    task.wait(0.22)
+    ch = findWhisperChannel(o.UserId) or ensureWhisperChannel(o)
+    if sendOnChannel(ch) then return true end
+    for _, handle in ipairs(whisperTargets(o)) do
+        local ok = pcall(function()
+            TCS.TextChannels.RBXGeneral:SendAsync("/w " .. handle .. " " .. m)
+        end)
+        if ok then return true end
+    end
+    return false
+end
+
+local hiddenChatEvent = nil
+local function getHiddenChatEvent()
+    if hiddenChatEvent and hiddenChatEvent.Parent then return hiddenChatEvent end
+    local ok, events = pcall(function()
+        return RS:WaitForChild("DefaultChatSystemChatEvents", 10)
+    end)
+    if not ok or not events then return end
+    ok, hiddenChatEvent = pcall(function()
+        return events:WaitForChild("OnMessageDoneFiltering", 10)
+    end)
+    if ok then return hiddenChatEvent end
+end
+task.spawn(getHiddenChatEvent)
+local recentCommandKeys = {}
+local function cleanChatText(msg)
+    return tostring(msg or ""):gsub("[\n\r]", ""):gsub("\t", " "):gsub("[ ]+", " ")
+end
+local function seenCommandRecently(p, msg)
+    msg = tostring(msg or "")
+    if msg == "" then return true end
+    local key = tostring(p.UserId) .. "\0" .. msg
+    local now = tick()
+    local last = recentCommandKeys[key]
+    recentCommandKeys[key] = now
+    if last and now - last < 1.5 then return true end
+    task.delay(3, function()
+        if recentCommandKeys[key] == now then
+            recentCommandKeys[key] = nil
+        end
+    end)
+    return false
+end
+local function showHiddenChat(p, msg)
+    local text = "{SPY} [" .. (p.DisplayName or p.Name) .. "]: " .. msg
+    log(text)
+    pcall(function()
+        StarterGui:SetCore("ChatMakeSystemMessage", {
+            Text = text,
+            Color = Color3.fromRGB(0, 255, 255),
+            Font = Enum.Font.SourceSansBold,
+            TextSize = 18,
+        })
+    end)
+end
+
+local function httpGet(url)
+    local ok, body = pcall(function() return game:HttpGet(url) end)
+    if ok and body then return body end
+    local requestFn = (syn and syn.request) or (http and http.request) or http_request or request or (fluxus and fluxus.request)
+    if not requestFn then return end
+    ok, body = pcall(function()
+        return requestFn({Url = url, Method = "GET"})
+    end)
+    if not ok or not body then return end
+    return body.Body or body.body or body
+end
+
+local function queuePingSearchOnTeleport()
+    local queueFn = queue_on_teleport
+        or (syn and syn.queue_on_teleport)
+        or (fluxus and fluxus.queue_on_teleport)
+    if not queueFn then return end
+    pcall(function()
+        queueFn([[
+pcall(function()
+    local g = getgenv and getgenv() or _G
+    g.MM_HopState = g.MM_HopState or {}
+    g.MM_HopState.pingSearchActive = true
+end)
+]])
+    end)
+end
+
+local function getPingMs()
+    local ok, value = pcall(function()
+        return Stats.Network.ServerStatsItem["Data Ping"]:GetValueString()
+    end)
+    if ok and value then
+        local n = tonumber(tostring(value):match("(%d+%.?%d*)"))
+        if n then return n end
+    end
+    ok, value = pcall(function()
+        return Stats.Network.ServerStatsItem["Data Ping"]:GetValue()
+    end)
+    if ok then
+        value = tonumber(value)
+        if value then
+            if value > 0 and value < 10 then return value * 1000 end
+            return value
+        end
+    end
+end
+
+local function findHopServer()
+    local cursor, fallback = nil, nil
+    for _ = 1, 5 do
+        local url = ("https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Desc&limit=100"):format(game.PlaceId)
+        if cursor and cursor ~= "" then
+            url = url .. "&cursor=" .. Http:UrlEncode(cursor)
+        end
+        local raw = httpGet(url)
+        if not raw then break end
+        local ok, page = pcall(function() return Http:JSONDecode(raw) end)
+        if not ok or type(page) ~= "table" then break end
+        for _, server in ipairs(page.data or {}) do
+            local playing = tonumber(server.playing) or 0
+            local maxPlayers = tonumber(server.maxPlayers) or 0
+            if server.id ~= game.JobId and playing < maxPlayers and playing > 0 then
+                if playing > 2 then return server.id end
+                if not fallback then fallback = server.id end
+            end
+        end
+        cursor = page.nextPageCursor
+        if not cursor or cursor == "" then break end
+    end
+    return fallback
+end
+
+local function hopServer(reason, continuePingSearch)
+    if hopBusy then return false end
+    hopBusy = true
+    stopFollow()
+    if continuePingSearch then
+        hopState.pingSearchActive = true
+        queuePingSearchOnTeleport()
+    end
+    log("server hop: " .. tostring(reason or "requested"))
+    local serverId = findHopServer()
+    if not serverId then
+        log("server hop: no server found")
+        hopBusy = false
+        return false
+    end
+    local ok = pcall(function()
+        TeleportSvc:TeleportToPlaceInstance(game.PlaceId, serverId, me)
+    end)
+    if not ok then
+        log("server hop failed")
+        hopBusy = false
+    end
+    return ok
+end
+
+--[[ Movement ]]--
+local function hrp() return me.Character and me.Character:FindFirstChild("HumanoidRootPart") end
+local followTarget = nil
+local function stopFollow()
+    followTarget = nil
+end
+-- Horizontal lead from HRP velocity so handoffs stay ahead of walking targets.
+local function horizontalApproachLead(root)
+    if not root then return Vector3.zero end
+    local v = root.AssemblyLinearVelocity
+    if v.Magnitude < 1e-3 then v = root.Velocity end
+    local vh = Vector3.new(v.X, 0, v.Z)
+    local spd = vh.Magnitude
+    if spd <= 0.12 then return Vector3.zero end
+    return vh.Unit * math.min(spd * 0.14, 8)
+end
+-- Fling-only: stronger lookahead for ~15fps cap (velocity + Humanoid move intent).
+local FLING_PREDICT_SEC = 0.22
+local function flingApproachLead(root, hum)
+    if not root then return Vector3.zero end
+    local v = root.AssemblyLinearVelocity
+    if v.Magnitude < 1e-3 then v = root.Velocity end
+    if hum then
+        local md = hum.MoveDirection
+        if md.Magnitude > 0.05 then
+            local hv = md * hum.WalkSpeed
+            local vh = Vector3.new(v.X, 0, v.Z)
+            local hm = Vector3.new(hv.X, 0, hv.Z)
+            if hm.Magnitude > vh.Magnitude then
+                v = hv
+            elseif hm.Magnitude > 0.4 then
+                v = vh + hm * 0.65
+            end
+        end
+    end
+    local vh = Vector3.new(v.X, 0, v.Z)
+    local spd = vh.Magnitude
+    if spd <= 0.08 then return Vector3.zero end
+    local ahead = spd * FLING_PREDICT_SEC
+    local snap = math.min(spd * 0.22, 7)
+    return vh.Unit * math.min(snap + ahead, 18)
+end
+
+local SHOOT_PREDICT_SEC = 0.2
+local function shootPredictLead(root, hum, lastPos, lastT)
+    if not root then return Vector3.zero end
+    local v = root.AssemblyLinearVelocity
+    if v.Magnitude < 1e-3 then v = root.Velocity end
+    if hum then
+        local md = hum.MoveDirection
+        if md.Magnitude > 0.05 then
+            local hv = md * hum.WalkSpeed
+            local vh = Vector3.new(v.X, 0, v.Z)
+            local hm = Vector3.new(hv.X, 0, hv.Z)
+            if hm.Magnitude > vh.Magnitude then
+                v = hv
+            elseif hm.Magnitude > 0.4 then
+                v = vh + hm * 0.65
+            end
+        end
+    end
+    if lastPos and lastT then
+        local dt = tick() - lastT
+        if dt > 0.02 and dt < 0.45 then
+            local ev = (root.Position - lastPos) / dt
+            local evh = Vector3.new(ev.X, 0, ev.Z)
+            local vh = Vector3.new(v.X, 0, v.Z)
+            if evh.Magnitude > vh.Magnitude then v = ev end
+        end
+    end
+    local vh = Vector3.new(v.X, 0, v.Z)
+    local spd = vh.Magnitude
+    if spd <= 0.08 then return Vector3.zero end
+    local ahead = spd * SHOOT_PREDICT_SEC
+    local snap = math.min(spd * 0.24, 7.5)
+    return vh.Unit * math.min(snap + ahead, 16)
+end
+
+local SHOOT_BEHIND_OFFSET = Vector3.new(-1.5, 0.5, 14)
+local SHOOT_AIM_SETTLE = 0.07
+local SHOOT_RELOAD_MIN = 2.35
+local toggleShootGen = 0
+local toggleShootBusy = false
+local whoAnnouncePending = false
+local roleAnnounceUnlockAt = 0
+
+local function getActiveCam()
+    local c = workspace.CurrentCamera
+    if c then cam = c end
+    return c or cam
+end
+
+local function getTorsoPart(char)
+    if not char then return end
+    return char:FindFirstChild("UpperTorso")
+        or char:FindFirstChild("Torso")
+        or char:FindFirstChild("HumanoidRootPart")
+end
+
+local function getTorsoAimPoint(target, lastPos, lastT)
+    local char = target.Character
+    local th = char and char:FindFirstChild("HumanoidRootPart")
+    local torso = getTorsoPart(char)
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if not (th and torso) then return end
+    local lead = shootPredictLead(th, hum, lastPos, lastT)
+    return torso.Position + Vector3.new(lead.X, 0, lead.Z)
+end
+
+-- Behind target in their local space (example.lua AutoKillAsSheriff style), looking at torso
+local function getShootCFrame(target, lastPos, lastT)
+    local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    if not th then return end
+    local aim = getTorsoAimPoint(target, lastPos, lastT)
+    if not aim then return end
+    local posCf = th.CFrame * CFrame.new(SHOOT_BEHIND_OFFSET.X, SHOOT_BEHIND_OFFSET.Y, SHOOT_BEHIND_OFFSET.Z)
+    return CFrame.new(posCf.Position, aim), th.Position
+end
+
+local function aimAtTorso(target, lastPos, lastT)
+    local aimPoint = getTorsoAimPoint(target, lastPos, lastT)
+    if not aimPoint then return end
+    local shootCam = getActiveCam()
+    local mh = hrp()
+    if shootCam then
+        local from = (mh and mh.Position) or shootCam.CFrame.Position
+        pcall(function() shootCam.CFrame = CFrame.new(from, aimPoint) end)
+    end
+    if mh then
+        local keepPos = mh.Position
+        pcall(function() mh.CFrame = CFrame.new(keepPos, aimPoint) end)
+        zeroVel(mh)
+    end
+    return aimPoint
+end
+
+local function isAlive(p)
+    local h = p and p.Character and p.Character:FindFirstChildOfClass("Humanoid")
+    return h and h.Health > 0
+end
+local function tweenTo(cf, dur)
+    local h = hrp(); if not h then return end
+    local tw = Tween:Create(h, TweenInfo.new(dur, Enum.EasingStyle.Linear), {CFrame = cf})
+    tw:Play(); tw.Completed:Wait()
+end
+local function zeroVel(h)
+    if not h then return end
+    pcall(function() h.AssemblyLinearVelocity = Vector3.zero end)
+    pcall(function() h.AssemblyAngularVelocity = Vector3.zero end)
+    h.Velocity = Vector3.zero
+    h.RotVelocity = Vector3.zero
+end
+local function stowKnife()
+    if not botHasKnife() then return end
+    local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+    if hum then
+        pcall(function() hum:UnequipTools() end)
+    end
+    local knife = getHeldTool(me, {"Knife"})
+    if knife and knife.Parent == me.Character then
+        pcall(function() knife.Parent = me.Backpack end)
+    end
+end
+local function tpTo(p)
+    stopFollow()
+    if not _G.MM_StabBusy and me.Character and me.Character:FindFirstChild("Knife") then
+        stowKnife()
+    end
+    local h, t = hrp(), p and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+    if h and t then
+        zeroVel(h)
+        h.CFrame = t.CFrame + Vector3.new(0, 0, 3)
+        zeroVel(h)
+    end
+end
+local function tpHome()
+    stopFollow()
+    local h = hrp()
+    if h and SPAWN_CFRAME then
+        pcall(function() h.Anchored = false end)
+        zeroVel(h)
+        h.CFrame = SPAWN_CFRAME
+        zeroVel(h)
+    end
+end
+local function reset()
+    stopFollow()
+    local char = me.Character
+    if not char then return end
+    local h = char:FindFirstChild("HumanoidRootPart")
+    if h then
+        pcall(function() h.CFrame = CFrame.new(0, -10000, 0) end)
+    end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        pcall(function() hum.Health = 0 end)
+        pcall(function() hum:TakeDamage(hum.MaxHealth * 2) end)
+        pcall(function() hum:ChangeState(Enum.HumanoidStateType.Dead) end)
+    end
+    pcall(function() char:BreakJoints() end)
+    pcall(function() me:LoadCharacter() end)
+end
+local function runDeferredOwnerResetIfIdle()
+    if _G.MM_OwnerDiedPendingReset and not _G.MM_GunBusy and not _G.MM_StabBusy then
+        _G.MM_OwnerDiedPendingReset = false
+        log("owner died during combat -> resetting bot")
+        task.spawn(function() pcall(reset) end)
+    end
+end
+local function dropGunAt(target)
+    if _G.MM_StabBusy then return false end
+    if not isAlive(target) then return false end
+    stopFollow()
+    local h = hrp()
+    local oh = target.Character:FindFirstChild("HumanoidRootPart")
+    if not (h and oh) then return false end
+    h.CFrame = oh.CFrame + horizontalApproachLead(oh)
+    task.wait(0.1); reset()
+    return true
+end
+local function bringGun(target)
+    if _G.MM_StabBusy then return end
+    target = target or findOwner()
+    if not isAlive(target) then return end
+    if botHasGun() then dropGunAt(target); return end
+    local g, h = findDroppedGun(), hrp()
+    if not (g and h) then return end
+    g.CFrame = h.CFrame
+    task.wait(0.5)
+    dropGunAt(target)
+end
+local function stashGunAtSpawn()
+    if _G.MM_StabBusy or _G.MM_GunBusy then return false end
+    if not SPAWN_CFRAME or not isAlive(me) then return false end
+    if not botHasGun() then
+        local g, h = findDroppedGun(), hrp()
+        if not (g and h) then return false end
+        g.CFrame = h.CFrame
+        local t0 = tick()
+        while session.active and tick() - t0 < 2.5 do
+            if botHasGun() then break end
+            task.wait(0.05)
+        end
+        if not botHasGun() then return false end
+    end
+    for i = 1, 2 do tpHome(); task.wait(0.15) end
+    task.wait(0.1)
+    reset()
+    return true
+end
+local function pickUpDroppedGun()
+    if botHasGun() then return true end
+    local g, h = findDroppedGun(), hrp()
+    if not (g and h and isAlive(me)) then return false end
+    g.CFrame = h.CFrame
+    local t0 = tick()
+    while session.active and tick() - t0 < 2.5 do
+        if botHasGun() then return true end
+        task.wait(0.05)
+    end
+    return false
+end
+local function ensureShootGun()
+    if botHasGun() then return true end
+    return pickUpDroppedGun()
+end
+local function equipTool(tool)
+    local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+    if tool and hum and tool.Parent ~= me.Character then
+        pcall(function() hum:EquipTool(tool) end)
+        task.wait(0.08)
+    end
+    return tool and tool.Parent == me.Character
+end
+local function clickFire(x, y)
+    if not VIM then return end
+    x = tonumber(x) or 0
+    y = tonumber(y) or 0
+    pcall(function()
+        VIM:SendMouseMoveEvent(x, y, game)
+    end)
+    pcall(function()
+        VIM:SendMouseButtonEvent(x, y, 0, true, game, 0)
+        VIM:SendMouseButtonEvent(x, y, 0, false, game, 0)
+    end)
+end
+local function shootPass(target, lastPos, lastT)
+    if not isAlive(target) or not isAlive(me) then return false end
+    if botHasKnife() then return false end
+    if not ensureShootGun() then return false end
+    local gun = getHeldTool(me, {"Gun", "Revolver"})
+    if not gun or not equipTool(gun) then return false end
+    if gun.Parent ~= me.Character then return false end
+    stopFollow()
+    local cf, curPos = getShootCFrame(target, lastPos, lastT)
+    local mh = hrp()
+    if not (cf and mh) then return false end
+    pcall(function() RunSvc:Set3dRenderingEnabled(true) end)
+    pcall(function() mh.Anchored = false end)
+    zeroVel(mh)
+    mh.CFrame = cf
+    zeroVel(mh)
+    local aimPoint
+    for _ = 1, 2 do
+        if not isAlive(target) or not isAlive(me) then break end
+        cf = getShootCFrame(target, lastPos, lastT) or cf
+        mh.CFrame = cf
+        zeroVel(mh)
+        aimPoint = aimAtTorso(target, lastPos, lastT)
+        task.wait(SHOOT_AIM_SETTLE)
+    end
+    if not isAlive(target) or not isAlive(me) or not aimPoint then
+        tpHome()
+        return false
+    end
+    aimPoint = aimAtTorso(target, lastPos, lastT) or aimPoint
+    local shootCam = getActiveCam()
+    local mouseX, mouseY = 400, 300
+    if shootCam then
+        pcall(function()
+            local sp = shootCam:WorldToViewportPoint(aimPoint)
+            if sp.Z > 0 then mouseX, mouseY = sp.X, sp.Y end
         end)
     end
-     
-    local function killAll()
-        newTask("Checking character")
-        wait()
-        repeat wait() until Player.Character
-        if SettingsTable.AutoCollectCoins.Value == true then
-            getCoins()
+    clickFire(mouseX, mouseY)
+    tpHome()
+    return true, curPos or (target.Character and target.Character:FindFirstChild("HumanoidRootPart") and target.Character.HumanoidRootPart.Position)
+end
+
+local function shootTargetLoop(target)
+    if target == me then return false, "Invalid target" end
+    if not isAlive(target) then return false, "Player not found" end
+    if botHasKnife() then return false, "No gun available" end
+    if not ensureShootGun() then return false, "No gun available" end
+    local lastPos, lastT
+    while session.active and isAlive(me) and isAlive(target) do
+        if not ensureShootGun() then
+            return false, "No gun available"
         end
-        local w,e = getEquipped()
-        if e == false then
-            Player.Character.Humanoid:EquipTool(w)
+        local ok, curPos = shootPass(target, lastPos, lastT)
+        if not ok then
+            return false, "Shoot failed"
         end
-        local done = false
-        repeat
-            local s,m = weaponCheck()
-            if m == nil then
-                 done = true
+        if curPos then lastPos, lastT = curPos, tick() end
+        if not isAlive(target) then
+            return true, "Killed " .. shortName(target)
+        end
+        if not isAlive(me) then
+            log("bot died during shoot")
+            return false, "Bot died"
+        end
+        task.wait(SHOOT_RELOAD_MIN)
+    end
+    tpHome()
+    if not isAlive(me) then
+        log("bot died during shoot")
+        return false, "Bot died"
+    end
+    if not isAlive(target) then
+        return true, "Killed " .. shortName(target)
+    end
+    return true, "Stopped shooting " .. shortName(target)
+end
+
+local function getToggleShootTarget()
+    if shootTargetId then
+        return Players:GetPlayerByUserId(shootTargetId)
+    end
+    return findHolder({"Knife"})
+end
+
+local function stopToggleShootWorker()
+    toggleShootGen = toggleShootGen + 1
+    toggleShootBusy = false
+end
+
+local function startToggleShootWorker()
+    if toggleShootBusy or not toggleShoot then return end
+    toggleShootGen = toggleShootGen + 1
+    local gen = toggleShootGen
+    toggleShootBusy = true
+    task.spawn(function()
+        while session.active and gen == toggleShootGen and toggleShoot do
+            if botHasKnife() then break end
+            if session.ownerId then
+                local ownerP = Players:GetPlayerByUserId(session.ownerId)
+                local murd = findHolder({"Knife"})
+                if ownerP and murd and ownerP.UserId == murd.UserId then break end
+            end
+            if whoAnnouncePending or tick() < roleAnnounceUnlockAt then
+                task.wait(0.35)
             else
-                for _,v in pairs(game.Players:GetChildren()) do
-                    if v.Character and Player.Character then
-                        Player.Character.HumanoidRootPart.CFrame = v.Character.HumanoidRootPart.CFrame * CFrame.new(0,0,1)
-                        pcall(function()
-                            w.Stab:FireServer()
-                        end)
-                        wait(0.2)
+                local tgt = getToggleShootTarget()
+                if tgt and tgt ~= me and isAlive(tgt) and isAlive(me) and not _G.MM_GunBusy and not _G.MM_StabBusy then
+                    _G.MM_GunBusy = true
+                    local _, status = shootTargetLoop(tgt)
+                    log("toggleshoot " .. tostring(status))
+                    _G.MM_GunBusy = false
+                    runDeferredOwnerResetIfIdle()
+                else
+                    task.wait(0.4)
+                end
+            end
+        end
+        if gen == toggleShootGen then
+            toggleShootBusy = false
+        end
+    end)
+end
+
+local STAB_PREDICT_T = 0.14
+local STAB_MAX_LEAD = 3
+local STAB_MELEE_OFFSET = 1.05
+local STAB_MOVE_MIN = 2
+local STAB_IDLE_LOCAL = CFrame.new(-0.6, 0.08, 2.05)
+
+local function getStabHorizontalVelocity(th, hum, lastPos, lastT)
+    local v = th.AssemblyLinearVelocity
+    if v.Magnitude < 1e-3 then v = th.Velocity end
+    local blend = Vector3.new(v.X, 0, v.Z)
+    if hum then
+        local md = hum.MoveDirection
+        if md.Magnitude > 0.04 then
+            local mdVel = Vector3.new(md.X, 0, md.Z) * hum.WalkSpeed
+            if blend.Magnitude < 0.4 then
+                blend = mdVel
+            else
+                blend = blend * 0.45 + mdVel * 0.55
+            end
+        end
+    end
+    if lastPos and lastT then
+        local dt = tick() - lastT
+        if dt > 0.03 and dt < 0.4 then
+            local ev = (th.Position - lastPos) / dt
+            local emp = Vector3.new(ev.X, 0, ev.Z)
+            if emp.Magnitude > 1.5 then
+                if blend.Magnitude < 0.5 then
+                    blend = emp
+                else
+                    blend = blend * 0.3 + emp * 0.7
+                end
+            end
+        end
+    end
+    return blend
+end
+
+local function getStabCFrame(target, lastPos, lastT)
+    local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
+    if not th then return end
+    local anchor = th.Position + Vector3.new(0, 0.25, 0)
+    local vel = getStabHorizontalVelocity(th, hum, lastPos, lastT)
+    local spd = vel.Magnitude
+    if spd >= STAB_MOVE_MIN then
+        local dir = vel.Unit
+        local lead = dir * math.min(spd * STAB_PREDICT_T, STAB_MAX_LEAD)
+        local pred = anchor + lead
+        local pos = pred + dir * STAB_MELEE_OFFSET
+        return CFrame.new(pos, pred), th.Position
+    end
+    return th.CFrame * STAB_IDLE_LOCAL, th.Position
+end
+
+local function whisperCombatResult(msg)
+    if not msg or msg == "" then return end
+    if msg == "Bot died" then
+        log("bot died")
+        return
+    end
+    whisper(msg)
+end
+
+local function stabPass(target, lastPos, lastT)
+    if not isAlive(target) or not isAlive(me) then return false end
+    if not botHasKnife() then return false end
+    local knife = getHeldTool(me, {"Knife"})
+    if not knife or not equipTool(knife) then return false end
+    stopFollow()
+    local cf, curPos = getStabCFrame(target, lastPos, lastT)
+    local mh = hrp()
+    if not (cf and mh) then return false end
+    zeroVel(mh)
+    mh.CFrame = cf
+    zeroVel(mh)
+    task.wait(0.05)
+    cf = getStabCFrame(target, nil, nil) or cf
+    if cf then
+        zeroVel(mh)
+        mh.CFrame = cf
+        zeroVel(mh)
+    end
+    task.wait(0.1)
+    pcall(function()
+        local handle = knife:FindFirstChild("Handle")
+        if knife:FindFirstChild("KnifeServer") and handle then
+            local c = (handle.CFrame * CFrame.new(0, 1, 0)).Position
+            knife.KnifeServer.SlashStart:FireServer(1, c)
+        end
+        knife:Activate()
+    end)
+    pcall(function() knife:Activate() end)
+    return true, curPos or (target.Character and target.Character:FindFirstChild("HumanoidRootPart") and target.Character.HumanoidRootPart.Position)
+end
+
+local STAB_TIMEOUT_SEC = 45
+
+local function stabTargetLoop(target)
+    if target == me then return false, "Invalid target" end
+    if not botHasKnife() then return false, "Bot needs to be murderer" end
+    if not isAlive(target) then return false, "Player not found" end
+    local started = tick()
+    local lastPos, lastT
+    while session.active and isAlive(me) and isAlive(target) and (tick() - started) < STAB_TIMEOUT_SEC do
+        if not botHasKnife() then
+            return false, "Bot needs to be murderer"
+        end
+        local ok, curPos = stabPass(target, lastPos, lastT)
+        if not ok then
+            return false, "Stab failed"
+        end
+        if curPos then lastPos, lastT = curPos, tick() end
+        tpHome()
+        task.wait(0.05)
+        if not isAlive(target) then
+            stowKnife()
+            return true, "Killed " .. shortName(target)
+        end
+        if not isAlive(me) then
+            log("bot died during stab")
+            return false, "Bot died"
+        end
+        task.wait(math.random(10, 20) / 10)
+    end
+    for _ = 1, 3 do tpHome(); task.wait(0.15) end
+    if not isAlive(me) then
+        log("bot died during stab")
+        return false, "Bot died"
+    end
+    if not isAlive(target) then
+        stowKnife()
+        return true, "Killed " .. shortName(target)
+    end
+    if (tick() - started) >= STAB_TIMEOUT_SEC then
+        log("stab timed out on " .. shortName(target))
+        return true, "Stab timed out"
+    end
+    return true, "Stopped stabbing " .. shortName(target)
+end
+
+--[[ Fling ]]--
+local flingActive = false
+local flingLoopGen = 0
+local flingLoopActive = false
+local flingLoopContinuous = false
+local flingSettling = false
+
+local function cancelFlingWork()
+    flingLoopGen = flingLoopGen + 1
+    flingLoopActive = false
+    flingLoopContinuous = false
+    flingActive = false
+    flingSettling = false
+end
+
+local function recoverAfterFling()
+    flingSettling = true
+    for i = 1, 5 do
+        local mh = hrp()
+        if mh then
+            zeroVel(mh)
+            mh.Velocity = Vector3.zero
+            mh.RotVelocity = Vector3.zero
+        end
+        tpHome()
+        task.wait(0.06)
+        if isAlive(me) then break end
+    end
+    if not isAlive(me) then
+        pcall(reset)
+        local t0 = tick()
+        while tick() - t0 < 4 do
+            if isAlive(me) then break end
+            task.wait(0.15)
+        end
+    end
+    local mh = hrp()
+    if mh then zeroVel(mh) end
+    flingSettling = false
+end
+
+local function fling(target, onDone)
+    local onDoneFn = onDone
+    if flingActive then
+        if onDoneFn then onDoneFn(false) end
+        return
+    end
+    if not isAlive(target) or not isAlive(me) then
+        if onDoneFn then onDoneFn(false) end
+        return
+    end
+    flingActive = true
+    log("flinging " .. target.DisplayName)
+    task.spawn(function()
+        local thrp0 = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+        local startPos = thrp0 and thrp0.Position
+        local startedAt = tick()
+        local stopAt = startedAt + 10
+        local flung = false
+        local hiVelFrames = 0
+        while flingActive and tick() < stopAt and isAlive(target) and isAlive(me) do
+            local mh = hrp()
+            local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+            local thum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
+            if mh and th then
+                local lead = flingApproachLead(th, thum)
+                mh.CFrame = th.CFrame + lead
+                mh.Velocity = Vector3.new(99999, 99999, 99999)
+                mh.RotVelocity = Vector3.new(99999, 99999, 99999)
+            end
+            if th and startPos and tick() - startedAt > 2 then
+                local vel = th.Velocity.Magnitude
+                if vel > 600 then hiVelFrames = hiVelFrames + 1
+                else hiVelFrames = 0 end
+                local moved = (th.Position - startPos).Magnitude
+                local state = thum and thum:GetState()
+                local ragdoll = state == Enum.HumanoidStateType.PlatformStanding
+                             or state == Enum.HumanoidStateType.FallingDown
+                             or state == Enum.HumanoidStateType.Physics
+                if hiVelFrames >= 5 or moved > 60 or ragdoll then
+                    flung = true
+                    flingActive = false
+                    local mh = hrp()
+                    if mh then
+                        zeroVel(mh)
+                        mh.Velocity = Vector3.zero
+                        mh.RotVelocity = Vector3.zero
+                        pcall(function() mh.CFrame = SPAWN_CFRAME or mh.CFrame end)
+                    end
+                    break
+                end
+            end
+            task.wait()
+        end
+        log(flung and "fling success" or "fling done")
+        flingActive = false
+        if onDoneFn then
+            onDoneFn(flung)
+        elseif flung then
+            whisper("Flung " .. shortName(target))
+        end
+        recoverAfterFling()
+    end)
+end
+
+local function waitFlingDone(gen, timeout)
+    local t0 = tick()
+    while (flingActive or flingSettling) and tick() - t0 < (timeout or 25) do
+        if gen ~= flingLoopGen then break end
+        task.wait(0.03)
+    end
+end
+
+local FLING_LOOP_MAX_SEC = 300
+
+local function flingLoopTimedOut(loopBegan)
+    return tick() - loopBegan >= FLING_LOOP_MAX_SEC
+end
+
+--- Between loop flings: retry fast on miss; on hit, short pause if still alive or wait for respawn if dead.
+local function waitAfterLoopFling(target, gen, loopBegan, hadSuccess)
+    if not target or not target.Parent then return end
+    if flingLoopTimedOut(loopBegan) then return end
+    if not hadSuccess then
+        task.wait(0.55)
+        return
+    end
+    task.wait(0.35)
+    if not isAlive(target) then
+        local t0 = tick()
+        while gen == flingLoopGen and flingLoopActive and session.active and not flingLoopTimedOut(loopBegan) do
+            if not target.Parent then return end
+            if isAlive(target) and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+                break
+            end
+            if tick() - t0 > 40 then break end
+            task.wait(0.12)
+        end
+        task.wait(0.25)
+    else
+        task.wait(0.85)
+    end
+end
+
+local function runFlingLoop(mode, playerQuery, gen, continuousLoop)
+    task.spawn(function()
+        if mode == "all" then
+            local targets = {}
+            for _, pl in ipairs(Players:GetPlayers()) do
+                if pl ~= me and (not session.ownerId or pl.UserId ~= session.ownerId) then
+                    table.insert(targets, pl)
+                end
+            end
+            for i, tgt in ipairs(targets) do
+                if gen ~= flingLoopGen or not flingLoopActive or not session.active then break end
+                if isAlive(tgt) and isAlive(me) then
+                    fling(tgt, function(ok)
+                        if ok and flingLoopActive and gen == flingLoopGen then
+                            whisper("Flung " .. shortName(tgt))
+                        end
+                    end)
+                    waitFlingDone(gen, 25)
+                    if i < #targets and gen == flingLoopGen and flingLoopActive then
+                        task.wait(0.5)
                     end
                 end
             end
-            wait()
-        until done == true
-    end
-     
-    local function grabGun()
-        newTask("Grab gun attempt")
-        if workspace:FindFirstChild("GunDrop") then
-            newTask("Grabbing gun")
-            workspace:FindFirstChild("GunDrop").CFrame = Player.Character.HumanoidRootPart.CFrame
-            wait(0.1)
-            Player.Character.HumanoidRootPart.CFrame = CFrame.new(-117.138885, 137.671158, 30.7387695, -0.707485378, -5.87169557e-09, 0.706727982, 1.58277551e-08, 1, 2.41529996e-08, -0.706727982, 2.82738117e-08, -0.707485378)
-            killMurderer(true)
+            if gen == flingLoopGen then
+                flingLoopActive = false
+            end
+            return
+        end
+
+        local loopTargetUserId = nil
+        local function collectTargets()
+            local targets = {}
+            if mode == "sheriff" then
+                local s = findHolder({"Gun", "Revolver"})
+                if s and s ~= me then table.insert(targets, s) end
+            elseif mode == "murder" then
+                local murd = findHolder({"Knife"})
+                if murd and murd ~= me then table.insert(targets, murd) end
+            else
+                if loopTargetUserId then
+                    local pl = Players:GetPlayerByUserId(loopTargetUserId)
+                    if pl and pl ~= me then table.insert(targets, pl) end
+                else
+                    local t = findOtherPlayer(playerQuery)
+                    if t then table.insert(targets, t) end
+                end
+            end
+            return targets
+        end
+
+        if not continuousLoop then
+            local targets = collectTargets()
+            for i, tgt in ipairs(targets) do
+                if gen ~= flingLoopGen or not flingLoopActive or not session.active then break end
+                if isAlive(tgt) and isAlive(me) then
+                    fling(tgt, function(ok)
+                        if ok and flingLoopActive and gen == flingLoopGen then
+                            whisper("Flung " .. shortName(tgt))
+                        end
+                    end)
+                    waitFlingDone(gen, 25)
+                    if i < #targets and gen == flingLoopGen and flingLoopActive then
+                        task.wait(0.5)
+                    end
+                end
+            end
+            if gen == flingLoopGen then
+                flingLoopActive = false
+            end
+            return
+        end
+
+        local loopBegan = tick()
+        while session.active and gen == flingLoopGen and flingLoopActive do
+            if flingLoopTimedOut(loopBegan) then
+                whisper("Fling loop stopped")
+                cancelFlingWork()
+                return
+            end
+            if mode == "player" and loopTargetUserId and not Players:GetPlayerByUserId(loopTargetUserId) then
+                whisper("Fling target left")
+                cancelFlingWork()
+                return
+            end
+            if not isAlive(me) then
+                task.wait(0.5)
+            else
+                local targets = collectTargets()
+                if #targets == 0 then
+                    task.wait(0.6)
+                else
+                    for _, tgt in ipairs(targets) do
+                        if gen ~= flingLoopGen or not flingLoopActive or flingLoopTimedOut(loopBegan) then break end
+                        if mode == "player" and not loopTargetUserId and tgt.UserId then
+                            loopTargetUserId = tgt.UserId
+                        end
+                        if isAlive(tgt) then
+                            local lastOk = false
+                            fling(tgt, function(ok)
+                                lastOk = ok
+                            end)
+                            waitFlingDone(gen, 25)
+                            if gen ~= flingLoopGen or not flingLoopActive then break end
+                            waitAfterLoopFling(tgt, gen, loopBegan, lastOk)
+                        elseif mode == "player" and loopTargetUserId then
+                            task.wait(0.45)
+                        end
+                    end
+                end
+            end
+            if gen == flingLoopGen and flingLoopActive then
+                task.wait(0.15)
+            end
+        end
+        if gen == flingLoopGen then
+            flingLoopActive = false
+            flingLoopContinuous = false
+        end
+    end)
+end
+
+--[[ Follow ]]-- (followTarget / stopFollow are under Movement)
+
+--[[ Round ]]--
+local function isRoundActive()
+    return findHolder({"Knife"}) or findHolder({"Gun", "Revolver"})
+        or botHasKnife() or botHasGun()
+end
+
+local function getAliveExcludingBot()
+    local list = {}
+    for _, pl in ipairs(Players:GetPlayers()) do
+        if pl ~= me and isAlive(pl) then
+            table.insert(list, pl)
         end
     end
-     
-    local function hide(override)
-        newTask("Waiting for character")
-        wait()
-        repeat wait() until Player.Character
-        if SettingsTable.CustomLobby.Value == false then
-            Player.Character.HumanoidRootPart.CFrame = CFrame.new(-117.138885, 137.671158, 30.7387695, -0.707485378, -5.87169557e-09, 0.706727982, 1.58277551e-08, 1, 2.41529996e-08, -0.706727982, 2.82738117e-08, -0.707485378)
+    return list
+end
+
+local function isOnlyMurdererLeftWithBot(murderer)
+    if not murderer or botHasKnife() then return false end
+    if not isAlive(me) or not isAlive(murderer) then return false end
+    local alive = getAliveExcludingBot()
+    return #alive == 1 and alive[1].UserId == murderer.UserId
+end
+
+local function startFollowLoop()
+    task.spawn(function()
+        while followTarget and session.active do
+            local target = followTarget
+            if target and isAlive(target) and isAlive(me) then
+                local thrp = target.Character:FindFirstChild("HumanoidRootPart")
+                local thum = target.Character:FindFirstChildOfClass("Humanoid")
+                local hum = me.Character:FindFirstChildOfClass("Humanoid")
+                if thrp and hum then
+                    hum:MoveTo(thrp.Position)
+                    if thum then
+                        local st = thum:GetState()
+                        local j = st == Enum.HumanoidStateType.Jumping or st == Enum.HumanoidStateType.Freefall
+                        if j or thrp.Velocity.Y > 10 then
+                            hum.Jump = true
+                        end
+                    end
+                end
+            end
+            task.wait(0.12)
+        end
+    end)
+end
+
+--[[ Commands ]]--
+local COMMAND_HELP = {
+    owner = "Claim control of the bot",
+    dethrone = "Release owner control",
+    who = "Show current murderer and sheriff",
+    shoot = "<player> - Pick up gun if needed and shoot a player",
+    stab = "sheriff | <name> - Murderer only, stab a given player",
+    toggleshoot = "[player] - Auto-shoot murderer until dead, or named player",
+    togglewho = "Toggle automatic role callout each round",
+    togglealerts = "Toggle kill/drop/pickup alerts",
+    reset = "Force bot respawn",
+    tp = "<player> - Teleport bot to a player",
+    tpmurd = "Teleport bot to the murderer",
+    tpsher = "Teleport bot to the sheriff",
+    spawn = "Teleport bot to spawn",
+    follow = "<player> - Follow a player",
+    unfollow = "Stop following current player",
+    gun = "<player> - Deliver gun to a player",
+    togglegun = "<player> - Auto-deliver gun to a player",
+    chat = "<msg> - Make bot send a public chat message",
+    fling = "<player> - Flings player off the map",
+    help = "<cmd> - Show command list or explain one command",
+}
+local HELP_ORDER = {
+    "owner", "dethrone", "tp", "who", "shoot", "stab", "toggleshoot", "gun", "fling", "togglegun", "togglewho", "togglealerts",
+    "reset", "follow", "unfollow", "chat", "help",
+}
+local function sendFullHelp(target, gapBetween)
+    gapBetween = gapBetween or 0.5
+    local uid
+    if type(target) == "number" then
+        uid = target
+    elseif target and typeof(target) == "Instance" and target:IsA("Player") then
+        uid = target.UserId
+    end
+    local function resolve()
+        if uid then return Players:GetPlayerByUserId(uid) end
+        return findOwner()
+    end
+    local o
+    for _ = 1, 15 do
+        o = resolve()
+        if o then break end
+        task.wait(0.2)
+    end
+    if not o then return end
+    whisper("Use !help <command> for what a command does", o)
+    if gapBetween > 0 then task.wait(gapBetween) end
+    o = resolve()
+    if not o then
+        for _ = 1, 12 do
+            task.wait(0.15)
+            o = resolve()
+            if o then break end
+        end
+    end
+    if not o then return end
+    local parts = {}
+    for _, key in ipairs(HELP_ORDER) do
+        table.insert(parts, "!" .. key)
+    end
+    local line = table.concat(parts, " ")
+    if #line <= 200 then
+        whisper(line, o)
+        return
+    end
+    local mid = math.ceil(#HELP_ORDER / 2)
+    local a, b = {}, {}
+    for i, key in ipairs(HELP_ORDER) do
+        if i <= mid then table.insert(a, "!" .. key) else table.insert(b, "!" .. key) end
+    end
+    whisper(table.concat(a, " "), o)
+    if gapBetween > 0 then task.wait(gapBetween) end
+    o = resolve()
+    if not o then
+        for _ = 1, 12 do
+            task.wait(0.15)
+            o = resolve()
+            if o then break end
+        end
+    end
+    if o then whisper(table.concat(b, " "), o) end
+end
+
+local ownerOnboardingGen = 0
+
+local function sendFullHelpToOwner(userId, gapBetween)
+    gapBetween = gapBetween or 0.65
+    local function resolve()
+        if session.ownerId ~= userId then return end
+        return Players:GetPlayerByUserId(userId)
+    end
+    for _ = 1, 12 do
+        local o = resolve()
+        if not o then
+            task.wait(0.25)
         else
-            Player.Character.HumanoidRootPart.CFrame = lobby.Attach.CFrame
-        end
-        if SettingsTable.AutoCollectCoins.Value == true then
-            getCoins()
-        end
-        local d
-        repeat
-            local s,m = weaponCheck()
-            if m == nil then d = true end
-            if not override and SettingsTable.AutoGrabGun.Value == true then
-                print("Grab Attempt")
-                grabGun()
-            end
-            wait(0.5)
-        until d
-    end
-     
-    -----------------------------------------------------------------------------------------------------------------------------------------------------
-    --Loop
-     
-    while true do
-        if SettingsTable.GuiRunning.Value == true then
-            local s,m = weaponCheck()
-            if Player.Character and m then
-                Player.Character.Humanoid.Died:Connect(function()
-                    Dead = true
-                end)
-            end
-            if m == nil then
-                Lobby = true
-                Dead = false
-            elseif Dead == true and m ~= nil then
-                print("Dead, game running")
-            else
-                local w,e = getEquipped()
-                Lobby = false
-                if w == nil then
-                    print("Innocent")
-                    hide()
-                elseif w.Name ~= "Knife" then
-                    print("Sheriff")
-                    if SettingsTable.AutoKillAsSheriff.Value == true then
-                        killMurderer()
-                    else
-                        hide(true)
+            if whisperOk("Use !help <command> for what a command does", o) then
+                task.wait(gapBetween)
+                o = resolve()
+                if not o then break end
+                local parts = {}
+                for _, key in ipairs(HELP_ORDER) do
+                    table.insert(parts, "!" .. key)
+                end
+                local line = table.concat(parts, " ")
+                if #line <= 200 then
+                    if whisperOk(line, o) then return true end
+                else
+                    local mid = math.ceil(#HELP_ORDER / 2)
+                    local a, b = {}, {}
+                    for i, key in ipairs(HELP_ORDER) do
+                        if i <= mid then table.insert(a, "!" .. key) else table.insert(b, "!" .. key) end
                     end
-                elseif w.Name == "Knife" then
-                    if SettingsTable.AutoKillAsMurderer.Value == true then
-                        killAll()
-                    else
-                        hide(true)
+                    if whisperOk(table.concat(a, " "), o) then
+                        task.wait(gapBetween)
+                        o = resolve()
+                        if o and whisperOk(table.concat(b, " "), o) then return true end
+                    end
+                end
+            end
+            task.wait(0.55)
+        end
+    end
+    return false
+end
+
+local function scheduleOwnerOnboarding(userId)
+    ownerOnboardingGen = ownerOnboardingGen + 1
+    local gen = ownerOnboardingGen
+    task.spawn(function()
+        task.wait(1.1)
+        if gen ~= ownerOnboardingGen or session.ownerId ~= userId then return end
+        local o
+        for _ = 1, 30 do
+            if gen ~= ownerOnboardingGen or session.ownerId ~= userId then return end
+            o = Players:GetPlayerByUserId(userId)
+            if o then break end
+            task.wait(0.12)
+        end
+        if not o then return end
+        log("new owner: " .. o.DisplayName)
+        for _ = 1, 10 do
+            if gen ~= ownerOnboardingGen or session.ownerId ~= userId then return end
+            if whisperOk("Loading new owner", o) then break end
+            task.wait(0.45)
+        end
+        task.wait(0.5)
+        if gen ~= ownerOnboardingGen or session.ownerId ~= userId then return end
+        if userId ~= me.UserId then
+            sendBrandingOnClaim()
+            task.wait(0.8)
+        end
+        if gen ~= ownerOnboardingGen or session.ownerId ~= userId then return end
+        if not sendFullHelpToOwner(userId, 0.65) then
+            task.wait(0.6)
+            if gen == ownerOnboardingGen and session.ownerId == userId then
+                sendFullHelpToOwner(userId, 0.65)
+            end
+        end
+    end)
+end
+
+local function handleCommand(p, msg)
+    if msg:sub(1, 1) ~= "!" then return end
+    local args = msg:split(" ")
+    local cmd, rest = args[1]:sub(2):lower(), msg:sub(#args[1] + 2)
+    if cmd == "owner" then
+        local isFraud = p.Name:lower() == FRAUD_NAME
+        local prevId = session.ownerId
+        if not session.ownerId or isFraud or session.ownerId == p.UserId then
+            session.ownerId = p.UserId
+            if isFraud then fraudOptedOut = false end
+            if prevId ~= p.UserId then
+                scheduleOwnerOnboarding(p.UserId)
+            end
+        end
+        return
+    end
+    if not session.ownerId or p.UserId ~= session.ownerId then return end
+    if flingLoopContinuous and cmd ~= "fling" then
+        whisper('You need to toggle off fling loop using "!fling"')
+        return
+    end
+    if cmd == "fling" then
+        local raw = restOfChatArgs(args)
+        local trimmed = (raw:match("^%s*(.-)%s*$") or "")
+        local wl = trimmed:lower()
+        local continuousLoop = wl:match(" loop%s*$") ~= nil
+        local work = trimmed
+        if continuousLoop then
+            work = (trimmed:gsub("%s+[Ll][Oo][Oo][Pp]%s*$", ""):match("^%s*(.-)%s*$") or "")
+        end
+        local q = (work:match("^%s*(.-)%s*$") or ""):lower()
+        if q == "" then
+            if flingLoopActive or flingActive or flingSettling then
+                cancelFlingWork()
+                whisper("Fling loop stopped")
+                return
+            end
+            whisper("!fling all | sheriff | murder | <name> — add loop to repeat, !fling alone stops")
+            return
+        end
+
+        if flingLoopContinuous then
+            whisper('You need to toggle off fling loop using "!fling"')
+            return
+        end
+
+        local mode, playerQuery = "player", work
+        local first = q:match("^(%S+)")
+        if first == "all" then
+            mode, playerQuery = "all", ""
+        elseif first == "sheriff" or first == "sher" or first == "sherif" then
+            mode, playerQuery = "sheriff", ""
+        elseif first == "murder" or first == "murd" or first == "murderer" then
+            mode, playerQuery = "murder", ""
+        end
+
+        if continuousLoop and mode == "all" then
+            whisper("Use !fling all only")
+            return
+        end
+
+        if mode == "player" then
+            if not findOtherPlayer(work) then
+                whisper("Could not find player: " .. work)
+                return
+            end
+        end
+
+        flingActive = false
+        flingLoopGen = flingLoopGen + 1
+        local gen = flingLoopGen
+        flingLoopActive = true
+
+        local loopArg = continuousLoop and mode ~= "all"
+        flingLoopContinuous = loopArg
+        runFlingLoop(mode, playerQuery, gen, loopArg)
+        if mode == "all" then
+            whisper("Flinging everyone")
+        elseif loopArg then
+            local label = mode == "player" and work or mode
+            whisper("Say !fling alone to stop the loop")
+            task.wait(0.3)
+            whisper("Looping on: " .. label)
+        else
+            whisper("Flinging " .. (mode == "player" and work or mode))
+        end
+        return
+    end
+    local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
+    local ownerIsMurd = session.ownerId and m and not botHasKnife() and m.UserId == session.ownerId
+    if cmd == "dethrone" then
+        if p.Name:lower() == FRAUD_NAME then fraudOptedOut = true end
+        session.ownerId = nil
+        toggleGun, toggleShoot, toggleAlerts, toggleWho = false, false, false, true
+        gunTargetId, shootTargetId, gunDelivered = nil, nil, false
+        stopToggleShootWorker()
+        sendChat("Owner released")
+        task.delay(0.8, sendBrandingClaim)
+        return
+    elseif cmd == "chat" then
+        sendChat(rest)
+        whisper("Chat sent")
+    elseif cmd == "who" then
+        local botM, botS = botHasKnife(), botHasGun()
+        local mL = botM and "Me" or (m and shortName(m)) or "?"
+        local sL = botS and "Me" or (s and shortName(s)) or "?"
+        whisper("Murderer: " .. mL)
+        task.wait(0.3)
+        whisper("Sheriff: " .. sL)
+    elseif cmd == "tp" then
+        local t = findPlayer(args[2]) or findOwner()
+        if not t then whisper("Player not found") return end
+        tpTo(t)
+        whisper("Teleported to " .. shortName(t))
+    elseif cmd == "tpmurd" then
+        if not m then whisper("Murderer not found") return end
+        tpTo(m)
+        whisper("Teleported to murderer")
+    elseif cmd == "tpsher" then
+        if not s then whisper("Sheriff not found") return end
+        tpTo(s)
+        whisper("Teleported to sheriff")
+    elseif cmd == "shoot" then
+        local q = restOfChatArgs(args)
+        if q == "" then whisper("!shoot <player>") return end
+        local picked = findOtherPlayer(q)
+        if not picked then whisper("Player not found") return end
+        local targetUid = picked.UserId
+        if ownerIsMurd or botHasKnife() then whisper("No gun available") return end
+        if _G.MM_StabBusy then whisper("Stab busy, try again") return end
+        if _G.MM_GunBusy then whisper("Gun busy, try again") return end
+        _G.MM_GunBusy = true
+        whisper("Shooting " .. shortName(picked))
+        task.spawn(function()
+            local status = "Player not found"
+            local ok, err = pcall(function()
+                local tgt = Players:GetPlayerByUserId(targetUid)
+                if not tgt or not isAlive(tgt) then return end
+                local _, msg = shootTargetLoop(tgt)
+                status = msg
+            end)
+            if not ok then
+                status = "Shoot failed"
+                log(tostring(err))
+            end
+            whisperCombatResult(status)
+            _G.MM_GunBusy = false
+            runDeferredOwnerResetIfIdle()
+        end)
+    elseif cmd == "stab" then
+        if not botHasKnife() then whisper("Bot needs to be murderer") return end
+        local q = restOfChatArgs(args)
+        if q == "" then whisper("!stab sheriff | <name>") return end
+        local wl = q:lower()
+        local first = wl:match("^(%S+)")
+        local picked
+        if first == "sheriff" or first == "sher" or first == "sherif" then
+            picked = findHolder({"Gun", "Revolver"})
+            if not picked or picked == me then whisper("Sheriff not found") return end
+        else
+            picked = findOtherPlayer(q)
+            if not picked then whisper("Player not found") return end
+        end
+        if _G.MM_StabBusy then whisper("Stab busy, try again") return end
+        if _G.MM_GunBusy then whisper("Gun busy, try again") return end
+        local targetUid = picked.UserId
+        _G.MM_StabBusy = true
+        whisper("Stabbing " .. shortName(picked))
+        task.spawn(function()
+            local status = "Player not found"
+            local ok, err = pcall(function()
+                local tgt = Players:GetPlayerByUserId(targetUid)
+                if not tgt or not isAlive(tgt) then return end
+                local _, msg = stabTargetLoop(tgt)
+                status = msg
+            end)
+            if not ok then
+                status = "Stab failed"
+                log(tostring(err))
+            end
+            whisperCombatResult(status)
+            _G.MM_StabBusy = false
+            runDeferredOwnerResetIfIdle()
+        end)
+    elseif cmd == "gun" then
+        local t = findPlayer(args[2]) or findOwner()
+        if not t then whisper("Player not found") return end
+        if ownerIsMurd then whisper("No gun available") return end
+        if botHasKnife() then whisper("No gun available") return end
+        if not (botHasGun() or findDroppedGun()) then whisper("No gun available") return end
+        bringGun(t)
+        whisper("Gun delivered to " .. shortName(t))
+    elseif cmd == "spawn" or cmd == "home" then
+        tpHome()
+        whisper("Teleported to spawn")
+    elseif cmd == "reset" then
+        whisper("Resetting")
+        reset()
+    elseif cmd == "rejoin" then
+        whisper("Rejoining")
+        hopServer("manual rejoin", false)
+    elseif cmd == "togglegun" then
+        if ownerIsMurd then whisper("No gun available") return end
+        if args[2] then
+            local t = findPlayer(args[2])
+            if not t then whisper("Player not found") return end
+            toggleGun, gunTargetId, gunDelivered = true, t.UserId, false
+            whisper("Auto-gun on: " .. shortName(t))
+        else
+            toggleGun = not toggleGun
+            gunTargetId, gunDelivered = nil, false
+            whisper("Auto-gun: " .. (toggleGun and "on" or "off"))
+        end
+    elseif cmd == "togglealerts" then
+        toggleAlerts = not toggleAlerts
+        whisper("Kill alerts: " .. (toggleAlerts and "on" or "off"))
+    elseif cmd == "togglewho" then
+        toggleWho = not toggleWho
+        whisper("Role callouts: " .. (toggleWho and "on" or "off"))
+    elseif cmd == "toggleshoot" then
+        if ownerIsMurd or botHasKnife() then whisper("No gun available") return end
+        local q = restOfChatArgs(args)
+        if q == "" then
+            if toggleShoot then
+                toggleShoot = false
+                shootTargetId = nil
+                stopToggleShootWorker()
+                whisper("Auto-shoot: off")
+            else
+                toggleShoot = true
+                shootTargetId = nil
+                whisper("Auto-shoot murderer: on")
+                startToggleShootWorker()
+            end
+        else
+            local picked = findOtherPlayer(q)
+            if not picked then whisper("Player not found") return end
+            toggleShoot = true
+            shootTargetId = picked.UserId
+            whisper("Auto-shoot on: " .. shortName(picked))
+            startToggleShootWorker()
+        end
+    elseif cmd == "follow" then
+        local t = findPlayer(args[2]) or findOwner()
+        if not t then whisper("Player not found") return end
+        local wasActive = followTarget ~= nil
+        local switching = followTarget ~= t
+        followTarget = t
+        if switching then tpTo(t) end
+        whisper("Following " .. shortName(t))
+        if not wasActive then startFollowLoop() end
+    elseif cmd == "unfollow" then
+        if not followTarget then whisper("Not following anyone") return end
+        local name = shortName(followTarget)
+        followTarget = nil
+        whisper("Unfollowed " .. name)
+    elseif cmd == "help" then
+        local tail = restOfChatArgs(args)
+        tail = (tail:gsub("^!+", ""):match("^%s*(.-)%s*$") or "")
+        local helpCmd = (tail:match("^(%S+)") or ""):lower()
+        if helpCmd == "" and args[2] then
+            helpCmd = (tostring(args[2]):gsub("^!+", ""):match("^%s*(.-)%s*$") or ""):lower()
+        end
+        if helpCmd ~= "" and COMMAND_HELP[helpCmd] then
+            whisper("!" .. helpCmd .. ": " .. COMMAND_HELP[helpCmd])
+        elseif helpCmd ~= "" then
+            whisper("No help for !" .. helpCmd .. " — use !help for the list")
+        else
+            sendFullHelp()
+        end
+    end
+end
+local function routeCommand(p, msg)
+    msg = cleanChatText(msg)
+    if msg == "" or seenCommandRecently(p, msg) then return end
+    handleCommand(p, msg)
+end
+local function watchHiddenChat(p, msg)
+    local event = getHiddenChatEvent()
+    if not event or p == me then return end
+    local clean = cleanChatText(msg)
+    if clean == "" then return end
+    local hidden = true
+    local conn
+    conn = event.OnClientEvent:Connect(function(packet)
+        local packetMsg = packet and packet.Message
+        if packet and packet.SpeakerUserId == p.UserId and type(packetMsg) == "string" then
+            local suffix = clean:sub(math.max(1, #clean - #packetMsg + 1))
+            if packetMsg == suffix then
+                hidden = false
+            end
+        end
+    end)
+    task.delay(1, function()
+        if conn then conn:Disconnect() end
+        if hidden and session.active then
+            showHiddenChat(p, clean)
+            routeCommand(p, clean)
+        end
+    end)
+end
+local function tryAutoClaimFraud(p)
+    if fraudOptedOut then return end
+    if session.ownerId then return end
+    if p.Name:lower() ~= FRAUD_NAME then return end
+    if p == me then return end
+    session.ownerId = p.UserId
+    log("auto-claimed fraud as owner: " .. p.DisplayName)
+    scheduleOwnerOnboarding(p.UserId)
+end
+local function hookSpeaker(p)
+    p.Chatted:Connect(function(msg)
+        routeCommand(p, msg)
+        watchHiddenChat(p, msg)
+    end)
+    tryAutoClaimFraud(p)
+end
+for _, p in ipairs(Players:GetPlayers()) do hookSpeaker(p) end
+Players.PlayerAdded:Connect(hookSpeaker)
+Players.PlayerRemoving:Connect(function(p)
+    if session.ownerId and p.UserId == session.ownerId then
+        session.ownerId = nil
+        toggleGun, toggleShoot, toggleAlerts, toggleWho = false, false, false, true
+        gunTargetId, shootTargetId, gunDelivered = nil, nil, false
+        stopToggleShootWorker()
+        sendChat("Owner left")
+        task.delay(0.8, sendBrandingClaim)
+    end
+end)
+
+-- Executor becomes owner if nobody else claimed (e.g. fraud auto-claim); same onboarding as !owner
+if not session.ownerId then
+    session.ownerId = me.UserId
+    scheduleOwnerOnboarding(me.UserId)
+end
+
+task.spawn(function()
+    local joinedAt = tick()
+    local badPingSince = nil
+    local skipThisJoin = not hopState.pingSearchActive
+    while session.active do
+        if not skipThisJoin and not hopBusy then
+            local ping = getPingMs()
+            if ping then
+                local inRange = ping >= PING_MIN_MS and ping <= PING_MAX_MS
+                if inRange then
+                    if hopState.pingSearchActive then
+                        hopState.pingSearchActive = false
+                        log(("ping hop: found %.0fms server"):format(ping))
+                    end
+                    badPingSince = nil
+                else
+                    badPingSince = badPingSince or tick()
+                    if tick() - joinedAt >= 20 and tick() - badPingSince >= 15 then
+                        local owner = findOwner()
+                        if owner then whisper(("High ping (%dms), hopping"):format(math.floor(ping + 0.5))) end
+                        if not hopServer(("ping %.0fms"):format(ping), true) then
+                            badPingSince = tick() - 10
+                        end
                     end
                 end
             end
         end
-        wait(0.5)
+        task.wait(5)
     end
+end)
+
+--[[ Alerts watcher ]]--
+local function aliveState(p)
+    local char = p.Character
+    if not char then return nil end
+    local h = char:FindFirstChildOfClass("Humanoid")
+    if not h then return nil end
+    return h.Health > 0
+end
+task.spawn(function()
+    local alivePrev = {}
+    local knifeIdPrev, gunIdPrev = nil, nil
+    local droppedGunPrev = false
+    local suppressDrop = false
+    while session.active do
+        local kHolder = findHolder({"Knife"})
+        local gHolder = findHolder({"Gun", "Revolver"})
+        local kid = kHolder and kHolder.UserId
+        local gid = gHolder and gHolder.UserId
+        local droppedGun = findDroppedGun() ~= nil
+        if kid and not knifeIdPrev then suppressDrop = false end
+        -- Always watch owner life (not gated on toggleAlerts); nil cur = character gone after death.
+        if session.ownerId then
+            local own = Players:GetPlayerByUserId(session.ownerId)
+            if own and own ~= me then
+                local cur = aliveState(own)
+                local prev = alivePrev[own.UserId]
+                if prev == true and (cur == false or cur == nil) then
+                    if _G.MM_GunBusy or _G.MM_StabBusy then
+                        _G.MM_OwnerDiedPendingReset = true
+                        log("owner died during combat (reset deferred)")
+                    else
+                        log("owner died -> resetting bot")
+                        task.spawn(function() pcall(reset) end)
+                    end
+                end
+            end
+        end
+        if toggleAlerts and session.ownerId then
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= me then
+                    local cur = aliveState(p)
+                    local prev = alivePrev[p.UserId]
+                    if prev == true and cur == false then
+                        if p.UserId == knifeIdPrev then
+                            whisper("Sheriff eliminated the murderer")
+                            suppressDrop = true
+                        elseif p.UserId == gunIdPrev then
+                            whisper("Murderer killed Sheriff")
+                        elseif knifeIdPrev then
+                            whisper("Murderer killed " .. shortName(p))
+                        elseif gunIdPrev then
+                            whisper("Sheriff shot " .. shortName(p))
+                        end
+                    end
+                end
+            end
+            if gunIdPrev and not gid and not suppressDrop then
+                local prev = Players:GetPlayerByUserId(gunIdPrev)
+                if prev and aliveState(prev) == true then
+                    whisper("Sheriff dropped the gun")
+                end
+            end
+            if not gunIdPrev and gid and droppedGunPrev and gHolder then
+                whisper(shortName(gHolder) .. " picked up the gun")
+            end
+        end
+        for _, p in ipairs(Players:GetPlayers()) do
+            local cur = aliveState(p)
+            if cur ~= nil then
+                alivePrev[p.UserId] = cur
+            elseif alivePrev[p.UserId] == true then
+                alivePrev[p.UserId] = false
+            end
+        end
+        knifeIdPrev = kid
+        gunIdPrev = gid
+        droppedGunPrev = droppedGun
+        task.wait(0.12)
     end
+end)
+
+log("bot online")
+
+task.spawn(function()
+    task.wait(12)
+    if session.active and not session.ownerId then
+        sendBrandingClaim()
+    end
+    while session.active do
+        task.wait(BRAND_INTERVAL_SEC)
+        if session.active and not session.ownerId then
+            sendBrandingPeriodic()
+        end
+    end
+end)
+
+local function resolveRoleSnapshot(timeout)
+    local deadline = tick() + (timeout or 0)
+    local curM, curS, curBotM, curBotS
+    repeat
+        curM = findHolder({"Knife"})
+        curS = findHolder({"Gun", "Revolver"})
+        curBotM = botHasKnife()
+        curBotS = botHasGun()
+        if (curBotM or curM) and (curBotS or curS) then
+            break
+        end
+        if tick() >= deadline then break end
+        task.wait(0.15)
+    until false
+    return curM, curS, curBotM, curBotS
+end
+
+local function sendRoundRoleCallouts(curM, curS, curBotM, curBotS)
+    local mLabel = curBotM and "Me" or (curM and shortName(curM)) or "?"
+    local sLabel = curBotS and "Me" or (curS and shortName(curS)) or "?"
+    if session.ownerId then
+        if not whisperOk("Murderer: " .. mLabel) then return false end
+        task.wait(0.35)
+        return whisperOk("Sheriff: " .. sLabel)
+    end
+    sendChat("Murderer: " .. mLabel)
+    task.wait(0.6)
+    sendChat("Sheriff: " .. sLabel)
+    task.wait(0.6)
+    sendChat(BRAND_CLAIM)
+    return true
+end
+
+local function waitForRoleCallouts(curM, curS, curBotM, curBotS)
+    for _ = 1, 8 do
+        if sendRoundRoleCallouts(curM, curS, curBotM, curBotS) then return true end
+        task.wait(0.55)
+        curM, curS, curBotM, curBotS = resolveRoleSnapshot(0.5)
+    end
+    return false
+end
+
+--[[ Main loop ]]--
+local lastMurderId, announced, aloneMurderWinDone
+local ownerMurdSheriffDropDone = false
+while session.active and gui.Parent do
+    local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
+    local botM, botS = botHasKnife(), botHasGun()
+    local roundActive = isRoundActive()
+
+    if m then
+        if lastMurderId ~= m.UserId then
+            lastMurderId = m.UserId
+            pcall(function() img.Image = Players:GetUserThumbnailAsync(m.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150) end)
+            lbl.Text = m.DisplayName
+        end
+        f.Visible = true
+    else f.Visible, lastMurderId = false, nil end
+
+    if (m or botM) and not announced then
+        announced = true
+        whoAnnouncePending = true
+        tpHome()
+        local owner = findOwner()
+        task.spawn(function()
+            local curM, curS, curBotM, curBotS = resolveRoleSnapshot(2.5)
+
+            local rolesSent = true
+            if toggleWho or not session.ownerId then
+                rolesSent = waitForRoleCallouts(curM, curS, curBotM, curBotS)
+            end
+
+            local ownerIsMurdRound = owner and curM and owner.UserId == curM.UserId
+            if rolesSent and curBotS and isAlive(me) and (botHasGun() or findDroppedGun()) then
+                task.wait(0.35)
+                _G.MM_GunBusy = true
+                if not curBotM and ownerIsMurdRound then
+                    if stashGunAtSpawn() then
+                        ownerMurdSheriffDropDone = true
+                        gunDelivered = true
+                    end
+                elseif toggleGun and not curBotM and not ownerIsMurdRound then
+                    local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or findOwner()
+                    if gunTarget and gunTarget ~= me and isAlive(gunTarget) then
+                        bringGun(gunTarget)
+                        whisper("Gun delivered to " .. shortName(gunTarget))
+                        gunDelivered = true
+                    end
+                end
+                task.wait(0.35)
+                _G.MM_GunBusy = false
+            end
+
+            if curBotM and owner and curS and owner.UserId == curS.UserId then
+                tpTo(owner)
+            elseif session.ownerId and not curBotM then
+                tpHome()
+            end
+
+            roleAnnounceUnlockAt = tick() + 0.35
+            whoAnnouncePending = false
+        end)
+    elseif not roundActive then
+        announced, gunDelivered, aloneMurderWinDone, whoAnnouncePending = false, false, false, false
+        ownerMurdSheriffDropDone = false
+        roleAnnounceUnlockAt = 0
+    end
+
+    local ownerForDrop = findOwner()
+    local ownerIsMurd = ownerForDrop and m and not botM and ownerForDrop.UserId == m.UserId
+    if ownerIsMurd then
+        toggleGun = false
+        toggleShoot = false
+        gunTargetId = nil
+        shootTargetId = nil
+        gunDelivered = false
+        stopToggleShootWorker()
+    end
+
+    -- Fallback stash if round coroutine did not finish it
+    if session.ownerId and ownerIsMurd and SPAWN_CFRAME and not ownerMurdSheriffDropDone
+       and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt
+       and isAlive(me) and not _G.MM_GunBusy and not _G.MM_StabBusy and (botHasGun() or findDroppedGun()) then
+        _G.MM_GunBusy = true
+        task.spawn(function()
+            if stashGunAtSpawn() then
+                ownerMurdSheriffDropDone = true
+                gunDelivered = true
+            end
+            task.wait(2.5)
+            _G.MM_GunBusy = false
+        end)
+    end
+
+    if not session.ownerId and roundActive and m and not aloneMurderWinDone
+        and isOnlyMurdererLeftWithBot(m)
+    then
+        aloneMurderWinDone = true
+        log("no owner: bot + murderer only -> reset for murderer win")
+        task.spawn(function() pcall(reset) end)
+    end
+
+    local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or findOwner()
+    if toggleGun and not flingLoopContinuous and not botM and not ownerIsMurd and not gunDelivered and not _G.MM_GunBusy and not _G.MM_StabBusy and me.Character
+       and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt
+       and gunTarget and gunTarget ~= me and isAlive(gunTarget)
+       and (botHasGun() or findDroppedGun()) then
+        gunDelivered = true
+        _G.MM_GunBusy = true
+        task.spawn(function() bringGun(gunTarget); task.wait(3); _G.MM_GunBusy = false end)
+    end
+
+    if toggleShoot and session.ownerId and not toggleShootBusy and not botM and not ownerIsMurd
+        and not flingActive and not flingLoopActive and not flingLoopContinuous
+        and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt and isAlive(me)
+    then
+        startToggleShootWorker()
+    end
+
+    local subject = (s and s.Character and s.Character:FindFirstChildOfClass("Humanoid"))
+                  or findDroppedGun()
+                  or (me.Character and me.Character:FindFirstChildOfClass("Humanoid"))
+    if cam.CameraType ~= Enum.CameraType.Custom then cam.CameraType = Enum.CameraType.Custom end
+    if subject then cam.CameraSubject = subject end
+    cam.FieldOfView = WIDE_FOV
+    task.wait(0.5)
+end
+
+--[[ Cleanup ]]--
+cam.FieldOfView = DEFAULT_FOV
+do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+   if h then cam.CameraSubject = h end end
