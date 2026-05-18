@@ -865,24 +865,14 @@ local function stashGunAtSpawn()
     return ok
 end
 
-local function announceRolesToOwner()
-    if not toggleWho and session.ownerId then return end
-    local curM, curS = findHolder(KNIFE_NAMES), findHolder(GUN_NAMES)
-    local curBotM, curBotS = botHasKnife(), botHasGun()
-    local mLabel = curBotM and "Me" or (curM and shortName(curM)) or "?"
-    local sLabel = curBotS and "Me" or (curS and shortName(curS)) or "?"
-    if session.ownerId then
-        whisper("Murderer: " .. mLabel)
-        task.wait(0.3)
-        whisper("Sheriff: " .. sLabel)
-    else
-        sendChat("Murderer: " .. mLabel)
-        task.wait(0.6)
-        sendChat("Sheriff: " .. sLabel)
-        task.wait(0.6)
-        sendChat(PROMO_CLAIM)
-    end
+local function murdererKnown()
+    return findHolder(KNIFE_NAMES) or botHasKnife()
 end
+
+local function sheriffKnown()
+    return findHolder(GUN_NAMES) or botHasGun() or getDroppedGunTool() ~= nil or findDroppedGun() ~= nil
+end
+
 local function pickUpDroppedGun()
     return pullGunToolToBot()
 end
@@ -1521,6 +1511,26 @@ local function deliverWhisperLine(msg, uid)
     return false
 end
 
+local function announceRolesToOwner()
+    if not toggleWho and session.ownerId then return end
+    local curM, curS = findHolder(KNIFE_NAMES), findHolder(GUN_NAMES)
+    local curBotM, curBotS = botHasKnife(), botHasGun()
+    local mLabel = curBotM and "Me" or (curM and shortName(curM)) or "?"
+    local sLabel = curBotS and "Me" or (curS and shortName(curS)) or "?"
+    if session.ownerId then
+        local uid = session.ownerId
+        deliverWhisperLine("Murderer: " .. mLabel, uid)
+        task.wait(0.3)
+        deliverWhisperLine("Sheriff: " .. sLabel, uid)
+    else
+        sendChat("Murderer: " .. mLabel)
+        task.wait(0.6)
+        sendChat("Sheriff: " .. sLabel)
+        task.wait(0.6)
+        sendChat(PROMO_CLAIM)
+    end
+end
+
 local function sendFullHelp(target, gapBetween)
     gapBetween = gapBetween or 0.65
     local uid
@@ -1572,7 +1582,8 @@ local function scheduleOwnerOnboarding(userId)
     ownerOnboardGen = ownerOnboardGen + 1
     local gen = ownerOnboardGen
     task.spawn(function()
-        task.wait(2.4)
+        deliverWhisperLine("Loading new owner", userId)
+        task.wait(1.2)
         if gen ~= ownerOnboardGen or session.ownerId ~= userId then return end
         local o
         for _ = 1, 25 do
@@ -1583,8 +1594,7 @@ local function scheduleOwnerOnboarding(userId)
         end
         if not o then return end
         log("new owner: " .. o.DisplayName)
-        deliverWhisperLine("Loading new owner", userId)
-        task.wait(1.5)
+        task.wait(0.8)
         if gen ~= ownerOnboardGen or session.ownerId ~= userId then return end
         if not isLegacy then
             pcall(function() ensureWhisperChannel(o) end)
@@ -1625,7 +1635,14 @@ local function handleCommand(p, msg)
         end
         return
     end
-    if not session.ownerId or p.UserId ~= session.ownerId then return end
+    if not session.ownerId then
+        whisper("Type !owner to claim the bot", p)
+        return
+    end
+    if p.UserId ~= session.ownerId then
+        whisper("You are not the owner", p)
+        return
+    end
     if flingLoopContinuous and cmd ~= "fling" then
         whisper('You need to toggle off fling loop using "!fling"')
         return
@@ -1736,7 +1753,10 @@ local function handleCommand(p, msg)
             return
         end
         if _G.MM_StabBusy then whisper("Stab busy, try again") return end
-        if _G.MM_GunBusy then whisper("Gun busy, try again") return end
+        if _G.MM_GunBusy then
+            if toggleShootBusy then whisper("Gun busy, try again") return end
+            _G.MM_GunBusy = false
+        end
         _G.MM_GunBusy = true
         whisper("Shooting " .. shortName(picked))
         task.spawn(function()
@@ -1917,12 +1937,26 @@ local function watchHiddenChat(p, msg)
 end
 local function tryAutoClaimFraud(p)
     if fraudOptedOut then return end
-    if session.ownerId then return end
     if p.Name:lower() ~= FRAUD_NAME then return end
     if p == me then return end
+    if session.ownerId and session.ownerId ~= me.UserId and session.ownerId ~= p.UserId then return end
+    local prevId = session.ownerId
     session.ownerId = p.UserId
     log("auto-claimed fraud as owner: " .. p.DisplayName)
-    scheduleOwnerOnboarding(p.UserId)
+    if prevId ~= p.UserId then
+        scheduleOwnerOnboarding(p.UserId)
+    end
+end
+
+local function bootstrapOwner()
+    for _, pl in ipairs(Players:GetPlayers()) do
+        tryAutoClaimFraud(pl)
+        if session.ownerId and session.ownerId ~= me.UserId then return end
+    end
+    if not session.ownerId then
+        session.ownerId = me.UserId
+        scheduleOwnerOnboarding(me.UserId)
+    end
 end
 local function hookSpeaker(p)
     p.Chatted:Connect(function(msg)
@@ -1942,11 +1976,10 @@ Players.PlayerRemoving:Connect(function(p)
     end
 end)
 
--- Executor becomes owner if nobody else claimed (e.g. fraud auto-claim); same onboarding as !owner
-if not session.ownerId then
-    session.ownerId = me.UserId
-    scheduleOwnerOnboarding(me.UserId)
-end
+task.defer(function()
+    task.wait(0.35)
+    if session.active then bootstrapOwner() end
+end)
 
 task.spawn(function()
     local joinedAt = tick()
@@ -2091,8 +2124,9 @@ local function resolveRoleSnapshot(timeout)
 end
 
 --[[ Main loop ]]--
-local lastMurderId, announced, aloneMurderWinDone
-local lastRoundAnnounceKey = nil
+local lastMurderId, aloneMurderWinDone
+local lastRoundSetupKey = nil
+local roundSetupGen = 0
 local whoAnnouncePending = false
 local ownerMurdSheriffDropDone = false
 local ownerMurdStashBusy = false
@@ -2111,64 +2145,50 @@ while session.active and gui.Parent do
         f.Visible = true
     else f.Visible, lastMurderId = false, nil end
 
-    local roundMurdId = m and m.UserId or (botM and me.UserId)
-    local roundSheriffId = s and s.UserId or (botS and me.UserId)
-    local roundKey = tostring(roundMurdId or "") .. ":" .. tostring(roundSheriffId or "")
-    if roundMurdId and roundKey ~= lastRoundAnnounceKey then
-        announced = false
-        ownerMurdSheriffDropDone = false
-        lastRoundAnnounceKey = roundKey
-    end
-
-    if (m or botM) and not announced then
-        announced = true
-        whoAnnouncePending = true
-        -- Murderer / round detected: spawn TP immediately before msgs or gun work
-        tpHomeBurst()
-        task.spawn(function()
-            local curM, curS, curBotM, curBotS
-            local murdKnown = false
-            for _ = 1, 50 do
-                curM = findHolder({"Knife"})
-                curS = findHolder({"Gun", "Revolver"})
-                curBotM = botHasKnife()
-                curBotS = botHasGun()
-                if (curM or curBotM) and not murdKnown then
-                    murdKnown = true
-                    tpHomeBurst()
+    if murdererKnown() and sheriffKnown() then
+        local roundMurdId = m and m.UserId or (botM and me.UserId)
+        local roundSheriffId = s and s.UserId or (botS and me.UserId)
+        local roundKey = tostring(roundMurdId or "") .. ":" .. tostring(roundSheriffId or "")
+        if roundKey ~= lastRoundSetupKey then
+            lastRoundSetupKey = roundKey
+            ownerMurdSheriffDropDone = false
+            roundSetupGen = roundSetupGen + 1
+            local gen = roundSetupGen
+            whoAnnouncePending = true
+            tpHomeBurst()
+            task.spawn(function()
+                local curM, curS, curBotM, curBotS
+                for _ = 1, 80 do
+                    if gen ~= roundSetupGen or not session.active then return end
+                    if murdererKnown() and sheriffKnown() then break end
+                    task.wait(0.05)
                 end
-                if (curBotM or curM) and (curBotS or curS) then break end
-                task.wait(0.05)
-            end
-            if not murdKnown and (curM or curBotM) then
+                if gen ~= roundSetupGen then return end
                 tpHomeBurst()
-            end
-            curM, curS, curBotM, curBotS = resolveRoleSnapshot(0.6)
-            if curM or curBotM then
+                curM, curS, curBotM, curBotS = resolveRoleSnapshot(0.5)
+                if gen ~= roundSetupGen then return end
                 tpHomeBurst()
-            end
 
-            local ownerIsMurdRound = ownerIsMurdererThisRound(curM)
-            local deferGunStash = not curBotM and ownerIsMurdRound and (curBotS or botHasGun())
-
-            announceRolesToOwner()
-
-            if deferGunStash and isAlive(me) and (botHasGun() or getDroppedGunTool() or findDroppedGun()) then
-                task.wait(0.85)
-            end
-
-            if isAlive(me) and not curBotM and ownerIsMurdRound
-                and (botHasGun() or getDroppedGunTool() or findDroppedGun())
-            then
-                if stashGunAtSpawn() then
-                    ownerMurdSheriffDropDone = true
-                    gunDelivered = true
+                if toggleWho then
+                    announceRolesToOwner()
                 end
-                task.wait(0.35)
-            end
 
-            if toggleGun and not curBotM and not ownerIsMurdRound
-                and isAlive(me) and (botHasGun() or getDroppedGunTool() or findDroppedGun()) then
+                local ownerIsMurdRound = ownerIsMurdererThisRound(curM)
+                if isAlive(me) and not curBotM and ownerIsMurdRound
+                    and (botHasGun() or getDroppedGunTool() or findDroppedGun())
+                then
+                    task.wait(0.35)
+                    if gen ~= roundSetupGen then return end
+                    if stashGunAtSpawn() then
+                        ownerMurdSheriffDropDone = true
+                        gunDelivered = true
+                    end
+                end
+
+                if gen ~= roundSetupGen then return end
+                if toggleGun and not curBotM and not ownerIsMurdRound
+                    and isAlive(me) and (botHasGun() or getDroppedGunTool() or findDroppedGun())
+                then
                     _G.MM_GunBusy = true
                     local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or findOwner()
                     if gunTarget and gunTarget ~= me and isAlive(gunTarget) then
@@ -2178,26 +2198,27 @@ while session.active and gui.Parent do
                     end
                     task.wait(0.45)
                     _G.MM_GunBusy = false
-            end
-
-            task.wait(0.5)
-            local owner = findOwner()
-            if curBotM then
-                if owner and curS and owner.UserId == curS.UserId then
-                    for i = 1, 3 do tpTo(owner); task.wait(0.6) end
                 end
-            elseif session.ownerId then
-                tpHome()
-            end
 
-            roleAnnounceUnlockAt = tick() + 0.35
-            whoAnnouncePending = false
-        end)
+                if gen ~= roundSetupGen then return end
+                local owner = findOwner()
+                if curBotM then
+                    if owner and curS and owner.UserId == curS.UserId then
+                        for i = 1, 3 do tpTo(owner); task.wait(0.6) end
+                    end
+                elseif session.ownerId then
+                    tpHome()
+                end
+
+                roleAnnounceUnlockAt = tick() + 0.35
+                whoAnnouncePending = false
+            end)
+        end
     elseif not roundActive then
-        announced, gunDelivered, aloneMurderWinDone, whoAnnouncePending = false, false, false, false
+        gunDelivered, aloneMurderWinDone, whoAnnouncePending = false, false, false
         ownerMurdSheriffDropDone = false
         ownerMurdStashBusy = false
-        lastRoundAnnounceKey = nil
+        lastRoundSetupKey = nil
         roleAnnounceUnlockAt = 0
     end
 
