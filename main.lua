@@ -167,9 +167,15 @@ local function findHolder(names)
 end
 local function botHasKnife() return playerHas(me, KNIFE_NAMES) end
 local function ownerIsMurderer()
-    if not session.ownerId or session.ownerId == me.UserId then return false end
+    if not session.ownerId then return false end
     local o = Players:GetPlayerByUserId(session.ownerId)
     return o and playerHas(o, KNIFE_NAMES)
+end
+local function ownerIsMurdererThisRound(curM)
+    local o = findOwner()
+    if not o then return false end
+    if curM and o.UserId == curM.UserId then return true end
+    return playerHas(o, KNIFE_NAMES)
 end
 local function getDroppedGunTool()
     local h = hrp()
@@ -601,8 +607,9 @@ local function shootPredictLead(root, hum, lastPos, lastT)
     return vh.Unit * math.min(snap + ahead, 14)
 end
 
--- example.lua murderer TP: HRP * CFrame.new(-1.5, 0, 4) then wait(0.2) then slash
-local SHOOT_TP_LOCAL = CFrame.new(-1.5, 0.35, 3.5)
+-- Far + elevated so murderer cannot stab during shot
+local SHOOT_TP_BACK = 14
+local SHOOT_TP_UP = 12
 local SHOOT_RELOAD_MIN = 2.35
 
 local function getShootAimPoint(target, lastPos, lastT, lateral)
@@ -624,7 +631,8 @@ local function getShootCFrame(target, lastPos, lastT)
     if not th then return end
     local aim, curPos = getShootAimPoint(target, lastPos, lastT)
     if not aim then return end
-    local tpPos = (th.CFrame * SHOOT_TP_LOCAL).Position
+    local back = -th.CFrame.LookVector.Unit
+    local tpPos = th.Position + back * SHOOT_TP_BACK + Vector3.new(0, SHOOT_TP_UP, 0)
     return CFrame.new(tpPos, aim), aim, curPos
 end
 
@@ -819,6 +827,21 @@ local function bringGun(target)
         dropGunAt(target)
     end
 end
+local function placeGunAtSpawnCFrame()
+    local gun = findGunOnPlayer(me)
+    if not gun then return false end
+    local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+    if not hum then return false end
+    pcall(function() hum:UnequipTools() end)
+    local handle = gun:FindFirstChild("Handle") or gun:FindFirstChildWhichIsA("BasePart")
+    if not handle then return false end
+    pcall(function()
+        gun.Parent = workspace
+        handle.CFrame = SPAWN_CFRAME * CFrame.new(0, 2.5, 0)
+    end)
+    return true
+end
+
 local function stashGunAtSpawn()
     if _G.MM_StabBusy or _G.MM_GunBusy then return false end
     if not SPAWN_CFRAME or not isAlive(me) then return false end
@@ -829,13 +852,36 @@ local function stashGunAtSpawn()
             if not (getDroppedGunTool() or findDroppedGun()) then return end
             if not pullGunToolToBot() then return end
         end
-        for i = 1, 2 do tpHome(); task.wait(0.15) end
-        task.wait(0.1)
-        reset()
-        ok = true
+        for _ = 1, 3 do tpHome(); task.wait(0.12) end
+        if not placeGunAtSpawnCFrame() then return end
+        local hum = me.Character:FindFirstChildOfClass("Humanoid")
+        if hum then
+            pcall(function() hum.Health = 0 end)
+        end
+        task.wait(0.35)
+        ok = getDroppedGunTool() ~= nil or findDroppedGun() ~= nil or not botHasGun()
     end)
     _G.MM_GunBusy = false
     return ok
+end
+
+local function announceRolesToOwner()
+    if not toggleWho and session.ownerId then return end
+    local curM, curS = findHolder(KNIFE_NAMES), findHolder(GUN_NAMES)
+    local curBotM, curBotS = botHasKnife(), botHasGun()
+    local mLabel = curBotM and "Me" or (curM and shortName(curM)) or "?"
+    local sLabel = curBotS and "Me" or (curS and shortName(curS)) or "?"
+    if session.ownerId then
+        whisper("Murderer: " .. mLabel)
+        task.wait(0.3)
+        whisper("Sheriff: " .. sLabel)
+    else
+        sendChat("Murderer: " .. mLabel)
+        task.wait(0.6)
+        sendChat("Sheriff: " .. sLabel)
+        task.wait(0.6)
+        sendChat(PROMO_CLAIM)
+    end
 end
 local function pickUpDroppedGun()
     return pullGunToolToBot()
@@ -877,15 +923,9 @@ local function shootPass(target, lastPos, lastT)
     mh.CFrame = lookCf
     zeroVel(mh)
     aimCameraAt(mh.Position, aimPoint)
-    task.wait(0.2)
-    lookCf, aimPoint = getShootCFrame(target, nil, nil)
-    if lookCf and aimPoint then
-        zeroVel(mh)
-        mh.CFrame = lookCf
-        zeroVel(mh)
-        aimCameraAt(mh.Position, aimPoint)
-    end
+    task.wait(0.06)
     fireGunLeftClick(gun, target, lastPos, lastT)
+    tpHome()
     restoreShootCamera()
     return true, curPos or (target.Character and target.Character:FindFirstChild("HumanoidRootPart") and target.Character.HumanoidRootPart.Position)
 end
@@ -902,8 +942,6 @@ local function shootTargetLoop(target)
         local ok, curPos = shootPass(target, lastPos, lastT)
         if not ok then return false, "Shot failed" end
         if curPos then lastPos, lastT = curPos, tick() end
-        tpHome()
-        task.wait(0.05)
         if not isAlive(target) then
             return true, "Killed " .. shortName(target)
         end
@@ -1672,12 +1710,7 @@ local function handleCommand(p, msg)
         sendChat(rest)
         whisper("Chat sent")
     elseif cmd == "who" then
-        local botM, botS = botHasKnife(), botHasGun()
-        local mL = botM and "Me" or (m and shortName(m)) or "?"
-        local sL = botS and "Me" or (s and shortName(s)) or "?"
-        whisper("Murderer: " .. mL)
-        task.wait(0.3)
-        whisper("Sheriff: " .. sL)
+        announceRolesToOwner()
     elseif cmd == "tp" then
         local t = findPlayer(args[2]) or findOwner()
         if not t then whisper("Player not found") return end
@@ -2059,6 +2092,7 @@ end
 
 --[[ Main loop ]]--
 local lastMurderId, announced, aloneMurderWinDone
+local lastRoundAnnounceKey = nil
 local whoAnnouncePending = false
 local ownerMurdSheriffDropDone = false
 local ownerMurdStashBusy = false
@@ -2077,12 +2111,20 @@ while session.active and gui.Parent do
         f.Visible = true
     else f.Visible, lastMurderId = false, nil end
 
+    local roundMurdId = m and m.UserId or (botM and me.UserId)
+    local roundSheriffId = s and s.UserId or (botS and me.UserId)
+    local roundKey = tostring(roundMurdId or "") .. ":" .. tostring(roundSheriffId or "")
+    if roundMurdId and roundKey ~= lastRoundAnnounceKey then
+        announced = false
+        ownerMurdSheriffDropDone = false
+        lastRoundAnnounceKey = roundKey
+    end
+
     if (m or botM) and not announced then
         announced = true
         whoAnnouncePending = true
         -- Murderer / round detected: spawn TP immediately before msgs or gun work
         tpHomeBurst()
-        local owner = findOwner()
         task.spawn(function()
             local curM, curS, curBotM, curBotS
             local murdKnown = false
@@ -2106,47 +2148,27 @@ while session.active and gui.Parent do
                 tpHomeBurst()
             end
 
-            local ownerIsMurdRound = owner and curM and owner.UserId == curM.UserId
-            local deferGunWork = (not curBotM and ownerIsMurdRound and (curBotS or botHasGun() or findDroppedGun()))
-                or (toggleGun and not curBotM and not ownerIsMurdRound and (curBotS or botHasGun() or findDroppedGun()))
+            local ownerIsMurdRound = ownerIsMurdererThisRound(curM)
+            local deferGunStash = not curBotM and ownerIsMurdRound and (curBotS or botHasGun())
 
-            -- Stash at spawn only when owner is murderer and we are not deferring (msgs first)
+            announceRolesToOwner()
+
+            if deferGunStash and isAlive(me) and (botHasGun() or getDroppedGunTool() or findDroppedGun()) then
+                task.wait(0.85)
+            end
+
             if isAlive(me) and not curBotM and ownerIsMurdRound
-                and (botHasGun() or getDroppedGunTool() or findDroppedGun()) and not deferGunWork
+                and (botHasGun() or getDroppedGunTool() or findDroppedGun())
             then
                 if stashGunAtSpawn() then
                     ownerMurdSheriffDropDone = true
                     gunDelivered = true
                 end
-                task.wait(0.45)
+                task.wait(0.35)
             end
 
-            local tellRoles = toggleWho or not session.ownerId or curBotS
-            if tellRoles then
-                local mLabel = curBotM and "Me" or (curM and shortName(curM)) or "?"
-                local sLabel = curBotS and "Me" or (curS and shortName(curS)) or "?"
-                if session.ownerId then
-                    whisper("Murderer: " .. mLabel)
-                    task.wait(0.3)
-                    whisper("Sheriff: " .. sLabel)
-                else
-                    sendChat("Murderer: " .. mLabel)
-                    task.wait(0.6)
-                    sendChat("Sheriff: " .. sLabel)
-                    task.wait(0.6)
-                    sendChat(PROMO_CLAIM)
-                end
-            end
-
-            if deferGunWork and isAlive(me) and (botHasGun() or getDroppedGunTool() or findDroppedGun()) then
-                task.wait(1)
-                if ownerIsMurdRound and not curBotM then
-                    if stashGunAtSpawn() then
-                        ownerMurdSheriffDropDone = true
-                        gunDelivered = true
-                    end
-                    task.wait(0.45)
-                elseif toggleGun and not curBotM and not ownerIsMurdRound then
+            if toggleGun and not curBotM and not ownerIsMurdRound
+                and isAlive(me) and (botHasGun() or getDroppedGunTool() or findDroppedGun()) then
                     _G.MM_GunBusy = true
                     local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or findOwner()
                     if gunTarget and gunTarget ~= me and isAlive(gunTarget) then
@@ -2156,10 +2178,10 @@ while session.active and gui.Parent do
                     end
                     task.wait(0.45)
                     _G.MM_GunBusy = false
-                end
             end
 
             task.wait(0.5)
+            local owner = findOwner()
             if curBotM then
                 if owner and curS and owner.UserId == curS.UserId then
                     for i = 1, 3 do tpTo(owner); task.wait(0.6) end
@@ -2175,22 +2197,21 @@ while session.active and gui.Parent do
         announced, gunDelivered, aloneMurderWinDone, whoAnnouncePending = false, false, false, false
         ownerMurdSheriffDropDone = false
         ownerMurdStashBusy = false
+        lastRoundAnnounceKey = nil
         roleAnnounceUnlockAt = 0
     end
 
-    local ownerForDrop = findOwner()
-    local ownerIsMurd = ownerForDrop and m and not botM and ownerForDrop.UserId == m.UserId
+    local ownerIsMurd = ownerIsMurderer() and not botM
     if ownerIsMurd then
         toggleGun = false
         toggleShoot = false
         gunTargetId = nil
         shootTargetId = nil
-        gunDelivered = false
     end
 
     -- Fallback stash if round coroutine did not finish it
     if session.ownerId and ownerIsMurd and SPAWN_CFRAME and not ownerMurdSheriffDropDone
-       and not ownerMurdStashBusy and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt
+       and not ownerMurdStashBusy and tick() >= roleAnnounceUnlockAt
        and isAlive(me) and not botM and not _G.MM_GunBusy and not _G.MM_StabBusy
        and (botHasGun() or getDroppedGunTool() or findDroppedGun()) then
         ownerMurdStashBusy = true
