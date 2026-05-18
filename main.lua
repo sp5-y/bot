@@ -1203,45 +1203,54 @@ end
 
 local ownerOnboardingGen = 0
 
+local function resolveOwnerPlayer(userId)
+    if session.ownerId ~= userId then return nil end
+    return Players:GetPlayerByUserId(userId)
+end
+
+-- One line at a time; retry whisperOk, then one best-effort whisper() if all acks fail.
+local function deliverOwnerLine(userId, msg, attempts, step)
+    attempts = attempts or 14
+    step = step or 0.42
+    for _ = 1, attempts do
+        if session.ownerId ~= userId then return false end
+        local o = resolveOwnerPlayer(userId)
+        if o and whisperOk(msg, o) then return true end
+        task.wait(step)
+    end
+    local o = resolveOwnerPlayer(userId)
+    if not o then return false end
+    whisper(msg, o)
+    task.wait(0.35)
+    return whisperOk(msg, o) or session.ownerId == userId
+end
+
 local function sendFullHelpToOwner(userId, gapBetween)
-    gapBetween = gapBetween or 0.65
-    local function resolve()
-        if session.ownerId ~= userId then return end
-        return Players:GetPlayerByUserId(userId)
+    gapBetween = gapBetween or 0.75
+    if session.ownerId ~= userId then return false end
+
+    if not deliverOwnerLine(userId, "Use !help <command> for what a command does", 16, 0.45) then
+        return false
     end
-    for _ = 1, 12 do
-        local o = resolve()
-        if not o then
-            task.wait(0.25)
-        else
-            if whisperOk("Use !help <command> for what a command does", o) then
-                task.wait(gapBetween)
-                o = resolve()
-                if not o then break end
-                local parts = {}
-                for _, key in ipairs(HELP_ORDER) do
-                    table.insert(parts, "!" .. key)
-                end
-                local line = table.concat(parts, " ")
-                if #line <= 200 then
-                    if whisperOk(line, o) then return true end
-                else
-                    local mid = math.ceil(#HELP_ORDER / 2)
-                    local a, b = {}, {}
-                    for i, key in ipairs(HELP_ORDER) do
-                        if i <= mid then table.insert(a, "!" .. key) else table.insert(b, "!" .. key) end
-                    end
-                    if whisperOk(table.concat(a, " "), o) then
-                        task.wait(gapBetween)
-                        o = resolve()
-                        if o and whisperOk(table.concat(b, " "), o) then return true end
-                    end
-                end
-            end
-            task.wait(0.55)
-        end
+    task.wait(gapBetween)
+
+    local parts = {}
+    for _, key in ipairs(HELP_ORDER) do
+        table.insert(parts, "!" .. key)
     end
-    return false
+    local line = table.concat(parts, " ")
+    if #line <= 200 then
+        return deliverOwnerLine(userId, line, 16, 0.45)
+    end
+
+    local mid = math.ceil(#HELP_ORDER / 2)
+    local a, b = {}, {}
+    for i, key in ipairs(HELP_ORDER) do
+        if i <= mid then table.insert(a, "!" .. key) else table.insert(b, "!" .. key) end
+    end
+    if not deliverOwnerLine(userId, table.concat(a, " "), 16, 0.45) then return false end
+    task.wait(gapBetween)
+    return deliverOwnerLine(userId, table.concat(b, " "), 16, 0.45)
 end
 
 local function scheduleOwnerOnboarding(userId)
@@ -1251,31 +1260,43 @@ local function scheduleOwnerOnboarding(userId)
         task.wait(1.1)
         if gen ~= ownerOnboardingGen or session.ownerId ~= userId then return end
         local o
-        for _ = 1, 30 do
+        for _ = 1, 40 do
             if gen ~= ownerOnboardingGen or session.ownerId ~= userId then return end
-            o = Players:GetPlayerByUserId(userId)
+            o = resolveOwnerPlayer(userId)
             if o then break end
             task.wait(0.12)
         end
-        if not o then return end
-        log("new owner: " .. o.DisplayName)
-        for _ = 1, 10 do
-            if gen ~= ownerOnboardingGen or session.ownerId ~= userId then return end
-            if whisperOk("Loading new owner", o) then break end
-            task.wait(0.45)
+        if not o then
+            log("onboarding: owner player not found")
+            return
         end
-        task.wait(0.5)
+        log("new owner: " .. o.DisplayName)
+
+        if not deliverOwnerLine(userId, "Loading new owner", 12, 0.4) then
+            log("onboarding: could not whisper Loading new owner")
+        end
+
+        task.wait(0.85)
+        if gen ~= ownerOnboardingGen or session.ownerId ~= userId then return end
+
+        local helpOk = false
+        for attempt = 1, 4 do
+            if gen ~= ownerOnboardingGen or session.ownerId ~= userId then return end
+            if sendFullHelpToOwner(userId, 0.75) then
+                helpOk = true
+                break
+            end
+            log("onboarding: help send attempt " .. attempt .. " failed, retrying")
+            task.wait(0.5 + attempt * 0.35)
+        end
+        if not helpOk then
+            log("onboarding: help whispers failed after retries")
+        end
+
         if gen ~= ownerOnboardingGen or session.ownerId ~= userId then return end
         if userId ~= me.UserId then
-            sendBrandingOnClaim()
-            task.wait(0.8)
-        end
-        if gen ~= ownerOnboardingGen or session.ownerId ~= userId then return end
-        if not sendFullHelpToOwner(userId, 0.65) then
             task.wait(0.6)
-            if gen == ownerOnboardingGen and session.ownerId == userId then
-                sendFullHelpToOwner(userId, 0.65)
-            end
+            sendBrandingOnClaim()
         end
     end)
 end
