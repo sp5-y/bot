@@ -30,6 +30,7 @@ _G.MM_GunBusy = _G.MM_GunBusy or false
 _G.MM_OwnerDiedPendingReset = _G.MM_OwnerDiedPendingReset or false
 local OWNER_MURD_GUN_MSG = "Gun unavailable"
 local OWNER_MURD_STASH_COOLDOWN = 3
+getgenv().XENO_BOT_AGE_GROUP = "verified_18"  -- or "unverified"
 
 --[[ Session ]]--
 if getgenv and getgenv().MM_Session then getgenv().MM_Session.active = false end
