@@ -1605,7 +1605,7 @@ Players.PlayerRemoving:Connect(function(p)
 end)
 
 --[[ Discord bridge (discord-xeno.py Flask) ]]--
-local XENO_BRIDGE_URL = (getgenv and getgenv().XENO_BRIDGE_URL) or "http://xenobotsmm2.xyz"
+local XENO_BRIDGE_URL = (getgenv and getgenv().XENO_BRIDGE_URL) or "https://xenobotsmm2.xyz"
 local XENO_BRIDGE_ENABLED = not (getgenv and getgenv().XENO_BRIDGE_ENABLED == false)
 local XENO_POLL_SEC = (getgenv and tonumber(getgenv().XENO_POLL_SEC)) or 10
 local bridgeAcked = {}
