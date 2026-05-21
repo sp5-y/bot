@@ -9,7 +9,6 @@ local Http = cref(game:GetService("HttpService"))
 local Stats = cref(game:GetService("Stats"))
 local StarterGui = cref(game:GetService("StarterGui"))
 local TeleportSvc = cref(game:GetService("TeleportService"))
-local VIM = pcall(function() return cref(game:GetService("VirtualInputManager")) end) and cref(game:GetService("VirtualInputManager")) or nil
 local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
 local me, cam = Players.LocalPlayer, workspace.CurrentCamera
 local UIS = cref(game:GetService("UserInputService"))
@@ -401,6 +400,31 @@ local function httpGet(url)
     end)
     if not ok or not body then return end
     return body.Body or body.body or body
+end
+
+local function httpJson(method, url, payload)
+    local body = payload and Http:JSONEncode(payload) or nil
+    local headers = {["Content-Type"] = "application/json"}
+    local bridgeKey = (getgenv and getgenv().XENO_BRIDGE_KEY) or ""
+    if bridgeKey ~= "" then headers["X-Xeno-Key"] = bridgeKey end
+    local requestFn = (syn and syn.request) or (http and http.request) or http_request or request or (fluxus and fluxus.request)
+    if requestFn then
+        local ok, res = pcall(function()
+            return requestFn({
+                Url = url,
+                Method = method,
+                Headers = headers,
+                Body = body,
+            })
+        end)
+        if ok and res then
+            local raw = res.Body or res.body or res
+            if type(raw) == "string" and raw ~= "" then return raw end
+        end
+    end
+    if method == "GET" and not body then
+        return httpGet(url)
+    end
 end
 
 local function queuePingSearchOnTeleport()
@@ -1391,7 +1415,7 @@ local function handleCommand(p, msg)
     end
     local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
     local ownerPlayer = findOwner()
-    local ownerIsMurd = ownerMurdererActive(m, ownerPlayer)
+    local ownerIsMurd = ownerMurdererActive(m, ownerPlayer) and not botHasKnife()
     if cmd == "dethrone" then
         if p.Name:lower() == FRAUD_NAME then fraudOptedOut = true end
         session.ownerId = nil
@@ -1476,7 +1500,7 @@ local function handleCommand(p, msg)
         whisper("Rejoining")
         hopServer("manual rejoin", false)
     elseif cmd == "togglegun" then
-        if ownerIsMurd then whisper(OWNER_MURD_GUN_MSG) return end
+        if args[2] and ownerIsMurd then whisper(OWNER_MURD_GUN_MSG) return end
         if args[2] then
             local t = findPlayer(args[2])
             if not t then whisper("Player not found") return end
@@ -1580,8 +1604,109 @@ Players.PlayerRemoving:Connect(function(p)
     end
 end)
 
--- Executor becomes owner if nobody else claimed (e.g. fraud auto-claim); same onboarding as !owner
-if not session.ownerId then
+--[[ Discord bridge (discord-xeno.py Flask) ]]--
+local XENO_BRIDGE_URL = (getgenv and getgenv().XENO_BRIDGE_URL) or "http://127.0.0.1:8765"
+local XENO_BRIDGE_ENABLED = not (getgenv and getgenv().XENO_BRIDGE_ENABLED == false)
+local XENO_POLL_SEC = (getgenv and tonumber(getgenv().XENO_POLL_SEC)) or 10
+local bridgeAcked = {}
+
+local function resolveUserIdFromName(name)
+    if not name or name == "" then return nil end
+    name = name:match("^%s*(.-)%s*$") or name
+    local lower = name:lower()
+    for _, pl in ipairs(Players:GetPlayers()) do
+        if pl.Name:lower() == lower or tostring(pl.DisplayName or ""):lower() == lower then
+            return pl.UserId
+        end
+    end
+    local ok, uid = pcall(function() return Players:GetUserIdFromNameAsync(name) end)
+    if ok and type(uid) == "number" then return uid end
+end
+
+local function setOwnerFromBridge(username)
+    local uid = resolveUserIdFromName(username)
+    if not uid then
+        return false, "Player not found (join the server or check spelling)"
+    end
+    local prevId = session.ownerId
+    session.ownerId = uid
+    if prevId ~= uid then
+        scheduleOwnerOnboarding(uid)
+    end
+    local pl = Players:GetPlayerByUserId(uid)
+    local label = pl and (pl.DisplayName ~= "" and pl.DisplayName or pl.Name) or username
+    return true, "Owner set to " .. label
+end
+
+local function bridgeAck(jobId, commandId, status, message)
+    if not commandId or commandId == "" then return end
+    bridgeAcked[commandId] = true
+    pcall(function()
+        httpJson("POST", XENO_BRIDGE_URL .. "/api/xeno/ack", {
+            job_id = jobId,
+            command_id = commandId,
+            status = status or "ok",
+            message = message or "",
+        })
+    end)
+end
+
+local function processBridgeCommands(jobId, commands)
+    if type(commands) ~= "table" then return end
+    for _, cmd in ipairs(commands) do
+        if type(cmd) == "table" and cmd.id and not bridgeAcked[cmd.id] then
+            local ctype = cmd.type
+            if ctype == "rejoin" then
+                log("bridge: rejoin requested")
+                bridgeAck(jobId, cmd.id, "ok", "rejoin queued")
+                task.spawn(function()
+                    hopServer("discord rejoin", false)
+                end)
+            elseif ctype == "set_owner" then
+                local who = cmd.roblox_username or cmd.username or ""
+                local ok, msg = setOwnerFromBridge(who)
+                log("bridge: set_owner " .. tostring(who) .. " -> " .. tostring(msg))
+                bridgeAck(jobId, cmd.id, ok and "ok" or "error", msg)
+            else
+                bridgeAck(jobId, cmd.id, "error", "unknown command")
+            end
+        end
+    end
+end
+
+local function bridgePollOnce()
+    local playerCount = #Players:GetPlayers()
+    local raw = httpJson("POST", XENO_BRIDGE_URL .. "/api/xeno/poll", {
+        job_id = game.JobId,
+        bot_username = me.Name,
+        place_id = game.PlaceId,
+        owner_id = session.ownerId,
+        player_count = playerCount,
+    })
+    if not raw then return false end
+    local ok, data = pcall(function() return Http:JSONDecode(raw) end)
+    if not ok or type(data) ~= "table" or not data.ok then return false end
+    processBridgeCommands(game.JobId, data.commands)
+    return true
+end
+
+if XENO_BRIDGE_ENABLED then
+    task.spawn(function()
+        log("bridge: polling " .. XENO_BRIDGE_URL .. " every " .. tostring(XENO_POLL_SEC) .. "s")
+        local fails = 0
+        while session.active do
+            if not bridgePollOnce() then
+                fails = fails + 1
+                if fails == 3 then
+                    log("bridge: cannot reach Flask (is discord-xeno.py running?)")
+                end
+            else
+                fails = 0
+            end
+            task.wait(XENO_POLL_SEC)
+        end
+    end)
+elseif not session.ownerId then
     session.ownerId = me.UserId
     scheduleOwnerOnboarding(me.UserId)
 end
@@ -1776,6 +1901,7 @@ while session.active and gui.Parent do
 
     if (m or botM) and not announced then
         announced = true
+        gunDelivered = false
         whoAnnouncePending = true
         tpHome()
         local owner = findOwner()
@@ -1790,22 +1916,6 @@ while session.active and gui.Parent do
                 end
             else
                 curM, curS, curBotM, curBotS = resolveRoleSnapshot(0.5)
-            end
-
-            local ownerIsMurdRound = ownerMurdererActive(curM, owner)
-            if not curBotM and toggleGun and not ownerIsMurdRound
-                and isAlive(me) and gunAvailableForOwnerMurdStash()
-            then
-                task.wait(0.35)
-                _G.MM_GunBusy = true
-                local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or findOwner()
-                if gunTarget and gunTarget ~= me and isAlive(gunTarget) then
-                    bringGun(gunTarget)
-                    whisper("Gun delivered to " .. shortName(gunTarget))
-                    gunDelivered = true
-                end
-                task.wait(0.35)
-                _G.MM_GunBusy = false
             end
 
             if curBotM and owner and curS and owner.UserId == curS.UserId then
@@ -1825,11 +1935,7 @@ while session.active and gui.Parent do
 
     local ownerForDrop = findOwner()
     local ownerIsMurd = ownerMurdererActive(m, ownerForDrop) and not botM
-    if ownerIsMurd then
-        toggleGun = false
-        gunTargetId = nil
-        gunDelivered = false
-    end
+    -- Do not clear toggleGun here — owner-murderer only pauses delivery below; user setting stays on.
 
     -- Owner murderer: auto stash at spawn (sheriff gun or any gun on the map) all round
     if session.ownerId and ownerIsMurd and roundActive and SPAWN_CFRAME
@@ -1837,7 +1943,7 @@ while session.active and gui.Parent do
        and tick() >= roleAnnounceUnlockAt
        and isAlive(me) and gunAvailableForOwnerMurdStash()
        and not _G.MM_GunBusy and not _G.MM_StabBusy
-       and not flingActive and not flingLoopActive and not flingLoopContinuous
+       and not flingActive and not flingLoopActive and not flingLoopContinuous and not flingSettling
     then
         ownerMurdStashBusy = true
         _G.MM_GunBusy = true
@@ -1860,6 +1966,7 @@ while session.active and gui.Parent do
     local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or findOwner()
     if toggleGun and not flingLoopContinuous and not botM and not ownerIsMurd and not gunDelivered and not _G.MM_GunBusy and not _G.MM_StabBusy and me.Character
        and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt
+       and not flingActive and not flingLoopActive and not flingSettling
        and gunTarget and gunTarget ~= me and isAlive(gunTarget)
        and gunAvailableForOwnerMurdStash() then
         gunDelivered = true
