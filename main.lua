@@ -14,14 +14,10 @@ local me, cam = Players.LocalPlayer, workspace.CurrentCamera
 local UIS = cref(game:GetService("UserInputService"))
 local DEFAULT_FOV, WIDE_FOV = 70, 100
 local SPAWN_CFRAME = CFrame.new(14.3513288, 505.044952, -58.2513657, 1, 0, 0, 0, 1, 0, 0, 0, 1)
-local FRAUD_NAME = "fraud4balenci"
-local BRAND_CLAIM = "XenoMM2 — Use !owner to claim free bot"
 local BRAND_PROMO = 'Try out "XenoBotsMM2" for more bots!'
-local BRAND_INTERVAL_SEC = 30 * 60
 local toggleGun = false
 local toggleAlerts = false
 local toggleWho = true
-local fraudOptedOut = false
 local gunTargetId = nil
 local gunDelivered = false
 local hopBusy = false
@@ -218,25 +214,8 @@ local function sendChat(msg)
         else RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(msg, "All") end
     end)
 end
-local brandBroadcastAlt = false
-local function sendBrandingClaim()
-    sendChat(BRAND_CLAIM)
-end
 local function sendBrandingPromo()
     sendChat(BRAND_PROMO)
-end
-local function sendBrandingOnClaim()
-    sendBrandingClaim()
-    task.wait(1.1)
-    sendBrandingPromo()
-end
-local function sendBrandingPeriodic()
-    brandBroadcastAlt = not brandBroadcastAlt
-    if brandBroadcastAlt then
-        sendBrandingClaim()
-    else
-        sendBrandingPromo()
-    end
 end
 local function findWhisperChannel(uid)
     uid = tostring(uid)
@@ -1112,13 +1091,6 @@ local function getAliveExcludingBot()
     return list
 end
 
-local function isOnlyMurdererLeftWithBot(murderer)
-    if not murderer or botHasKnife() then return false end
-    if not isAlive(me) or not isAlive(murderer) then return false end
-    local alive = getAliveExcludingBot()
-    return #alive == 1 and alive[1].UserId == murderer.UserId
-end
-
 local function startFollowLoop()
     task.spawn(function()
         while followTarget and session.active do
@@ -1145,7 +1117,7 @@ end
 
 --[[ Commands ]]--
 local COMMAND_HELP = {
-    owner = "Claim control of the bot",
+    owner = "Re-run onboarding if you are already owner (claim via Discord)",
     dethrone = "Release owner control",
     who = "Show current murderer and sheriff",
     stab = "sheriff | <name> - Murderer only, stab a given player",
@@ -1317,11 +1289,6 @@ local function scheduleOwnerOnboarding(userId)
             log("onboarding: help whispers failed after retries")
         end
 
-        if gen ~= ownerOnboardingGen or session.ownerId ~= userId then return end
-        if userId ~= me.UserId then
-            task.wait(0.6)
-            sendBrandingOnClaim()
-        end
     end)
 end
 
@@ -1330,14 +1297,8 @@ local function handleCommand(p, msg)
     local args = msg:split(" ")
     local cmd, rest = args[1]:sub(2):lower(), msg:sub(#args[1] + 2)
     if cmd == "owner" then
-        local isFraud = p.Name:lower() == FRAUD_NAME
-        local prevId = session.ownerId
-        if not session.ownerId or isFraud or session.ownerId == p.UserId then
-            session.ownerId = p.UserId
-            if isFraud then fraudOptedOut = false end
-            if prevId ~= p.UserId then
-                scheduleOwnerOnboarding(p.UserId)
-            end
+        if session.ownerId == p.UserId then
+            scheduleOwnerOnboarding(p.UserId)
         end
         return
     end
@@ -1417,12 +1378,11 @@ local function handleCommand(p, msg)
     local ownerPlayer = findOwner()
     local ownerIsMurd = ownerMurdererActive(m, ownerPlayer) and not botHasKnife()
     if cmd == "dethrone" then
-        if p.Name:lower() == FRAUD_NAME then fraudOptedOut = true end
         session.ownerId = nil
         toggleGun, toggleAlerts, toggleWho = false, false, true
         gunTargetId, gunDelivered = nil, false
         sendChat("Owner released")
-        task.delay(0.8, sendBrandingClaim)
+        task.delay(0.8, sendBrandingPromo)
         return
     elseif cmd == "chat" then
         sendChat(rest)
@@ -1576,21 +1536,11 @@ local function watchHiddenChat(p, msg)
         end
     end)
 end
-local function tryAutoClaimFraud(p)
-    if fraudOptedOut then return end
-    if session.ownerId then return end
-    if p.Name:lower() ~= FRAUD_NAME then return end
-    if p == me then return end
-    session.ownerId = p.UserId
-    log("auto-claimed fraud as owner: " .. p.DisplayName)
-    scheduleOwnerOnboarding(p.UserId)
-end
 local function hookSpeaker(p)
     p.Chatted:Connect(function(msg)
         routeCommand(p, msg)
         watchHiddenChat(p, msg)
     end)
-    tryAutoClaimFraud(p)
 end
 for _, p in ipairs(Players:GetPlayers()) do hookSpeaker(p) end
 Players.PlayerAdded:Connect(hookSpeaker)
@@ -1600,7 +1550,7 @@ Players.PlayerRemoving:Connect(function(p)
         toggleGun, toggleAlerts, toggleWho = false, false, true
         gunTargetId, gunDelivered = nil, false
         sendChat("Owner left")
-        task.delay(0.8, sendBrandingClaim)
+        task.delay(0.8, sendBrandingPromo)
     end
 end)
 
@@ -1712,6 +1662,9 @@ local function processBridgeClaim(claim)
         bridgeClaimId = claim.id
         bridgeAwaitingName = claim.roblox_username
         bridgeClaimExpiresAt = tonumber(claim.expires_at) or (os.time() + 900)
+        if claim.age_group then
+            G.MM_OwnerAgeGroup = claim.age_group
+        end
         if bridgeFulfilledClaimId ~= claim.id then
             fulfillBridgeClaim(claim.id, claim.roblox_username)
         end
@@ -1788,9 +1741,6 @@ if XENO_BRIDGE_ENABLED then
             task.wait(XENO_POLL_SEC)
         end
     end)
-elseif not session.ownerId then
-    session.ownerId = me.UserId
-    scheduleOwnerOnboarding(me.UserId)
 end
 
 task.spawn(function()
@@ -1907,19 +1857,6 @@ end)
 
 log("bot online")
 
-task.spawn(function()
-    task.wait(12)
-    if session.active and not session.ownerId then
-        sendBrandingClaim()
-    end
-    while session.active do
-        task.wait(BRAND_INTERVAL_SEC)
-        if session.active and not session.ownerId then
-            sendBrandingPeriodic()
-        end
-    end
-end)
-
 local function resolveRoleSnapshot(timeout)
     local deadline = tick() + (timeout or 0)
     local curM, curS, curBotM, curBotS
@@ -1938,19 +1875,12 @@ local function resolveRoleSnapshot(timeout)
 end
 
 local function sendRoundRoleCallouts(curM, curS, curBotM, curBotS)
+    if not session.ownerId then return false end
     local mLabel = curBotM and "Me" or (curM and shortName(curM)) or "?"
     local sLabel = curBotS and "Me" or (curS and shortName(curS)) or "?"
-    if session.ownerId then
-        if not whisperOk("Murderer: " .. mLabel) then return false end
-        task.wait(0.35)
-        return whisperOk("Sheriff: " .. sLabel)
-    end
-    sendChat("Murderer: " .. mLabel)
-    task.wait(0.6)
-    sendChat("Sheriff: " .. sLabel)
-    task.wait(0.6)
-    sendChat(BRAND_CLAIM)
-    return true
+    if not whisperOk("Murderer: " .. mLabel) then return false end
+    task.wait(0.35)
+    return whisperOk("Sheriff: " .. sLabel)
 end
 
 local function waitForRoleCallouts(curM, curS, curBotM, curBotS)
@@ -1965,7 +1895,7 @@ local function waitForRoleCallouts(curM, curS, curBotM, curBotS)
 end
 
 --[[ Main loop ]]--
-local lastMurderId, announced, aloneMurderWinDone
+local lastMurderId, announced
 local ownerMurdStashBusy = false
 while session.active and gui.Parent do
     local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
@@ -1990,7 +1920,7 @@ while session.active and gui.Parent do
         task.spawn(function()
             local curM, curS, curBotM, curBotS = resolveRoleSnapshot(2.5)
 
-            if toggleWho or not session.ownerId then
+            if toggleWho and session.ownerId then
                 local ok
                 ok, curM, curS, curBotM, curBotS = waitForRoleCallouts(curM, curS, curBotM, curBotS)
                 if not ok then
@@ -2010,7 +1940,7 @@ while session.active and gui.Parent do
             whoAnnouncePending = false
         end)
     elseif not roundActive then
-        announced, gunDelivered, aloneMurderWinDone, whoAnnouncePending = false, false, false, false
+        announced, gunDelivered, whoAnnouncePending = false, false, false
         ownerMurdStashBusy = false
         roleAnnounceUnlockAt = 0
     end
@@ -2035,14 +1965,6 @@ while session.active and gui.Parent do
             _G.MM_GunBusy = false
             ownerMurdStashBusy = false
         end)
-    end
-
-    if not session.ownerId and roundActive and m and not aloneMurderWinDone
-        and isOnlyMurdererLeftWithBot(m)
-    then
-        aloneMurderWinDone = true
-        log("no owner: bot + murderer only -> reset for murderer win")
-        task.spawn(function() pcall(reset) end)
     end
 
     local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or findOwner()
