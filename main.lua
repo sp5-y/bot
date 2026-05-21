@@ -1609,33 +1609,69 @@ local XENO_BRIDGE_URL = (getgenv and getgenv().XENO_BRIDGE_URL) or "https://xeno
 local XENO_BRIDGE_ENABLED = not (getgenv and getgenv().XENO_BRIDGE_ENABLED == false)
 local XENO_POLL_SEC = (getgenv and tonumber(getgenv().XENO_POLL_SEC)) or 10
 local bridgeAcked = {}
+local bridgeClaimId = nil
+local bridgeAwaitingName = nil
+local bridgeClaimExpiresAt = 0
+local bridgeFulfilledClaimId = nil
 
-local function resolveUserIdFromName(name)
-    if not name or name == "" then return nil end
-    name = name:match("^%s*(.-)%s*$") or name
+local function nameMatchesPlayer(pl, name)
+    if not pl or not name or name == "" then return false end
     local lower = name:lower()
-    for _, pl in ipairs(Players:GetPlayers()) do
-        if pl.Name:lower() == lower or tostring(pl.DisplayName or ""):lower() == lower then
-            return pl.UserId
-        end
-    end
-    local ok, uid = pcall(function() return Players:GetUserIdFromNameAsync(name) end)
-    if ok and type(uid) == "number" then return uid end
+    return pl.Name:lower() == lower or tostring(pl.DisplayName or ""):lower() == lower
 end
 
-local function setOwnerFromBridge(username)
-    local uid = resolveUserIdFromName(username)
-    if not uid then
-        return false, "Player not found (join the server or check spelling)"
+local function findPlayerInServerByName(name)
+    if not name or name == "" then return nil end
+    name = name:match("^%s*(.-)%s*$") or name
+    for _, pl in ipairs(Players:GetPlayers()) do
+        if pl ~= me and nameMatchesPlayer(pl, name) then
+            return pl
+        end
     end
+end
+
+local function bridgeReportClaimEvent(event, extra)
+    extra = extra or {}
+    pcall(function()
+        httpJson("POST", XENO_BRIDGE_URL .. "/api/xeno/poll", {
+            job_id = game.JobId,
+            bot_username = me.Name,
+            bot_user_id = me.UserId,
+            place_id = game.PlaceId,
+            owner_id = extra.owner_id or session.ownerId,
+            player_count = #Players:GetPlayers(),
+            claim_event = event,
+            claim_id = extra.claim_id or bridgeClaimId,
+            bot_note = extra.note,
+        })
+    end)
+end
+
+local function fulfillBridgeClaim(claimId, username)
+    if not claimId or not username then return false end
+    if bridgeFulfilledClaimId == claimId then return true end
+    local pl = findPlayerInServerByName(username)
+    if not pl then return false end
     local prevId = session.ownerId
-    session.ownerId = uid
-    if prevId ~= uid then
-        scheduleOwnerOnboarding(uid)
+    session.ownerId = pl.UserId
+    bridgeFulfilledClaimId = claimId
+    bridgeAwaitingName = nil
+    log("bridge: owner joined — " .. pl.Name)
+    if prevId ~= pl.UserId then
+        scheduleOwnerOnboarding(pl.UserId)
     end
-    local pl = Players:GetPlayerByUserId(uid)
-    local label = pl and (pl.DisplayName ~= "" and pl.DisplayName or pl.Name) or username
-    return true, "Owner set to " .. label
+    bridgeReportClaimEvent("owner_joined", { claim_id = claimId, owner_id = pl.UserId, note = pl.Name })
+    return true
+end
+
+local function clearBridgeReservation(reason)
+    if bridgeAwaitingName or bridgeClaimId then
+        log("bridge: reservation cleared — " .. tostring(reason))
+    end
+    bridgeClaimId = nil
+    bridgeAwaitingName = nil
+    bridgeClaimExpiresAt = 0
+    bridgeReportClaimEvent("released", { note = reason })
 end
 
 local function bridgeAck(jobId, commandId, status, message)
@@ -1662,11 +1698,6 @@ local function processBridgeCommands(jobId, commands)
                 task.spawn(function()
                     hopServer("discord rejoin", false)
                 end)
-            elseif ctype == "set_owner" then
-                local who = cmd.roblox_username or cmd.username or ""
-                local ok, msg = setOwnerFromBridge(who)
-                log("bridge: set_owner " .. tostring(who) .. " -> " .. tostring(msg))
-                bridgeAck(jobId, cmd.id, ok and "ok" or "error", msg)
             else
                 bridgeAck(jobId, cmd.id, "error", "unknown command")
             end
@@ -1674,21 +1705,72 @@ local function processBridgeCommands(jobId, commands)
     end
 end
 
+local function processBridgeClaim(claim)
+    if type(claim) ~= "table" then return end
+    local st = claim.status
+    if st == "awaiting_join" and claim.roblox_username and claim.id then
+        bridgeClaimId = claim.id
+        bridgeAwaitingName = claim.roblox_username
+        bridgeClaimExpiresAt = tonumber(claim.expires_at) or (os.time() + 900)
+        if bridgeFulfilledClaimId ~= claim.id then
+            fulfillBridgeClaim(claim.id, claim.roblox_username)
+        end
+    elseif st == "available" or not claim.roblox_username then
+        if bridgeAwaitingName and os.time() >= bridgeClaimExpiresAt then
+            clearBridgeReservation("expired")
+        elseif not bridgeAwaitingName then
+            bridgeClaimId = nil
+            bridgeClaimExpiresAt = 0
+        end
+    end
+end
+
 local function bridgePollOnce()
-    local playerCount = #Players:GetPlayers()
+    local claimEvent = nil
+    if bridgeAwaitingName and bridgeClaimExpiresAt > 0 and os.time() >= bridgeClaimExpiresAt then
+        claimEvent = "released"
+        bridgeAwaitingName = nil
+        bridgeClaimId = nil
+        bridgeClaimExpiresAt = 0
+    end
     local raw = httpJson("POST", XENO_BRIDGE_URL .. "/api/xeno/poll", {
         job_id = game.JobId,
         bot_username = me.Name,
+        bot_user_id = me.UserId,
         place_id = game.PlaceId,
         owner_id = session.ownerId,
-        player_count = playerCount,
+        player_count = #Players:GetPlayers(),
+        claim_event = claimEvent,
+        claim_id = bridgeClaimId,
+        bot_note = bridgeAwaitingName and ("waiting:" .. bridgeAwaitingName) or nil,
     })
     if not raw then return false end
     local ok, data = pcall(function() return Http:JSONDecode(raw) end)
     if not ok or type(data) ~= "table" or not data.ok then return false end
     processBridgeCommands(game.JobId, data.commands)
+    processBridgeClaim(data.claim)
+    if data.availability == "available" and bridgeAwaitingName and not claimEvent then
+        clearBridgeReservation("server available")
+    end
     return true
 end
+
+Players.PlayerAdded:Connect(function(pl)
+    if not XENO_BRIDGE_ENABLED or pl == me then return end
+    if bridgeAwaitingName and nameMatchesPlayer(pl, bridgeAwaitingName) and bridgeClaimId then
+        task.defer(function()
+            fulfillBridgeClaim(bridgeClaimId, bridgeAwaitingName)
+        end)
+    end
+end)
+
+Players.PlayerRemoving:Connect(function(p)
+    if not XENO_BRIDGE_ENABLED then return end
+    if session.ownerId and p.UserId == session.ownerId then
+        bridgeFulfilledClaimId = nil
+        bridgeReportClaimEvent("owner_left", { owner_id = nil, note = p.Name })
+    end
+end)
 
 if XENO_BRIDGE_ENABLED then
     task.spawn(function()
