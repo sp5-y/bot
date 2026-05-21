@@ -1737,6 +1737,49 @@ local function bridgeRunFlingOnce(mode, playerQuery, gen)
     return "ok", "Fling finished"
 end
 
+local function bridgeStabMessage(targetQuery)
+    if not session.ownerId then
+        return "error", "No owner — join your reserved server first"
+    end
+    if not botHasKnife() then
+        return "error", "Bot needs to be murderer"
+    end
+    local q = bridgeTrim(targetQuery)
+    if q == "" then
+        return "error", "Use: sheriff or a player name"
+    end
+    local wl = q:lower()
+    local first = wl:match("^(%S+)")
+    local picked
+    if first == "sheriff" or first == "sher" or first == "sherif" then
+        picked = findHolder({"Gun", "Revolver"})
+        if not picked or picked == me then return "error", "Sheriff not found" end
+    else
+        picked = findOtherPlayer(q)
+        if not picked then return "error", "Player not found" end
+    end
+    if _G.MM_StabBusy then return "error", "Stab busy, try again" end
+    if _G.MM_GunBusy then return "error", "Gun busy, try again" end
+    _G.MM_StabBusy = true
+    local targetUid = picked.UserId
+    local status = "Player not found"
+    local okRun, errRun = pcall(function()
+        local tgt = Players:GetPlayerByUserId(targetUid)
+        if not tgt or not isAlive(tgt) then return end
+        local _, msg = stabTargetLoop(tgt)
+        status = msg
+    end)
+    _G.MM_StabBusy = false
+    runDeferredOwnerResetIfIdle()
+    if not okRun then
+        return "error", "Stab failed"
+    end
+    if status:find("not found", 1, true) or status:find("failed", 1, true) then
+        return "error", status
+    end
+    return "ok", status
+end
+
 local function bridgeFlingMessage(query)
     if not session.ownerId then
         return "error", "No owner — join your reserved server first"
@@ -1780,6 +1823,12 @@ local function processBridgeCommands(jobId, commands)
                 log("bridge: gun")
                 local st, msg = bridgeGunMessage(cmd.target or cmd.player or "")
                 bridgeAck(jobId, cmd.id, st, msg)
+            elseif ctype == "stab" then
+                log("bridge: stab")
+                task.spawn(function()
+                    local st, msg = bridgeStabMessage(cmd.target or cmd.query or "")
+                    bridgeAck(jobId, cmd.id, st, msg)
+                end)
             elseif ctype == "fling" then
                 log("bridge: fling")
                 task.spawn(function()
