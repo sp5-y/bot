@@ -30,7 +30,6 @@ _G.MM_GunBusy = _G.MM_GunBusy or false
 _G.MM_OwnerDiedPendingReset = _G.MM_OwnerDiedPendingReset or false
 local OWNER_MURD_GUN_MSG = "Gun unavailable"
 local OWNER_MURD_STASH_COOLDOWN = 3
-getgenv().XENO_BOT_AGE_GROUP = "verified_18"  -- or "unverified"
 
 --[[ Session ]]--
 if getgenv and getgenv().MM_Session then getgenv().MM_Session.active = false end
@@ -1559,6 +1558,7 @@ end)
 local XENO_BRIDGE_URL = (getgenv and getgenv().XENO_BRIDGE_URL) or "https://xenobotsmm2.xyz"
 local XENO_BRIDGE_ENABLED = not (getgenv and getgenv().XENO_BRIDGE_ENABLED == false)
 local XENO_POLL_SEC = (getgenv and tonumber(getgenv().XENO_POLL_SEC)) or 10
+local BRIDGE_CLAIM_WAIT_SEC = 30 * 60
 local bridgeAcked = {}
 local bridgeClaimId = nil
 local bridgeAwaitingName = nil
@@ -1634,6 +1634,7 @@ local function bridgeAck(jobId, commandId, status, message)
             command_id = commandId,
             status = status or "ok",
             message = message or "",
+            bot_user_id = me.UserId,
         })
     end)
 end
@@ -1849,7 +1850,7 @@ local function processBridgeClaim(claim)
     if st == "awaiting_join" and claim.roblox_username and claim.id then
         bridgeClaimId = claim.id
         bridgeAwaitingName = claim.roblox_username
-        bridgeClaimExpiresAt = tonumber(claim.expires_at) or (os.time() + 900)
+        bridgeClaimExpiresAt = tonumber(claim.expires_at) or (os.time() + BRIDGE_CLAIM_WAIT_SEC)
         if claim.age_group then
             G.MM_OwnerAgeGroup = claim.age_group
         end
