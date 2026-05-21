@@ -1637,6 +1637,129 @@ local function bridgeAck(jobId, commandId, status, message)
     end)
 end
 
+local function bridgeTrim(s)
+    return (tostring(s or ""):match("^%s*(.-)%s*$") or "")
+end
+
+local function bridgeHelpMessage(topic)
+    topic = bridgeTrim(topic):lower():gsub("^!", "")
+    if topic ~= "" and COMMAND_HELP[topic] then
+        return "ok", "!" .. topic .. ": " .. COMMAND_HELP[topic]
+    elseif topic ~= "" then
+        return "error", "No help for !" .. topic .. " — use /help for the full list"
+    end
+    local lines = {
+        "Discord **/help** or in-game **!help** for one command.",
+        "",
+    }
+    for _, key in ipairs(HELP_ORDER) do
+        local desc = COMMAND_HELP[key] or ""
+        table.insert(lines, "• **!" .. key .. "** — " .. desc)
+    end
+    return "ok", table.concat(lines, "\n")
+end
+
+local function bridgeGunMessage(targetQuery)
+    if not session.ownerId then
+        return "error", "No owner — join your reserved server first"
+    end
+    local m = findHolder({"Knife"})
+    local ownerPlayer = findOwner()
+    local ownerIsMurd = ownerMurdererActive(m, ownerPlayer) and not botHasKnife()
+    local t
+    if bridgeTrim(targetQuery) == "" then
+        t = ownerPlayer
+    else
+        t = findPlayer(targetQuery)
+    end
+    if not t then return "error", "Player not found" end
+    if ownerIsMurd then return "error", OWNER_MURD_GUN_MSG end
+    if botHasKnife() then return "error", "No gun available" end
+    if not gunAvailableForOwnerMurdStash() then return "error", "No gun available" end
+    bringGun(t)
+    return "ok", "Gun delivered to " .. shortName(t)
+end
+
+local function bridgeParseFlingQuery(query)
+    query = bridgeTrim(query)
+    if query == "" then
+        return nil, nil, "Use: **all**, **sheriff**, **murder**, or a player name"
+    end
+    local q = query:lower()
+    local first = q:match("^(%S+)")
+    local mode, playerQuery = "player", query
+    if first == "all" then
+        mode, playerQuery = "all", ""
+    elseif first == "sheriff" or first == "sher" or first == "sherif" then
+        mode, playerQuery = "sheriff", ""
+    elseif first == "murder" or first == "murd" or first == "murderer" then
+        mode, playerQuery = "murder", ""
+    end
+    return mode, playerQuery, nil
+end
+
+local function bridgeRunFlingOnce(mode, playerQuery, gen)
+    if mode == "all" then
+        local n = 0
+        for _, pl in ipairs(Players:GetPlayers()) do
+            if gen ~= flingLoopGen or not flingLoopActive or not session.active then break end
+            if pl ~= me and (not session.ownerId or pl.UserId ~= session.ownerId) and isAlive(pl) and isAlive(me) then
+                local flung = false
+                fling(pl, function(ok) flung = ok end)
+                waitFlingDone(gen, 25)
+                if flung then n = n + 1 end
+            end
+        end
+        if n > 0 then
+            return "ok", "Flung " .. tostring(n) .. " player(s)"
+        end
+        return "ok", "Fling finished (no hits)"
+    end
+
+    local tgt
+    if mode == "sheriff" then
+        tgt = findHolder({"Gun", "Revolver"})
+        if not tgt or tgt == me then return "error", "Sheriff not found" end
+    elseif mode == "murder" then
+        tgt = findHolder({"Knife"})
+        if not tgt or tgt == me then return "error", "Murderer not found" end
+    else
+        tgt = findOtherPlayer(playerQuery)
+        if not tgt then return "error", "Player not found: " .. playerQuery end
+    end
+    if not isAlive(tgt) or not isAlive(me) then return "error", "Target or bot not alive" end
+    local flung = false
+    fling(tgt, function(ok) flung = ok end)
+    waitFlingDone(gen, 25)
+    if flung then
+        return "ok", "Flung " .. shortName(tgt)
+    end
+    return "ok", "Fling finished"
+end
+
+local function bridgeFlingMessage(query)
+    if not session.ownerId then
+        return "error", "No owner — join your reserved server first"
+    end
+    if flingLoopContinuous then
+        return "error", "Stop the in-game fling loop with !fling first"
+    end
+    local mode, playerQuery, err = bridgeParseFlingQuery(query)
+    if err then return "error", err end
+    if mode == "player" and not findOtherPlayer(playerQuery) then
+        return "error", "Could not find player: " .. playerQuery
+    end
+    cancelFlingWork()
+    flingLoopGen = flingLoopGen + 1
+    local gen = flingLoopGen
+    flingLoopActive = true
+    local st, msg = bridgeRunFlingOnce(mode, playerQuery, gen)
+    if gen == flingLoopGen then
+        flingLoopActive = false
+    end
+    return st, msg
+end
+
 local function processBridgeCommands(jobId, commands)
     if type(commands) ~= "table" then return end
     for _, cmd in ipairs(commands) do
@@ -1647,6 +1770,21 @@ local function processBridgeCommands(jobId, commands)
                 bridgeAck(jobId, cmd.id, "ok", "rejoin queued")
                 task.spawn(function()
                     hopServer("discord rejoin", false)
+                end)
+            elseif ctype == "help" then
+                local topic = cmd.topic or cmd.command or ""
+                local st, msg = bridgeHelpMessage(topic)
+                log("bridge: help")
+                bridgeAck(jobId, cmd.id, st, msg)
+            elseif ctype == "gun" then
+                log("bridge: gun")
+                local st, msg = bridgeGunMessage(cmd.target or cmd.player or "")
+                bridgeAck(jobId, cmd.id, st, msg)
+            elseif ctype == "fling" then
+                log("bridge: fling")
+                task.spawn(function()
+                    local st, msg = bridgeFlingMessage(cmd.target or cmd.query or "")
+                    bridgeAck(jobId, cmd.id, st, msg)
                 end)
             else
                 bridgeAck(jobId, cmd.id, "error", "unknown command")
