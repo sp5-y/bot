@@ -1992,6 +1992,34 @@ local function processBridgeClaim(claim)
     end
 end
 
+local serverLocationCache, serverLocationJob = nil, nil
+
+local function getServerLocationLabel()
+    if serverLocationJob == game.JobId and serverLocationCache then
+        return serverLocationCache
+    end
+    local raw = httpGet("http://ip-api.com/json/?fields=status,countryCode,city")
+    if not raw then return nil end
+    local ok, data = pcall(function() return Http:JSONDecode(raw) end)
+    if not ok or type(data) ~= "table" or data.status ~= "success" then return nil end
+    local country = tostring(data.countryCode or ""):upper()
+    local city = tostring(data.city or "")
+    local label
+    if country ~= "" and city ~= "" then
+        label = country .. ", " .. city
+    elseif country ~= "" then
+        label = country
+    elseif city ~= "" then
+        label = city
+    end
+    if label and label ~= "" then
+        serverLocationJob = game.JobId
+        serverLocationCache = label
+        return label
+    end
+    return nil
+end
+
 local function bridgePollOnce()
     local claimEvent = nil
     if bridgeAwaitingName and bridgeClaimExpiresAt > 0 and os.time() >= bridgeClaimExpiresAt then
@@ -2000,7 +2028,7 @@ local function bridgePollOnce()
         bridgeClaimId = nil
         bridgeClaimExpiresAt = 0
     end
-    local raw = httpJson("POST", XENO_BRIDGE_URL .. "/api/xeno/poll", {
+    local pollBody = {
         job_id = game.JobId,
         bot_username = me.Name,
         bot_user_id = me.UserId,
@@ -2010,7 +2038,12 @@ local function bridgePollOnce()
         claim_event = claimEvent,
         claim_id = bridgeClaimId,
         bot_note = bridgeAwaitingName and ("waiting:" .. bridgeAwaitingName) or nil,
-    })
+    }
+    local serverLoc = getServerLocationLabel()
+    if serverLoc then
+        pollBody.server_location = serverLoc
+    end
+    local raw = httpJson("POST", XENO_BRIDGE_URL .. "/api/xeno/poll", pollBody)
     if not raw then return false end
     local ok, data = pcall(function() return Http:JSONDecode(raw) end)
     if not ok or type(data) ~= "table" or not data.ok then return false end
