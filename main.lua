@@ -173,6 +173,13 @@ local function findOwner()
     return Players:GetPlayerByUserId(session.ownerId)
 end
 local function shortName(p) return p.Name:sub(1, 4) .. "..." end
+
+local function bridgePlayerLabel(p)
+    if not p then return "?" end
+    local dn = p.DisplayName
+    if type(dn) == "string" and dn ~= "" then return dn end
+    return p.Name
+end
 local function restOfChatArgs(args)
     if not args or #args < 2 then return "" end
     return (table.concat(args, " ", 2)):match("^%s*(.-)%s*$") or ""
@@ -1679,7 +1686,7 @@ local function bridgeGunMessage(targetQuery)
     if botHasKnife() then return "error", "No gun available" end
     if not gunAvailableForOwnerMurdStash() then return "error", "No gun available" end
     bringGun(t)
-    return "ok", "Gun delivered to " .. shortName(t)
+    return "ok", "Gun delivered to " .. bridgePlayerLabel(t)
 end
 
 local function bridgeParseFlingQuery(query)
@@ -1734,7 +1741,7 @@ local function bridgeRunFlingOnce(mode, playerQuery, gen)
     fling(tgt, function(ok) flung = ok end)
     waitFlingDone(gen, 25)
     if flung then
-        return "ok", "Flung " .. shortName(tgt)
+        return "ok", "Flung " .. bridgePlayerLabel(tgt)
     end
     return "ok", "Fling finished"
 end
@@ -1779,7 +1786,7 @@ local function bridgeStabMessage(targetQuery)
     if status:find("not found", 1, true) or status:find("failed", 1, true) then
         return "error", status
     end
-    return "ok", status
+    return "ok", "Stabbed " .. bridgePlayerLabel(picked)
 end
 
 local function bridgeFlingMessage(query)
