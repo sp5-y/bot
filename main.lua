@@ -18,6 +18,7 @@ local BRAND_PROMO = 'Try out "XenoBotsMM2" for more bots!'
 local toggleGun = false
 local toggleAlerts = false
 local toggleWho = true
+local toggleResetOnOwnerDeath = false
 local gunTargetId = nil
 local gunDelivered = false
 local hopBusy = false
@@ -612,6 +613,10 @@ local function reset()
     pcall(function() me:LoadCharacter() end)
 end
 local function runDeferredOwnerResetIfIdle()
+    if not toggleResetOnOwnerDeath then
+        _G.MM_OwnerDiedPendingReset = false
+        return
+    end
     if _G.MM_OwnerDiedPendingReset and not _G.MM_GunBusy and not _G.MM_StabBusy then
         _G.MM_OwnerDiedPendingReset = false
         log("owner died during combat -> resetting bot")
@@ -1130,6 +1135,7 @@ local COMMAND_HELP = {
     stab = "sheriff | <name> - Murderer only, stab a given player",
     togglewho = "Toggle automatic role callout each round",
     togglealerts = "Toggle kill/drop/pickup alerts",
+    togglereset = "Toggle auto-reset when owner dies (off by default)",
     reset = "Force bot respawn",
     tp = "<player> - Teleport bot to a player",
     tpmurd = "Teleport bot to the murderer",
@@ -1145,7 +1151,7 @@ local COMMAND_HELP = {
 }
 local HELP_ORDER = {
     "owner", "dethrone", "tp", "who", "stab", "gun", "fling", "togglegun", "togglewho", "togglealerts",
-    "reset", "follow", "unfollow", "chat", "help",
+    "togglereset", "reset", "follow", "unfollow", "chat", "help",
 }
 local function sendFullHelp(target, gapBetween)
     gapBetween = gapBetween or 0.5
@@ -1484,6 +1490,10 @@ local function handleCommand(p, msg)
     elseif cmd == "togglewho" then
         toggleWho = not toggleWho
         whisper("Role callouts: " .. (toggleWho and "on" or "off"))
+    elseif cmd == "togglereset" then
+        toggleResetOnOwnerDeath = not toggleResetOnOwnerDeath
+        _G.MM_OwnerDiedPendingReset = false
+        whisper("Reset on owner death: " .. (toggleResetOnOwnerDeath and "on" or "off"))
     elseif cmd == "follow" then
         local t = findPlayer(args[2]) or findOwner()
         if not t then whisper("Player not found") return end
@@ -1566,6 +1576,7 @@ local XENO_BRIDGE_URL = (getgenv and getgenv().XENO_BRIDGE_URL) or "https://xeno
 local XENO_BRIDGE_ENABLED = not (getgenv and getgenv().XENO_BRIDGE_ENABLED == false)
 local XENO_POLL_SEC = (getgenv and tonumber(getgenv().XENO_POLL_SEC)) or 2.5
 local BRIDGE_CLAIM_WAIT_SEC = 15 * 60
+local BRIDGE_ACK_DELAY_SEC = 20
 local bridgeAcked = {}
 local bridgeClaimId = nil
 local bridgeAwaitingName = nil
@@ -1646,6 +1657,13 @@ local function bridgeAck(jobId, commandId, status, message)
     end)
 end
 
+local function bridgeAckDelayed(jobId, commandId, status, message)
+    task.spawn(function()
+        task.wait(BRIDGE_ACK_DELAY_SEC)
+        bridgeAck(jobId, commandId, status, message)
+    end)
+end
+
 local function bridgeTrim(s)
     return (tostring(s or ""):match("^%s*(.-)%s*$") or "")
 end
@@ -1658,7 +1676,8 @@ local function bridgeHelpMessage(topic)
         return "error", "No help for !" .. topic .. " — use /help for the full list"
     end
     local lines = {
-        "Discord **/help** or in-game **!help** for one command.",
+        "Discord: /help /gun /stab /fling /tp /who /reset /rejoin",
+        "In-game: !help and the same commands with !",
         "",
     }
     for _, key in ipairs(HELP_ORDER) do
@@ -1812,6 +1831,43 @@ local function bridgeFlingMessage(query)
     return st, msg
 end
 
+local function bridgeWhoMessage()
+    if not session.ownerId then
+        return "error", "No owner — join your reserved server first"
+    end
+    local m = findHolder({"Knife"})
+    local s = findHolder({"Gun", "Revolver"})
+    local botM, botS = botHasKnife(), botHasGun()
+    local mL = botM and bridgePlayerLabel(me) or (m and bridgePlayerLabel(m) or "None")
+    local sL = botS and bridgePlayerLabel(s) or (s and bridgePlayerLabel(s) or "None")
+    return "ok", "Murderer: " .. mL .. "\nSheriff: " .. sL
+end
+
+local function bridgeTpMessage(targetQuery)
+    if not session.ownerId then
+        return "error", "No owner — join your reserved server first"
+    end
+    local t
+    if bridgeTrim(targetQuery) == "" then
+        t = findOwner()
+    else
+        t = findPlayer(targetQuery) or findOtherPlayer(targetQuery)
+    end
+    if not t then
+        return "error", "Player not found"
+    end
+    tpTo(t)
+    return "ok", "Teleported to " .. bridgePlayerLabel(t)
+end
+
+local function bridgeResetMessage()
+    if not session.ownerId then
+        return "error", "No owner — join your reserved server first"
+    end
+    reset()
+    return "ok", "Bot reset"
+end
+
 local function processBridgeCommands(jobId, commands)
     if type(commands) ~= "table" then return end
     for _, cmd in ipairs(commands) do
@@ -1819,9 +1875,9 @@ local function processBridgeCommands(jobId, commands)
             local ctype = cmd.type
             if ctype == "rejoin" then
                 log("bridge: rejoin requested")
-                bridgeAck(jobId, cmd.id, "ok", "rejoin queued")
                 task.spawn(function()
                     hopServer("discord rejoin", false)
+                    bridgeAckDelayed(jobId, cmd.id, "ok", "Rejoin completed")
                 end)
             elseif ctype == "help" then
                 local topic = cmd.topic or cmd.command or ""
@@ -1831,19 +1887,31 @@ local function processBridgeCommands(jobId, commands)
             elseif ctype == "gun" then
                 log("bridge: gun")
                 local st, msg = bridgeGunMessage(cmd.target or cmd.player or "")
-                bridgeAck(jobId, cmd.id, st, msg)
+                bridgeAckDelayed(jobId, cmd.id, st, msg)
             elseif ctype == "stab" then
                 log("bridge: stab")
                 task.spawn(function()
                     local st, msg = bridgeStabMessage(cmd.target or cmd.query or "")
-                    bridgeAck(jobId, cmd.id, st, msg)
+                    bridgeAckDelayed(jobId, cmd.id, st, msg)
                 end)
             elseif ctype == "fling" then
                 log("bridge: fling")
                 task.spawn(function()
                     local st, msg = bridgeFlingMessage(cmd.target or cmd.query or "")
-                    bridgeAck(jobId, cmd.id, st, msg)
+                    bridgeAckDelayed(jobId, cmd.id, st, msg)
                 end)
+            elseif ctype == "tp" then
+                log("bridge: tp")
+                local st, msg = bridgeTpMessage(cmd.target or cmd.player or "")
+                bridgeAckDelayed(jobId, cmd.id, st, msg)
+            elseif ctype == "who" then
+                log("bridge: who")
+                local st, msg = bridgeWhoMessage()
+                bridgeAckDelayed(jobId, cmd.id, st, msg)
+            elseif ctype == "reset" then
+                log("bridge: reset")
+                local st, msg = bridgeResetMessage()
+                bridgeAckDelayed(jobId, cmd.id, st, msg)
             else
                 bridgeAck(jobId, cmd.id, "error", "unknown command")
             end
@@ -1997,7 +2065,9 @@ task.spawn(function()
                 local cur = aliveState(own)
                 local prev = alivePrev[own.UserId]
                 if prev == true and (cur == false or cur == nil) then
-                    if _G.MM_GunBusy or _G.MM_StabBusy then
+                    if not toggleResetOnOwnerDeath then
+                        log("owner died (reset on death off)")
+                    elseif _G.MM_GunBusy or _G.MM_StabBusy then
                         _G.MM_OwnerDiedPendingReset = true
                         log("owner died during combat (reset deferred)")
                     else
