@@ -17,8 +17,9 @@ local SPAWN_CFRAME = CFrame.new(14.3513288, 505.044952, -58.2513657, 1, 0, 0, 0,
 local BRAND_PROMO = 'Try out "XenoBotsMM2" for more bots!'
 local toggleGun = false
 local toggleAlerts = false
-local toggleWho = true
+local toggleReveal = true
 local toggleResetOnOwnerDeath = false
+local toggleDrop = false
 local gunTargetId = nil
 local gunDelivered = false
 local hopBusy = false
@@ -577,7 +578,7 @@ local function flingApproachLead(root, hum)
     return vh.Unit * math.min(snap + ahead, 18)
 end
 
-local whoAnnouncePending = false
+local revealAnnouncePending = false
 local roleAnnounceUnlockAt = 0
 
 local function isAlive(p)
@@ -1165,12 +1166,14 @@ end
 local COMMAND_HELP = {
     owner = "Re-run onboarding if you are already owner",
     dethrone = "Release owner control",
-    who = "Show current murderer and sheriff",
+    reveal = "Show current murderer and sheriff",
     stab = "sheriff | <name> - Murderer only, stab a given player",
-    togglewho = "Toggle automatic role callout each round",
+    togglereveal = "Toggle automatic role callout each round",
     togglealerts = "Toggle kill/drop/pickup alerts",
     togglereset = "Toggle auto-reset when owner dies",
+    toggledrop = "Toggle stashing guns when you are murderer",
     reset = "Force bot respawn",
+    serverhop = "Hop bot to a different MM2 server",
     tp = "<player> - Teleport bot to a player",
     tpmurd = "Teleport bot to the murderer",
     tpsher = "Teleport bot to the sheriff",
@@ -1184,13 +1187,14 @@ local COMMAND_HELP = {
     help = "<cmd> - Show command list or explain one command",
 }
 local HELP_ORDER = {
-    "owner", "dethrone", "tp", "who", "stab", "gun", "fling", "togglegun", "togglewho", "togglealerts",
-    "reset", "follow", "unfollow", "chat", "help",
+    "owner", "dethrone", "tp", "reveal", "stab", "gun", "fling", "togglegun", "togglereveal", "togglealerts",
+    "reset", "serverhop", "follow", "unfollow", "chat", "help",
 }
 local PREMIUM_ONLY_COMMANDS = {
     togglereset = true,
+    toggledrop = true,
     togglegun = true,
-    togglewho = true,
+    togglereveal = true,
     togglealerts = true,
     fling = true,
     chat = true,
@@ -1212,6 +1216,7 @@ local function helpKeysForOwner()
     for _, k in ipairs(keys) do
         if k == "reset" then
             table.insert(out, "togglereset")
+            table.insert(out, "toggledrop")
         end
         table.insert(out, k)
     end
@@ -1394,6 +1399,7 @@ local function handleCommand(p, msg)
     if cmd == "owner" then
         if session.ownerId == p.UserId then
             toggleResetOnOwnerDeath = false
+            toggleDrop = false
             _G.MM_OwnerDiedPendingReset = false
             if ownerIsPremium() then
                 scheduleOwnerOnboarding(p.UserId)
@@ -1485,7 +1491,8 @@ local function handleCommand(p, msg)
     if cmd == "dethrone" then
         session.ownerId = nil
         G.MM_OwnerPremium = false
-        toggleGun, toggleAlerts, toggleWho = false, false, true
+        toggleGun, toggleAlerts, toggleReveal = false, false, true
+        toggleDrop, toggleResetOnOwnerDeath = false, false
         gunTargetId, gunDelivered = nil, false
         sendChat("Owner released")
         task.delay(0.8, sendBrandingPromo)
@@ -1497,7 +1504,7 @@ local function handleCommand(p, msg)
         end
         sendChat(rest)
         whisper("Chat sent")
-    elseif cmd == "who" then
+    elseif cmd == "reveal" then
         local botM, botS = botHasKnife(), botHasGun()
         local mL = botM and "Me" or (m and shortName(m)) or "?"
         local sL = botS and "Me" or (s and shortName(s)) or "?"
@@ -1566,9 +1573,9 @@ local function handleCommand(p, msg)
     elseif cmd == "reset" then
         whisper("Resetting")
         reset()
-    elseif cmd == "rejoin" then
-        whisper("Rejoining")
-        hopServer("manual rejoin", false)
+    elseif cmd == "serverhop" then
+        whisper("Server hopping")
+        hopServer("manual server hop", false)
     elseif cmd == "togglegun" then
         if not ownerIsPremium() then
             whisper(PREMIUM_INGAME_MSG, p)
@@ -1592,13 +1599,13 @@ local function handleCommand(p, msg)
         end
         toggleAlerts = not toggleAlerts
         whisper("Kill alerts: " .. (toggleAlerts and "on" or "off"))
-    elseif cmd == "togglewho" then
+    elseif cmd == "togglereveal" then
         if not ownerIsPremium() then
             whisper(PREMIUM_INGAME_MSG, p)
             return
         end
-        toggleWho = not toggleWho
-        whisper("Role callouts: " .. (toggleWho and "on" or "off"))
+        toggleReveal = not toggleReveal
+        whisper("Role callouts: " .. (toggleReveal and "on" or "off"))
     elseif cmd == "togglereset" then
         if not ownerIsPremium() then
             whisper(PREMIUM_INGAME_MSG, p)
@@ -1607,6 +1614,13 @@ local function handleCommand(p, msg)
         toggleResetOnOwnerDeath = not toggleResetOnOwnerDeath
         _G.MM_OwnerDiedPendingReset = false
         whisper("Reset on owner death: " .. (toggleResetOnOwnerDeath and "on" or "off"))
+    elseif cmd == "toggledrop" then
+        if not ownerIsPremium() then
+            whisper(PREMIUM_INGAME_MSG, p)
+            return
+        end
+        toggleDrop = not toggleDrop
+        whisper("Murderer gun stash: " .. (toggleDrop and "on" or "off"))
     elseif cmd == "follow" then
         local t = findPlayer(args[2]) or findOwner()
         if not t then whisper("Player not found") return end
@@ -1679,7 +1693,8 @@ Players.PlayerAdded:Connect(hookSpeaker)
 Players.PlayerRemoving:Connect(function(p)
     if session.ownerId and p.UserId == session.ownerId then
         session.ownerId = nil
-        toggleGun, toggleAlerts, toggleWho = false, false, true
+        toggleGun, toggleAlerts, toggleReveal = false, false, true
+        toggleDrop, toggleResetOnOwnerDeath = false, false
         gunTargetId, gunDelivered = nil, false
         sendChat("Owner left")
         task.delay(0.8, sendBrandingPromo)
@@ -1745,6 +1760,7 @@ local function fulfillBridgeClaim(claimId, username)
     log("bridge: owner joined — " .. pl.Name)
     if prevId ~= pl.UserId then
         toggleResetOnOwnerDeath = false
+        toggleDrop = false
         _G.MM_OwnerDiedPendingReset = false
         scheduleOwnerOnboarding(pl.UserId)
     end
@@ -1812,8 +1828,7 @@ local function bridgeHelpMessage(topic)
         return "error", "No help for !" .. topic .. " — use /help for the full list"
     end
     local lines = {
-        "Discord: /help /gun /stab /tp /who /reset /rejoin",
-        "Premium: /fling /chat /alerts (+ gun/who toggle options)",
+        "Discord: /help /gun /stab /fling /tp /reveal /reset /serverhop /chat /alerts",
         "",
     }
     if ownerIsPremium() then
@@ -1824,7 +1839,7 @@ local function bridgeHelpMessage(topic)
             table.insert(lines, "• **!" .. key .. "** — " .. desc)
         end
     else
-        table.insert(lines, "In-game **!** commands require **Premium**.")
+        table.insert(lines, "In-game **!** commands are locked — use Discord above.")
     end
     return "ok", table.concat(lines, "\n")
 end
@@ -1860,7 +1875,7 @@ local function bridgeToggleGunMessage(mode)
     return "error", "Use Enable or Disable"
 end
 
-local function bridgeToggleWhoMessage(mode)
+local function bridgeToggleRevealMessage(mode)
     if not ownerIsPremium() then
         return "error", PREMIUM_REQUIRED_MSG
     end
@@ -1869,16 +1884,16 @@ local function bridgeToggleWhoMessage(mode)
     end
     mode = bridgeTrim(mode):lower()
     if mode == "enable" then
-        if toggleWho then
+        if toggleReveal then
             return "ok", "In-game whispers are already enabled"
         end
-        toggleWho = true
+        toggleReveal = true
         return "ok", "In-game whispers enabled"
     elseif mode == "disable" then
-        if not toggleWho then
+        if not toggleReveal then
             return "error", "In-game whispers are not enabled"
         end
-        toggleWho = false
+        toggleReveal = false
         return "ok", "In-game whispers disabled"
     end
     return "error", "Use Enable or Disable"
@@ -2104,7 +2119,7 @@ local function whoRoleEntry(p, kills)
     }
 end
 
-local function bridgeWhoMessage()
+local function bridgeRevealMessage()
     if not session.ownerId then
         return "error", "No owner — join your reserved server first"
     end
@@ -2168,12 +2183,26 @@ local function processBridgeCommands(jobId, commands)
     for _, cmd in ipairs(commands) do
         if type(cmd) == "table" and cmd.id and not bridgeAcked[cmd.id] then
             local ctype = cmd.type
-            if ctype == "rejoin" then
-                log("bridge: rejoin requested")
-                bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
-                    hopServer("discord rejoin", false)
-                    return "ok", "Rejoin completed"
-                end, cmd)
+            if ctype == "serverhop" or ctype == "rejoin" then
+                log("bridge: server hop")
+                task.spawn(function()
+                    task.wait(bridgeCommandDelay(cmd))
+                    if not session.ownerId then
+                        bridgeAck(jobId, cmd.id, "error", "No owner — join your reserved server first")
+                        return
+                    end
+                    if hopBusy then
+                        bridgeAck(jobId, cmd.id, "error", "Server hop already in progress")
+                        return
+                    end
+                    if not findHopServer() then
+                        bridgeAck(jobId, cmd.id, "error", "No available servers found")
+                        return
+                    end
+                    bridgeAck(jobId, cmd.id, "ok", "Server hop started — open the bot profile and Join")
+                    task.wait(0.2)
+                    hopServer("discord server hop", false)
+                end)
             elseif ctype == "help" then
                 local topic = cmd.topic or cmd.command or ""
                 local st, msg = bridgeHelpMessage(topic)
@@ -2185,11 +2214,11 @@ local function processBridgeCommands(jobId, commands)
                 bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
                     return bridgeToggleGunMessage(mode)
                 end, cmd)
-            elseif ctype == "toggle_who" then
-                log("bridge: toggle_who")
+            elseif ctype == "toggle_reveal" then
+                log("bridge: toggle_reveal")
                 local mode = cmd.mode or cmd.action or ""
                 bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
-                    return bridgeToggleWhoMessage(mode)
+                    return bridgeToggleRevealMessage(mode)
                 end, cmd)
             elseif ctype == "toggle_alerts" then
                 log("bridge: toggle_alerts")
@@ -2227,10 +2256,10 @@ local function processBridgeCommands(jobId, commands)
                 bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
                     return bridgeTpMessage(target)
                 end, cmd)
-            elseif ctype == "who" then
-                log("bridge: who")
+            elseif ctype == "reveal" then
+                log("bridge: reveal")
                 bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
-                    return bridgeWhoMessage()
+                    return bridgeRevealMessage()
                 end, cmd)
             elseif ctype == "reset" then
                 log("bridge: reset")
@@ -2599,13 +2628,13 @@ while session.active and gui.Parent do
     if (m or botM) and not announced then
         announced = true
         gunDelivered = false
-        whoAnnouncePending = true
+        revealAnnouncePending = true
         tpHome()
         local owner = findOwner()
         task.spawn(function()
             local curM, curS, curBotM, curBotS = resolveRoleSnapshot(2.5)
 
-            if toggleWho and session.ownerId then
+            if toggleReveal and session.ownerId then
                 local ok
                 ok, curM, curS, curBotM, curBotS = waitForRoleCallouts(curM, curS, curBotM, curBotS)
                 if not ok then
@@ -2622,10 +2651,10 @@ while session.active and gui.Parent do
             end
 
             roleAnnounceUnlockAt = tick() + 0.35
-            whoAnnouncePending = false
+            revealAnnouncePending = false
         end)
     elseif not roundActive then
-        announced, gunDelivered, whoAnnouncePending = false, false, false
+        announced, gunDelivered, revealAnnouncePending = false, false, false
         ownerMurdStashBusy = false
         roleAnnounceUnlockAt = 0
     end
@@ -2634,9 +2663,9 @@ while session.active and gui.Parent do
     local ownerIsMurd = ownerMurdererActive(m, ownerForDrop) and not botM
     -- Do not clear toggleGun here — owner-murderer only pauses delivery below; user setting stays on.
 
-    -- Owner murderer: auto stash at spawn (sheriff gun or any gun on the map) all round
-    if session.ownerId and ownerIsMurd and roundActive and SPAWN_CFRAME
-       and not ownerMurdStashBusy and not whoAnnouncePending
+    -- Owner murderer: stash guns at spawn only if premium owner enabled !toggledrop
+    if session.ownerId and ownerIsMurd and ownerIsPremium() and toggleDrop and roundActive and SPAWN_CFRAME
+       and not ownerMurdStashBusy and not revealAnnouncePending
        and tick() >= roleAnnounceUnlockAt
        and isAlive(me) and gunAvailableForOwnerMurdStash()
        and not _G.MM_GunBusy and not _G.MM_StabBusy
@@ -2654,7 +2683,7 @@ while session.active and gui.Parent do
 
     local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or findOwner()
     if toggleGun and not flingLoopContinuous and not botM and not ownerIsMurd and not gunDelivered and not _G.MM_GunBusy and not _G.MM_StabBusy and me.Character
-       and not whoAnnouncePending and tick() >= roleAnnounceUnlockAt
+       and not revealAnnouncePending and tick() >= roleAnnounceUnlockAt
        and not flingActive and not flingLoopActive and not flingSettling
        and gunTarget and gunTarget ~= me and isAlive(gunTarget)
        and gunAvailableForOwnerMurdStash() then
