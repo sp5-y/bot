@@ -555,7 +555,6 @@ local function findHopServer()
                 local maxPlayers = tonumber(server.maxPlayers) or 0
                 if maxPlayers > playing then
                     if playing > 2 then
-                        hopMarkSeen(sid)
                         return sid
                     end
                     if not fallback then fallback = sid end
@@ -565,14 +564,23 @@ local function findHopServer()
         cursor = page.nextPageCursor
         if not cursor or cursor == "null" or cursor == nil then break end
     end
-    if fallback then
-        hopMarkSeen(fallback)
-        return fallback
-    end
-    return nil
+    return fallback
 end
 
-local function hopServer(reason, continuePingSearch)
+local function resolveHopServerId(targetServerId)
+    if targetServerId and tostring(targetServerId) ~= "" then
+        return tostring(targetServerId)
+    end
+    local serverId
+    for _ = 1, 8 do
+        serverId = findHopServer()
+        if serverId then break end
+        task.wait(0.4)
+    end
+    return serverId
+end
+
+local function hopServer(reason, continuePingSearch, targetServerId)
     if hopBusy then return false end
     hopBusy = true
     stopFollow()
@@ -589,25 +597,24 @@ local function hopServer(reason, continuePingSearch)
     log("server hop: " .. tostring(reason or "requested"))
     G.MM_ServerLocationJob = nil
     G.MM_ServerLocationCache = nil
-    local serverId
-    for _ = 1, 8 do
-        serverId = findHopServer()
-        if serverId then break end
-        task.wait(0.4)
-    end
+    local serverId = resolveHopServerId(targetServerId)
     if not serverId then
         log("server hop: no server found")
         hopBusy = false
         return false
     end
+    log("server hop: teleporting to " .. tostring(serverId))
     local ok = pcall(function()
         TeleportSvc:TeleportToPlaceInstance(game.PlaceId, serverId, me)
     end)
     if not ok then
         log("server hop failed")
+        hopMarkSeen(serverId)
         hopBusy = false
+        return false
     end
-    return ok
+    hopMarkSeen(serverId)
+    return true
 end
 
 --[[ Movement ]]--
@@ -2281,21 +2288,12 @@ local function processBridgeCommands(jobId, commands)
                         bridgeAck(jobId, cmd.id, "error", "Server hop already in progress")
                         return
                     end
-                    local serverId = findHopServer()
-                    if not serverId then
-                        for _ = 1, 6 do
-                            task.wait(0.4)
-                            serverId = findHopServer()
-                            if serverId then break end
-                        end
+                    local hopped = hopServer("discord server hop", false)
+                    if hopped then
+                        bridgeAck(jobId, cmd.id, "ok", "Server hop started — open the bot profile and Join")
+                    else
+                        bridgeAck(jobId, cmd.id, "error", "Could not teleport — try again in a moment")
                     end
-                    if not serverId then
-                        bridgeAck(jobId, cmd.id, "error", "No available servers found")
-                        return
-                    end
-                    bridgeAck(jobId, cmd.id, "ok", "Server hop started — open the bot profile and Join")
-                    task.wait(0.2)
-                    hopServer("discord server hop", false)
                 end)
             elseif ctype == "help" then
                 local topic = cmd.topic or cmd.command or ""
