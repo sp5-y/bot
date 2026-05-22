@@ -46,6 +46,9 @@ do
     if pending and pending > 0 then
         session.ownerId = pending
     end
+    if G.MM_PendingOwnerPremium == true then
+        G.MM_OwnerPremium = true
+    end
 end
 cam.FieldOfView = DEFAULT_FOV
 do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid") 
@@ -471,20 +474,36 @@ end)
     end)
 end
 
-local function queueOwnerPersistOnTeleport(ownerId)
-    if not ownerId then return end
+local function queueClaimPersistOnTeleport()
     local queueFn = queue_on_teleport
         or (syn and syn.queue_on_teleport)
         or (fluxus and fluxus.queue_on_teleport)
     if not queueFn then return end
+    local ownerId = tonumber(G.MM_PendingOwnerId or session.ownerId) or 0
+    local claimId = G.MM_PendingClaimId and ("%q"):format(tostring(G.MM_PendingClaimId)) or "nil"
+    local claimName = G.MM_PendingClaimName and ("%q"):format(tostring(G.MM_PendingClaimName)) or "nil"
+    local fulfilledId = G.MM_PendingFulfilledClaimId and ("%q"):format(tostring(G.MM_PendingFulfilledClaimId)) or "nil"
+    local premium = G.MM_OwnerPremium == true and "true" or "false"
     pcall(function()
         queueFn(([[
 pcall(function()
     local g = getgenv and getgenv() or _G
     g.MM_PendingOwnerId = %d
+    g.MM_PendingClaimId = %s
+    g.MM_PendingClaimName = %s
+    g.MM_PendingFulfilledClaimId = %s
+    g.MM_PendingOwnerPremium = %s
+    g.MM_RegionSpreadCheck = true
 end)
-]]):format(math.floor(ownerId)))
+]]):format(ownerId, claimId, claimName, fulfilledId, premium))
     end)
+end
+
+local function snapshotClaimBeforeHop()
+    if session.ownerId then
+        G.MM_PendingOwnerId = session.ownerId
+    end
+    G.MM_PendingOwnerPremium = G.MM_OwnerPremium == true
 end
 
 G.MM_HopSeenServers = G.MM_HopSeenServers or {}
@@ -534,87 +553,134 @@ local function getPingMs()
     end
 end
 
-local function findHopServer()
+local HOP_MAX_ATTEMPTS = 35
+local HOP_ATTEMPT_WAIT = 1.25
+
+local function fetchPublicServersPage(cursor)
+    local url = "https://games.roblox.com/v1/games/"
+        .. tostring(game.PlaceId)
+        .. "/servers/Public?sortOrder=Asc&limit=100"
+    if cursor and cursor ~= "" then
+        url = url .. "&cursor=" .. Http:UrlEncode(cursor)
+    end
+    local raw
+    local ok, body = pcall(function()
+        return game:HttpGet(url)
+    end)
+    if ok and type(body) == "string" and body ~= "" then
+        raw = body
+    else
+        raw = httpGet(url)
+    end
+    if not raw or raw == "" then
+        return nil
+    end
+    local decOk, page = pcall(function()
+        return Http:JSONDecode(raw)
+    end)
+    if decOk and type(page) == "table" then
+        return page
+    end
+    return nil
+end
+
+local function findHopServer(skip)
+    skip = skip or {}
+    local currentJob = tostring(game.JobId)
+    skip[currentJob] = true
     hopSeenResetIfNeeded()
-    hopMarkSeen(game.JobId)
-    local cursor, fallback = nil, nil
-    local jobId = tostring(game.JobId)
-    for _ = 1, 12 do
-        local url = ("https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Asc&limit=100"):format(game.PlaceId)
-        if cursor and cursor ~= "" then
-            url = url .. "&cursor=" .. Http:UrlEncode(cursor)
+    local cursor = nil
+    for _ = 1, 10 do
+        local page = fetchPublicServersPage(cursor)
+        if not page or type(page.data) ~= "table" then
+            break
         end
-        local raw = httpGet(url)
-        if not raw then break end
-        local ok, page = pcall(function() return Http:JSONDecode(raw) end)
-        if not ok or type(page) ~= "table" then break end
-        for _, server in ipairs(page.data or {}) do
+        for _, server in pairs(page.data) do
             local sid = server.id and tostring(server.id) or ""
-            if sid ~= "" and sid ~= jobId and not hopIsSeen(sid) then
-                local playing = tonumber(server.playing) or 0
-                local maxPlayers = tonumber(server.maxPlayers) or 0
-                if maxPlayers > playing then
-                    if playing > 2 then
-                        return sid
-                    end
-                    if not fallback then fallback = sid end
-                end
+            local playing = tonumber(server.playing) or 0
+            local maxPlayers = tonumber(server.maxPlayers) or 0
+            if sid ~= "" and not skip[sid] and not hopIsSeen(sid) and maxPlayers > playing then
+                return sid
             end
         end
         cursor = page.nextPageCursor
-        if not cursor or cursor == "null" or cursor == nil then break end
+        if not cursor or cursor == "" or cursor == "null" then
+            break
+        end
     end
-    return fallback
+    return nil
 end
 
-local function resolveHopServerId(targetServerId)
-    if targetServerId and tostring(targetServerId) ~= "" then
-        return tostring(targetServerId)
+local function teleportToServerInstance(serverId)
+    return pcall(function()
+        TeleportSvc:TeleportToPlaceInstance(game.PlaceId, serverId, me)
+    end)
+end
+
+local function waitForNewJobId(previousJob, timeoutSec)
+    local deadline = tick() + (timeoutSec or 10)
+    while tick() < deadline do
+        if tostring(game.JobId) ~= tostring(previousJob) then
+            return true, tostring(game.JobId)
+        end
+        task.wait(0.45)
     end
-    local serverId
-    for _ = 1, 8 do
-        serverId = findHopServer()
-        if serverId then break end
-        task.wait(0.4)
-    end
-    return serverId
+    return false, tostring(game.JobId)
 end
 
 local function hopServer(reason, continuePingSearch, targetServerId)
-    if hopBusy then return false end
+    if hopBusy then
+        return false
+    end
     hopBusy = true
     stopFollow()
     if continuePingSearch then
         hopState.pingSearchActive = true
         queuePingSearchOnTeleport()
     else
-        if session.ownerId then
-            G.MM_PendingOwnerId = session.ownerId
-            queueOwnerPersistOnTeleport(session.ownerId)
-        end
+        snapshotClaimBeforeHop()
+        queueClaimPersistOnTeleport()
         queueRegionSpreadOnTeleport()
     end
     log("server hop: " .. tostring(reason or "requested"))
     G.MM_ServerLocationJob = nil
     G.MM_ServerLocationCache = nil
-    local serverId = resolveHopServerId(targetServerId)
-    if not serverId then
-        log("server hop: no server found")
-        hopBusy = false
-        return false
+    local startJob = tostring(game.JobId)
+    local tried = {}
+
+    for attempt = 1, HOP_MAX_ATTEMPTS do
+        local serverId = targetServerId and tostring(targetServerId) or findHopServer(tried)
+        if not serverId then
+            log(("hop attempt %d: no server in list"):format(attempt))
+            task.wait(HOP_ATTEMPT_WAIT)
+        else
+            tried[serverId] = true
+            log(("hop attempt %d -> %s"):format(attempt, serverId))
+            local tpOk, tpErr = teleportToServerInstance(serverId)
+            if not tpOk then
+                log("teleport error: " .. tostring(tpErr))
+                hopMarkSeen(serverId)
+                task.wait(HOP_ATTEMPT_WAIT)
+            else
+                local moved, newJob = waitForNewJobId(startJob, 9)
+                if moved then
+                    log("hop success: " .. startJob .. " -> " .. newJob)
+                    return true
+                end
+                log(("hop attempt %d: still on %s, retrying"):format(attempt, tostring(game.JobId)))
+                hopMarkSeen(serverId)
+                startJob = tostring(game.JobId)
+                task.wait(HOP_ATTEMPT_WAIT)
+            end
+        end
+        if targetServerId then
+            targetServerId = nil
+        end
     end
-    log("server hop: teleporting to " .. tostring(serverId))
-    local ok = pcall(function()
-        TeleportSvc:TeleportToPlaceInstance(game.PlaceId, serverId, me)
-    end)
-    if not ok then
-        log("server hop failed")
-        hopMarkSeen(serverId)
-        hopBusy = false
-        return false
-    end
-    hopMarkSeen(serverId)
-    return true
+
+    log("server hop: gave up after " .. HOP_MAX_ATTEMPTS .. " attempts")
+    hopBusy = false
+    return false
 end
 
 --[[ Movement ]]--
@@ -1794,10 +1860,25 @@ local BRIDGE_ACK_DELAY_SEC = 5
 local REGION_PEER_MAX = 3
 local REGION_SPREAD_MAX_ATTEMPTS = 12
 local bridgeAcked = {}
-local bridgeClaimId = nil
-local bridgeAwaitingName = nil
+local bridgeClaimId = G.MM_PendingClaimId
+local bridgeAwaitingName = G.MM_PendingClaimName
 local bridgeClaimExpiresAt = 0
-local bridgeFulfilledClaimId = nil
+local bridgeFulfilledClaimId = G.MM_PendingFulfilledClaimId
+
+local function syncClaimGlobals()
+    G.MM_PendingOwnerId = session.ownerId or G.MM_PendingOwnerId
+    G.MM_PendingClaimId = bridgeClaimId
+    G.MM_PendingClaimName = bridgeAwaitingName
+    G.MM_PendingFulfilledClaimId = bridgeFulfilledClaimId
+    G.MM_PendingOwnerPremium = G.MM_OwnerPremium == true
+end
+
+if G.MM_PendingClaimId or G.MM_PendingOwnerId then
+    log("claim state restored after hop/re-exec")
+    if G.MM_PendingOwnerId and not session.ownerId then
+        session.ownerId = tonumber(G.MM_PendingOwnerId)
+    end
+end
 
 local function nameMatchesPlayer(pl, name)
     if not pl or not name or name == "" then return false end
@@ -1841,6 +1922,10 @@ local function fulfillBridgeClaim(claimId, username)
     session.ownerId = pl.UserId
     bridgeFulfilledClaimId = claimId
     bridgeAwaitingName = nil
+    G.MM_PendingFulfilledClaimId = claimId
+    G.MM_PendingClaimName = username
+    G.MM_PendingOwnerId = pl.UserId
+    syncClaimGlobals()
     log("bridge: owner joined — " .. pl.Name)
     if prevId ~= pl.UserId then
         toggleResetOnOwnerDeath = false
@@ -2288,11 +2373,13 @@ local function processBridgeCommands(jobId, commands)
                         bridgeAck(jobId, cmd.id, "error", "Server hop already in progress")
                         return
                     end
+                    syncClaimGlobals()
+                    snapshotClaimBeforeHop()
                     local hopped = hopServer("discord server hop", false)
                     if hopped then
-                        bridgeAck(jobId, cmd.id, "ok", "Server hop started — open the bot profile and Join")
+                        bridgeAck(jobId, cmd.id, "ok", "Server hop complete — open the bot profile and Join")
                     else
-                        bridgeAck(jobId, cmd.id, "error", "Could not teleport — try again in a moment")
+                        bridgeAck(jobId, cmd.id, "error", "Could not join a new server — try again")
                     end
                 end)
             elseif ctype == "help" then
@@ -2368,11 +2455,26 @@ end
 local function restoreOwnerFromClaim(claim)
     if type(claim) ~= "table" then return end
     local oid = tonumber(claim.owner_id)
-    if oid and oid > 0 and session.ownerId ~= oid then
-        session.ownerId = oid
+    if oid and oid > 0 then
+        if session.ownerId ~= oid then
+            session.ownerId = oid
+            log("bridge: restored owner " .. tostring(oid))
+        end
         G.MM_PendingOwnerId = oid
-        log("bridge: restored owner " .. tostring(oid))
     end
+    if claim.roblox_username and claim.roblox_username ~= "" then
+        G.MM_PendingClaimName = claim.roblox_username
+        if not bridgeAwaitingName then
+            bridgeAwaitingName = claim.roblox_username
+        end
+    end
+    if claim.id then
+        G.MM_PendingClaimId = claim.id
+        if not bridgeClaimId then
+            bridgeClaimId = claim.id
+        end
+    end
+    syncClaimGlobals()
 end
 
 local function processBridgeClaim(claim)
@@ -2383,15 +2485,21 @@ local function processBridgeClaim(claim)
     if st == "in_use" or st == "fulfilled" then
         if claim.roblox_username and claim.id then
             bridgeClaimId = claim.id
+            bridgeAwaitingName = claim.roblox_username
+            G.MM_PendingClaimId = claim.id
+            G.MM_PendingClaimName = claim.roblox_username
             if bridgeFulfilledClaimId ~= claim.id then
                 fulfillBridgeClaim(claim.id, claim.roblox_username)
             end
+            syncClaimGlobals()
         end
         return
     end
     if st == "awaiting_join" and claim.roblox_username and claim.id then
         bridgeClaimId = claim.id
         bridgeAwaitingName = claim.roblox_username
+        G.MM_PendingClaimId = claim.id
+        G.MM_PendingClaimName = claim.roblox_username
         bridgeClaimExpiresAt = tonumber(claim.expires_at) or (os.time() + BRIDGE_CLAIM_WAIT_SEC)
         if claim.age_group then
             G.MM_OwnerAgeGroup = claim.age_group
@@ -2399,6 +2507,7 @@ local function processBridgeClaim(claim)
         if bridgeFulfilledClaimId ~= claim.id then
             fulfillBridgeClaim(claim.id, claim.roblox_username)
         end
+        syncClaimGlobals()
     elseif st == "available" or not claim.roblox_username then
         if not session.ownerId then
             G.MM_OwnerPremium = false
@@ -2486,12 +2595,13 @@ local function bridgePollOnce()
         bridgeClaimId = nil
         bridgeClaimExpiresAt = 0
     end
+    local ownerForPoll = session.ownerId or tonumber(G.MM_PendingOwnerId)
     local pollBody = {
         job_id = game.JobId,
         bot_username = me.Name,
         bot_user_id = me.UserId,
         place_id = game.PlaceId,
-        owner_id = session.ownerId,
+        owner_id = ownerForPoll,
         player_count = #Players:GetPlayers(),
         claim_event = claimEvent,
         claim_id = bridgeClaimId,
