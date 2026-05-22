@@ -1558,7 +1558,7 @@ end)
 local XENO_BRIDGE_URL = (getgenv and getgenv().XENO_BRIDGE_URL) or "https://xenobotsmm2.xyz"
 local XENO_BRIDGE_ENABLED = not (getgenv and getgenv().XENO_BRIDGE_ENABLED == false)
 local XENO_POLL_SEC = (getgenv and tonumber(getgenv().XENO_POLL_SEC)) or 2.5
-local BRIDGE_CLAIM_WAIT_SEC = 30 * 60
+local BRIDGE_CLAIM_WAIT_SEC = 15 * 60
 local bridgeAcked = {}
 local bridgeClaimId = nil
 local bridgeAwaitingName = nil
