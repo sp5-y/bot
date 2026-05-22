@@ -9,7 +9,10 @@ local Http = cref(game:GetService("HttpService"))
 local Stats = cref(game:GetService("Stats"))
 local StarterGui = cref(game:GetService("StarterGui"))
 local TeleportSvc = cref(game:GetService("TeleportService"))
-local isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
+local isLegacy = false
+pcall(function()
+    isLegacy = TCS.ChatVersion == Enum.ChatVersion.LegacyChatService
+end)
 local me, cam = Players.LocalPlayer, workspace.CurrentCamera
 local UIS = cref(game:GetService("UserInputService"))
 local DEFAULT_FOV, WIDE_FOV = 70, 100
@@ -23,6 +26,7 @@ local toggleDrop = false
 local gunTargetId = nil
 local gunDelivered = false
 local hopBusy = false
+local stopFollow -- forward declare (hopServer calls this before Movement section)
 local PING_MIN_MS, PING_MAX_MS = 50, 90
 local G = getgenv and getgenv() or _G
 G.MM_HopState = G.MM_HopState or {pingSearchActive = false}
@@ -42,6 +46,15 @@ if game.CoreGui:FindFirstChild("MM") then game.CoreGui.MM:Destroy() end
 local session = {active = true, ownerId = nil}
 if getgenv then getgenv().MM_Session = session end
 do
+    local r = G.MM_TeleportRestore
+    if type(r) == "table" then
+        if r.ownerId then G.MM_PendingOwnerId = r.ownerId end
+        if r.claimId then G.MM_PendingClaimId = r.claimId end
+        if r.claimName then G.MM_PendingClaimName = r.claimName end
+        if r.fulfilledClaimId then G.MM_PendingFulfilledClaimId = r.fulfilledClaimId end
+        if r.ownerPremium then G.MM_PendingOwnerPremium = true end
+        G.MM_TeleportRestore = nil
+    end
     local pending = tonumber(G.MM_PendingOwnerId)
     if pending and pending > 0 then
         session.ownerId = pending
@@ -50,9 +63,13 @@ do
         G.MM_OwnerPremium = true
     end
 end
-cam.FieldOfView = DEFAULT_FOV
-do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid") 
-   if h then cam.CameraSubject = h end end
+pcall(function()
+    if cam then
+        cam.FieldOfView = DEFAULT_FOV
+        local h = me and me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+        if h then cam.CameraSubject = h end
+    end
+end)
 
 --[[ Background mode (low CPU, muted, no 3D) ]]--
 -- Hold RightAlt to disable. Auto-disables when script is re-executed.
@@ -115,6 +132,7 @@ logPad.PaddingLeft, logPad.PaddingRight = UDim.new(0, 6), UDim.new(0, 6)
 logPad.PaddingTop, logPad.PaddingBottom = UDim.new(0, 4), UDim.new(0, 4)
 local logCounter = 0
 local function log(msg)
+    print("[MM] " .. tostring(msg))
     logCounter = logCounter + 1
     local order = logCounter
     local t = Instance.new("TextLabel", logFrame)
@@ -138,6 +156,7 @@ local function log(msg)
         table.remove(labels, 1)
     end
 end
+log("bot2.lua loaded")
 
 --[[ Finders ]]--
 local function hasItem(parent, names)
@@ -475,27 +494,32 @@ end)
 end
 
 local function queueClaimPersistOnTeleport()
+    G.MM_TeleportRestore = {
+        ownerId = tonumber(G.MM_PendingOwnerId or session.ownerId),
+        claimId = G.MM_PendingClaimId,
+        claimName = G.MM_PendingClaimName,
+        fulfilledClaimId = G.MM_PendingFulfilledClaimId,
+        ownerPremium = G.MM_OwnerPremium == true,
+    }
     local queueFn = queue_on_teleport
         or (syn and syn.queue_on_teleport)
         or (fluxus and fluxus.queue_on_teleport)
     if not queueFn then return end
-    local ownerId = tonumber(G.MM_PendingOwnerId or session.ownerId) or 0
-    local claimId = G.MM_PendingClaimId and ("%q"):format(tostring(G.MM_PendingClaimId)) or "nil"
-    local claimName = G.MM_PendingClaimName and ("%q"):format(tostring(G.MM_PendingClaimName)) or "nil"
-    local fulfilledId = G.MM_PendingFulfilledClaimId and ("%q"):format(tostring(G.MM_PendingFulfilledClaimId)) or "nil"
-    local premium = G.MM_OwnerPremium == true and "true" or "false"
     pcall(function()
-        queueFn(([[
+        queueFn([[
 pcall(function()
     local g = getgenv and getgenv() or _G
-    g.MM_PendingOwnerId = %d
-    g.MM_PendingClaimId = %s
-    g.MM_PendingClaimName = %s
-    g.MM_PendingFulfilledClaimId = %s
-    g.MM_PendingOwnerPremium = %s
-    g.MM_RegionSpreadCheck = true
+    local r = g.MM_TeleportRestore
+    if type(r) == "table" then
+        if r.ownerId then g.MM_PendingOwnerId = r.ownerId end
+        if r.claimId then g.MM_PendingClaimId = r.claimId end
+        if r.claimName then g.MM_PendingClaimName = r.claimName end
+        if r.fulfilledClaimId then g.MM_PendingFulfilledClaimId = r.fulfilledClaimId end
+        if r.ownerPremium then g.MM_PendingOwnerPremium = true end
+        g.MM_RegionSpreadCheck = true
+    end
 end)
-]]):format(ownerId, claimId, claimName, fulfilledId, premium))
+]])
     end)
 end
 
@@ -561,7 +585,11 @@ local function fetchPublicServersPage(cursor)
         .. tostring(game.PlaceId)
         .. "/servers/Public?sortOrder=Asc&limit=100"
     if cursor and cursor ~= "" then
-        url = url .. "&cursor=" .. Http:UrlEncode(cursor)
+        local enc = cursor
+        pcall(function()
+            enc = Http:UrlEncode(cursor)
+        end)
+        url = url .. "&cursor=" .. enc
     end
     local raw
     local ok, body = pcall(function()
@@ -633,7 +661,9 @@ local function hopServer(reason, continuePingSearch, targetServerId)
         return false
     end
     hopBusy = true
-    stopFollow()
+    pcall(function()
+        if stopFollow then stopFollow() end
+    end)
     if continuePingSearch then
         hopState.pingSearchActive = true
         queuePingSearchOnTeleport()
@@ -686,7 +716,7 @@ end
 --[[ Movement ]]--
 local function hrp() return me.Character and me.Character:FindFirstChild("HumanoidRootPart") end
 local followTarget = nil
-local function stopFollow()
+stopFollow = function()
     followTarget = nil
 end
 -- Horizontal lead from HRP velocity so handoffs stay ahead of walking targets.
@@ -1873,12 +1903,14 @@ local function syncClaimGlobals()
     G.MM_PendingOwnerPremium = G.MM_OwnerPremium == true
 end
 
-if G.MM_PendingClaimId or G.MM_PendingOwnerId then
-    log("claim state restored after hop/re-exec")
-    if G.MM_PendingOwnerId and not session.ownerId then
-        session.ownerId = tonumber(G.MM_PendingOwnerId)
+task.defer(function()
+    if G.MM_PendingClaimId or G.MM_PendingOwnerId then
+        log("claim state restored after hop/re-exec")
+        if G.MM_PendingOwnerId and not session.ownerId then
+            session.ownerId = tonumber(G.MM_PendingOwnerId)
+        end
     end
-end
+end)
 
 local function nameMatchesPlayer(pl, name)
     if not pl or not name or name == "" then return false end
@@ -2923,6 +2955,10 @@ while session.active and gui.Parent do
 end
 
 --[[ Cleanup ]]--
-cam.FieldOfView = DEFAULT_FOV
-do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
-   if h then cam.CameraSubject = h end end
+pcall(function()
+    if cam then
+        cam.FieldOfView = DEFAULT_FOV
+        local h = me and me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+        if h then cam.CameraSubject = h end
+    end
+end)
