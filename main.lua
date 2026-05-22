@@ -41,6 +41,12 @@ if getgenv and getgenv().MM_Session then getgenv().MM_Session.active = false end
 if game.CoreGui:FindFirstChild("MM") then game.CoreGui.MM:Destroy() end
 local session = {active = true, ownerId = nil}
 if getgenv then getgenv().MM_Session = session end
+do
+    local pending = tonumber(G.MM_PendingOwnerId)
+    if pending and pending > 0 then
+        session.ownerId = pending
+    end
+end
 cam.FieldOfView = DEFAULT_FOV
 do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid") 
    if h then cam.CameraSubject = h end end
@@ -465,6 +471,49 @@ end)
     end)
 end
 
+local function queueOwnerPersistOnTeleport(ownerId)
+    if not ownerId then return end
+    local queueFn = queue_on_teleport
+        or (syn and syn.queue_on_teleport)
+        or (fluxus and fluxus.queue_on_teleport)
+    if not queueFn then return end
+    pcall(function()
+        queueFn(([[
+pcall(function()
+    local g = getgenv and getgenv() or _G
+    g.MM_PendingOwnerId = %d
+end)
+]]):format(math.floor(ownerId)))
+    end)
+end
+
+G.MM_HopSeenServers = G.MM_HopSeenServers or {}
+G.MM_HopSeenHour = G.MM_HopSeenHour or os.date("!*t").hour
+
+local function hopSeenResetIfNeeded()
+    local h = tonumber(os.date("!*t").hour) or 0
+    if tonumber(G.MM_HopSeenHour) ~= h then
+        G.MM_HopSeenServers = {}
+        G.MM_HopSeenHour = h
+    end
+end
+
+local function hopIsSeen(serverId)
+    hopSeenResetIfNeeded()
+    local sid = tostring(serverId)
+    for _, existing in ipairs(G.MM_HopSeenServers) do
+        if tostring(existing) == sid then return true end
+    end
+    return false
+end
+
+local function hopMarkSeen(serverId)
+    hopSeenResetIfNeeded()
+    local sid = tostring(serverId)
+    if hopIsSeen(sid) then return end
+    table.insert(G.MM_HopSeenServers, sid)
+end
+
 local function getPingMs()
     local ok, value = pcall(function()
         return Stats.Network.ServerStatsItem["Data Ping"]:GetValueString()
@@ -486,9 +535,12 @@ local function getPingMs()
 end
 
 local function findHopServer()
+    hopSeenResetIfNeeded()
+    hopMarkSeen(game.JobId)
     local cursor, fallback = nil, nil
-    for _ = 1, 5 do
-        local url = ("https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Desc&limit=100"):format(game.PlaceId)
+    local jobId = tostring(game.JobId)
+    for _ = 1, 12 do
+        local url = ("https://games.roblox.com/v1/games/%s/servers/Public?sortOrder=Asc&limit=100"):format(game.PlaceId)
         if cursor and cursor ~= "" then
             url = url .. "&cursor=" .. Http:UrlEncode(cursor)
         end
@@ -497,17 +549,27 @@ local function findHopServer()
         local ok, page = pcall(function() return Http:JSONDecode(raw) end)
         if not ok or type(page) ~= "table" then break end
         for _, server in ipairs(page.data or {}) do
-            local playing = tonumber(server.playing) or 0
-            local maxPlayers = tonumber(server.maxPlayers) or 0
-            if server.id ~= game.JobId and playing < maxPlayers and playing > 0 then
-                if playing > 2 then return server.id end
-                if not fallback then fallback = server.id end
+            local sid = server.id and tostring(server.id) or ""
+            if sid ~= "" and sid ~= jobId and not hopIsSeen(sid) then
+                local playing = tonumber(server.playing) or 0
+                local maxPlayers = tonumber(server.maxPlayers) or 0
+                if maxPlayers > playing then
+                    if playing > 2 then
+                        hopMarkSeen(sid)
+                        return sid
+                    end
+                    if not fallback then fallback = sid end
+                end
             end
         end
         cursor = page.nextPageCursor
-        if not cursor or cursor == "" then break end
+        if not cursor or cursor == "null" or cursor == nil then break end
     end
-    return fallback
+    if fallback then
+        hopMarkSeen(fallback)
+        return fallback
+    end
+    return nil
 end
 
 local function hopServer(reason, continuePingSearch)
@@ -517,9 +579,22 @@ local function hopServer(reason, continuePingSearch)
     if continuePingSearch then
         hopState.pingSearchActive = true
         queuePingSearchOnTeleport()
+    else
+        if session.ownerId then
+            G.MM_PendingOwnerId = session.ownerId
+            queueOwnerPersistOnTeleport(session.ownerId)
+        end
+        queueRegionSpreadOnTeleport()
     end
     log("server hop: " .. tostring(reason or "requested"))
-    local serverId = findHopServer()
+    G.MM_ServerLocationJob = nil
+    G.MM_ServerLocationCache = nil
+    local serverId
+    for _ = 1, 8 do
+        serverId = findHopServer()
+        if serverId then break end
+        task.wait(0.4)
+    end
     if not serverId then
         log("server hop: no server found")
         hopBusy = false
@@ -1692,7 +1767,9 @@ for _, p in ipairs(Players:GetPlayers()) do hookSpeaker(p) end
 Players.PlayerAdded:Connect(hookSpeaker)
 Players.PlayerRemoving:Connect(function(p)
     if session.ownerId and p.UserId == session.ownerId then
+        if hopBusy then return end
         session.ownerId = nil
+        G.MM_PendingOwnerId = nil
         toggleGun, toggleAlerts, toggleReveal = false, false, true
         toggleDrop, toggleResetOnOwnerDeath = false, false
         gunTargetId, gunDelivered = nil, false
@@ -2187,6 +2264,15 @@ local function processBridgeCommands(jobId, commands)
                 log("bridge: server hop")
                 task.spawn(function()
                     task.wait(bridgeCommandDelay(cmd))
+                    pcall(function()
+                        bridgePollOnce()
+                    end)
+                    if not session.ownerId then
+                        local pending = tonumber(G.MM_PendingOwnerId)
+                        if pending and pending > 0 then
+                            session.ownerId = pending
+                        end
+                    end
                     if not session.ownerId then
                         bridgeAck(jobId, cmd.id, "error", "No owner — join your reserved server first")
                         return
@@ -2195,7 +2281,15 @@ local function processBridgeCommands(jobId, commands)
                         bridgeAck(jobId, cmd.id, "error", "Server hop already in progress")
                         return
                     end
-                    if not findHopServer() then
+                    local serverId = findHopServer()
+                    if not serverId then
+                        for _ = 1, 6 do
+                            task.wait(0.4)
+                            serverId = findHopServer()
+                            if serverId then break end
+                        end
+                    end
+                    if not serverId then
                         bridgeAck(jobId, cmd.id, "error", "No available servers found")
                         return
                     end
@@ -2273,10 +2367,30 @@ local function processBridgeCommands(jobId, commands)
     end
 end
 
+local function restoreOwnerFromClaim(claim)
+    if type(claim) ~= "table" then return end
+    local oid = tonumber(claim.owner_id)
+    if oid and oid > 0 and session.ownerId ~= oid then
+        session.ownerId = oid
+        G.MM_PendingOwnerId = oid
+        log("bridge: restored owner " .. tostring(oid))
+    end
+end
+
 local function processBridgeClaim(claim)
     if type(claim) ~= "table" then return end
     syncOwnerPremiumFromClaim(claim)
+    restoreOwnerFromClaim(claim)
     local st = claim.status
+    if st == "in_use" or st == "fulfilled" then
+        if claim.roblox_username and claim.id then
+            bridgeClaimId = claim.id
+            if bridgeFulfilledClaimId ~= claim.id then
+                fulfillBridgeClaim(claim.id, claim.roblox_username)
+            end
+        end
+        return
+    end
     if st == "awaiting_join" and claim.roblox_username and claim.id then
         bridgeClaimId = claim.id
         bridgeAwaitingName = claim.roblox_username
@@ -2303,11 +2417,9 @@ end
 G.MM_RegionSpreadCheck = G.MM_RegionSpreadCheck or false
 G.MM_RegionSpreadAttempts = G.MM_RegionSpreadAttempts or 0
 
-local serverLocationCache, serverLocationJob = nil, nil
-
 local function getServerLocationLabel()
-    if serverLocationJob == game.JobId and serverLocationCache then
-        return serverLocationCache
+    if G.MM_ServerLocationJob == game.JobId and G.MM_ServerLocationCache then
+        return G.MM_ServerLocationCache
     end
     local raw = httpGet("http://ip-api.com/json/?fields=status,countryCode,city")
     if not raw then return nil end
@@ -2324,8 +2436,8 @@ local function getServerLocationLabel()
         label = city
     end
     if label and label ~= "" then
-        serverLocationJob = game.JobId
-        serverLocationCache = label
+        G.MM_ServerLocationJob = game.JobId
+        G.MM_ServerLocationCache = label
         return label
     end
     return nil
@@ -2415,6 +2527,7 @@ end)
 Players.PlayerRemoving:Connect(function(p)
     if not XENO_BRIDGE_ENABLED then return end
     if session.ownerId and p.UserId == session.ownerId then
+        if hopBusy then return end
         bridgeFulfilledClaimId = nil
         bridgeReportClaimEvent("owner_left", { owner_id = nil, note = p.Name })
     end
