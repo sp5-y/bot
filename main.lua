@@ -1129,13 +1129,13 @@ end
 
 --[[ Commands ]]--
 local COMMAND_HELP = {
-    owner = "Re-run onboarding if you are already owner (claim via Discord)",
+    owner = "Re-run onboarding if you are already owner",
     dethrone = "Release owner control",
     who = "Show current murderer and sheriff",
     stab = "sheriff | <name> - Murderer only, stab a given player",
     togglewho = "Toggle automatic role callout each round",
     togglealerts = "Toggle kill/drop/pickup alerts",
-    togglereset = "Toggle auto-reset when owner dies (off by default)",
+    togglereset = "Toggle auto-reset when owner dies",
     reset = "Force bot respawn",
     tp = "<player> - Teleport bot to a player",
     tpmurd = "Teleport bot to the murderer",
@@ -1831,6 +1831,34 @@ local function bridgeFlingMessage(query)
     return st, msg
 end
 
+local murdererRoundKills = 0
+local sheriffRoundKills = 0
+local whoKnifeIdPrev, whoGunIdPrev = nil, nil
+
+local function distanceStudsToPlayer(p)
+    local h = hrp()
+    local t = p and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+    if not (h and t) then return nil end
+    return math.floor((h.Position - t.Position).Magnitude + 0.5)
+end
+
+local function distanceStudsToPart(part)
+    local h = hrp()
+    if not (h and part) then return nil end
+    local pos = part.Position
+    return math.floor((h.Position - pos).Magnitude + 0.5)
+end
+
+local function whoRoleEntry(p, kills)
+    return {
+        user_id = p and p.UserId or nil,
+        username = p and bridgePlayerLabel(p) or nil,
+        kills = kills or 0,
+        distance_studs = p and distanceStudsToPlayer(p) or nil,
+        is_bot = p == me,
+    }
+end
+
 local function bridgeWhoMessage()
     if not session.ownerId then
         return "error", "No owner — join your reserved server first"
@@ -1838,9 +1866,29 @@ local function bridgeWhoMessage()
     local m = findHolder({"Knife"})
     local s = findHolder({"Gun", "Revolver"})
     local botM, botS = botHasKnife(), botHasGun()
-    local mL = botM and bridgePlayerLabel(me) or (m and bridgePlayerLabel(m) or "None")
-    local sL = botS and bridgePlayerLabel(s) or (s and bridgePlayerLabel(s) or "None")
-    return "ok", "Murderer: " .. mL .. "\nSheriff: " .. sL
+    local murdererP = botM and me or m
+    local sheriffP = botS and me or s
+    local gunDrop = findDroppedGun()
+    local gunEquipped = botS or (sheriffP and playerHas(sheriffP, {"Gun", "Revolver"}))
+    local gunDropped = gunDrop ~= nil and not sheriffP
+    local gunAvailable = gunEquipped or gunDropped
+    local sheriffDist = sheriffP and distanceStudsToPlayer(sheriffP)
+        or (gunDrop and distanceStudsToPart(gunDrop))
+    local payload = {
+        murderer = murdererP and whoRoleEntry(murdererP, murdererRoundKills)
+            or whoRoleEntry(nil, murdererRoundKills),
+        sheriff = {
+            user_id = sheriffP and sheriffP.UserId or nil,
+            username = sheriffP and bridgePlayerLabel(sheriffP) or nil,
+            kills = sheriffRoundKills,
+            distance_studs = sheriffDist,
+            is_bot = sheriffP == me,
+            gun_available = gunAvailable,
+            gun_equipped = gunEquipped,
+            gun_dropped = gunDropped,
+        },
+    }
+    return "ok", Http:JSONEncode(payload)
 end
 
 local function bridgeTpMessage(targetQuery)
@@ -2089,8 +2137,10 @@ task.spawn(function()
                         elseif p.UserId == gunIdPrev then
                             whisper("Murderer killed Sheriff")
                         elseif knifeIdPrev then
+                            murdererRoundKills = murdererRoundKills + 1
                             whisper("Murderer killed " .. shortName(p))
                         elseif gunIdPrev then
+                            sheriffRoundKills = sheriffRoundKills + 1
                             whisper("Sheriff shot " .. shortName(p))
                         end
                     end
@@ -2113,6 +2163,14 @@ task.spawn(function()
             elseif alivePrev[p.UserId] == true then
                 alivePrev[p.UserId] = false
             end
+        end
+        if kid ~= whoKnifeIdPrev then
+            murdererRoundKills = 0
+            whoKnifeIdPrev = kid
+        end
+        if gid ~= whoGunIdPrev then
+            sheriffRoundKills = 0
+            whoGunIdPrev = gid
         end
         knifeIdPrev = kid
         gunIdPrev = gid
