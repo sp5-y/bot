@@ -31,6 +31,8 @@ _G.MM_GunBusy = _G.MM_GunBusy or false
 _G.MM_OwnerDiedPendingReset = _G.MM_OwnerDiedPendingReset or false
 local OWNER_MURD_GUN_MSG = "Gun unavailable"
 local OWNER_MURD_STASH_COOLDOWN = 3
+local PREMIUM_INGAME_MSG = "Premium required for in-game commands — use Discord (/help, /gun, /tp, …)"
+G.MM_OwnerPremium = G.MM_OwnerPremium == true
 
 --[[ Session ]]--
 if getgenv and getgenv().MM_Session then getgenv().MM_Session.active = false end
@@ -180,6 +182,22 @@ local function bridgePlayerLabel(p)
     local dn = p.DisplayName
     if type(dn) == "string" and dn ~= "" then return dn end
     return p.Name
+end
+
+local function isOwnerPlayer(p)
+    return p and session.ownerId and p.UserId == session.ownerId
+end
+
+local function bridgeTargetLabel(p)
+    if not p then return "?" end
+    if isOwnerPlayer(p) then return "you" end
+    return bridgePlayerLabel(p)
+end
+
+local function commandTargetLabel(p)
+    if not p then return "?" end
+    if isOwnerPlayer(p) then return "you" end
+    return shortName(p)
 end
 local function restOfChatArgs(args)
     if not args or #args < 2 then return "" end
@@ -425,6 +443,21 @@ pcall(function()
     local g = getgenv and getgenv() or _G
     g.MM_HopState = g.MM_HopState or {}
     g.MM_HopState.pingSearchActive = true
+end)
+]])
+    end)
+end
+
+local function queueRegionSpreadOnTeleport()
+    local queueFn = queue_on_teleport
+        or (syn and syn.queue_on_teleport)
+        or (fluxus and fluxus.queue_on_teleport)
+    if not queueFn then return end
+    pcall(function()
+        queueFn([[
+pcall(function()
+    local g = getgenv and getgenv() or _G
+    g.MM_RegionSpreadCheck = true
 end)
 ]])
     end)
@@ -1151,8 +1184,36 @@ local COMMAND_HELP = {
 }
 local HELP_ORDER = {
     "owner", "dethrone", "tp", "who", "stab", "gun", "fling", "togglegun", "togglewho", "togglealerts",
-    "togglereset", "reset", "follow", "unfollow", "chat", "help",
+    "reset", "follow", "unfollow", "chat", "help",
 }
+local PREMIUM_ONLY_COMMANDS = { togglereset = true }
+
+local function ownerIsPremium()
+    return G.MM_OwnerPremium == true
+end
+
+local function helpKeysForOwner()
+    local keys = {}
+    for _, k in ipairs(HELP_ORDER) do
+        table.insert(keys, k)
+    end
+    if not ownerIsPremium() then
+        return keys
+    end
+    local out = {}
+    for _, k in ipairs(keys) do
+        if k == "reset" then
+            table.insert(out, "togglereset")
+        end
+        table.insert(out, k)
+    end
+    return out
+end
+
+local function isPremiumOnlyCommand(cmd)
+    return PREMIUM_ONLY_COMMANDS[cmd] == true
+end
+
 local function sendFullHelp(target, gapBetween)
     gapBetween = gapBetween or 0.5
     local uid
@@ -1183,8 +1244,9 @@ local function sendFullHelp(target, gapBetween)
         end
     end
     if not o then return end
+    local keys = helpKeysForOwner()
     local parts = {}
-    for _, key in ipairs(HELP_ORDER) do
+    for _, key in ipairs(keys) do
         table.insert(parts, "!" .. key)
     end
     local line = table.concat(parts, " ")
@@ -1192,9 +1254,9 @@ local function sendFullHelp(target, gapBetween)
         whisper(line, o)
         return
     end
-    local mid = math.ceil(#HELP_ORDER / 2)
+    local mid = math.ceil(#keys / 2)
     local a, b = {}, {}
-    for i, key in ipairs(HELP_ORDER) do
+    for i, key in ipairs(keys) do
         if i <= mid then table.insert(a, "!" .. key) else table.insert(b, "!" .. key) end
     end
     whisper(table.concat(a, " "), o)
@@ -1243,8 +1305,9 @@ local function sendFullHelpToOwner(userId, gapBetween)
     end
     task.wait(gapBetween)
 
+    local keys = helpKeysForOwner()
     local parts = {}
-    for _, key in ipairs(HELP_ORDER) do
+    for _, key in ipairs(keys) do
         table.insert(parts, "!" .. key)
     end
     local line = table.concat(parts, " ")
@@ -1252,14 +1315,21 @@ local function sendFullHelpToOwner(userId, gapBetween)
         return deliverOwnerLine(userId, line, 16, 0.45)
     end
 
-    local mid = math.ceil(#HELP_ORDER / 2)
+    local mid = math.ceil(#keys / 2)
     local a, b = {}, {}
-    for i, key in ipairs(HELP_ORDER) do
+    for i, key in ipairs(keys) do
         if i <= mid then table.insert(a, "!" .. key) else table.insert(b, "!" .. key) end
     end
     if not deliverOwnerLine(userId, table.concat(a, " "), 16, 0.45) then return false end
     task.wait(gapBetween)
     return deliverOwnerLine(userId, table.concat(b, " "), 16, 0.45)
+end
+
+local function syncOwnerPremiumFromClaim(claim)
+    if type(claim) ~= "table" then return end
+    if claim.owner_premium ~= nil then
+        G.MM_OwnerPremium = claim.owner_premium == true
+    end
 end
 
 local function scheduleOwnerOnboarding(userId)
@@ -1279,10 +1349,14 @@ local function scheduleOwnerOnboarding(userId)
             log("onboarding: owner player not found")
             return
         end
-        log("new owner: " .. o.DisplayName)
+        log("new owner: " .. o.DisplayName .. (ownerIsPremium() and " (premium)" or ""))
 
         if not deliverOwnerLine(userId, "Loading new owner", 12, 0.4) then
             log("onboarding: could not whisper Loading new owner")
+        end
+
+        if not ownerIsPremium() then
+            return
         end
 
         task.wait(0.85)
@@ -1311,11 +1385,21 @@ local function handleCommand(p, msg)
     local cmd, rest = args[1]:sub(2):lower(), msg:sub(#args[1] + 2)
     if cmd == "owner" then
         if session.ownerId == p.UserId then
-            scheduleOwnerOnboarding(p.UserId)
+            toggleResetOnOwnerDeath = false
+            _G.MM_OwnerDiedPendingReset = false
+            if ownerIsPremium() then
+                scheduleOwnerOnboarding(p.UserId)
+            else
+                deliverOwnerLine(p.UserId, "Loading new owner", 12, 0.4)
+            end
         end
         return
     end
     if not session.ownerId or p.UserId ~= session.ownerId then return end
+    if not ownerIsPremium() then
+        whisper(PREMIUM_INGAME_MSG, p)
+        return
+    end
     if flingLoopContinuous and cmd ~= "fling" then
         whisper('You need to toggle off fling loop using "!fling"')
         return
@@ -1392,6 +1476,7 @@ local function handleCommand(p, msg)
     local ownerIsMurd = ownerMurdererActive(m, ownerPlayer) and not botHasKnife()
     if cmd == "dethrone" then
         session.ownerId = nil
+        G.MM_OwnerPremium = false
         toggleGun, toggleAlerts, toggleWho = false, false, true
         gunTargetId, gunDelivered = nil, false
         sendChat("Owner released")
@@ -1411,7 +1496,7 @@ local function handleCommand(p, msg)
         local t = findPlayer(args[2]) or findOwner()
         if not t then whisper("Player not found") return end
         tpTo(t)
-        whisper("Teleported to " .. shortName(t))
+        whisper("Teleported to " .. commandTargetLabel(t))
     elseif cmd == "tpmurd" then
         if not m then whisper("Murderer not found") return end
         tpTo(m)
@@ -1462,7 +1547,7 @@ local function handleCommand(p, msg)
         if botHasKnife() then whisper("No gun available") return end
         if not gunAvailableForOwnerMurdStash() then whisper("No gun available") return end
         bringGun(t)
-        whisper("Gun delivered to " .. shortName(t))
+        whisper("Gun delivered to " .. commandTargetLabel(t))
     elseif cmd == "spawn" or cmd == "home" then
         tpHome()
         whisper("Teleported to spawn")
@@ -1491,6 +1576,10 @@ local function handleCommand(p, msg)
         toggleWho = not toggleWho
         whisper("Role callouts: " .. (toggleWho and "on" or "off"))
     elseif cmd == "togglereset" then
+        if not ownerIsPremium() then
+            whisper(PREMIUM_INGAME_MSG, p)
+            return
+        end
         toggleResetOnOwnerDeath = not toggleResetOnOwnerDeath
         _G.MM_OwnerDiedPendingReset = false
         whisper("Reset on owner death: " .. (toggleResetOnOwnerDeath and "on" or "off"))
@@ -1515,7 +1604,9 @@ local function handleCommand(p, msg)
         if helpCmd == "" and args[2] then
             helpCmd = (tostring(args[2]):gsub("^!+", ""):match("^%s*(.-)%s*$") or ""):lower()
         end
-        if helpCmd ~= "" and COMMAND_HELP[helpCmd] then
+        if helpCmd ~= "" and isPremiumOnlyCommand(helpCmd) and not ownerIsPremium() then
+            whisper(PREMIUM_INGAME_MSG, p)
+        elseif helpCmd ~= "" and COMMAND_HELP[helpCmd] then
             whisper("!" .. helpCmd .. ": " .. COMMAND_HELP[helpCmd])
         elseif helpCmd ~= "" then
             whisper("No help for !" .. helpCmd .. " — use !help for the list")
@@ -1576,7 +1667,9 @@ local XENO_BRIDGE_URL = (getgenv and getgenv().XENO_BRIDGE_URL) or "https://xeno
 local XENO_BRIDGE_ENABLED = not (getgenv and getgenv().XENO_BRIDGE_ENABLED == false)
 local XENO_POLL_SEC = (getgenv and tonumber(getgenv().XENO_POLL_SEC)) or 2.5
 local BRIDGE_CLAIM_WAIT_SEC = 15 * 60
-local BRIDGE_ACK_DELAY_SEC = 20
+local BRIDGE_ACK_DELAY_SEC = 5
+local REGION_PEER_MAX = 3
+local REGION_SPREAD_MAX_ATTEMPTS = 12
 local bridgeAcked = {}
 local bridgeClaimId = nil
 local bridgeAwaitingName = nil
@@ -1627,6 +1720,8 @@ local function fulfillBridgeClaim(claimId, username)
     bridgeAwaitingName = nil
     log("bridge: owner joined — " .. pl.Name)
     if prevId ~= pl.UserId then
+        toggleResetOnOwnerDeath = false
+        _G.MM_OwnerDiedPendingReset = false
         scheduleOwnerOnboarding(pl.UserId)
     end
     bridgeReportClaimEvent("owner_joined", { claim_id = claimId, owner_id = pl.UserId, note = pl.Name })
@@ -1657,10 +1752,23 @@ local function bridgeAck(jobId, commandId, status, message)
     end)
 end
 
-local function bridgeAckDelayed(jobId, commandId, status, message)
+local function bridgeCommandDelay(cmd)
+    if (type(cmd) == "table" and cmd.owner_premium == true) or ownerIsPremium() then
+        return 0
+    end
+    return BRIDGE_ACK_DELAY_SEC
+end
+
+-- Wait after poll delivers the command, then run the action and ack right away (premium: no wait).
+local function bridgeExecuteAfterPollDelay(jobId, commandId, fn, cmd)
     task.spawn(function()
-        task.wait(BRIDGE_ACK_DELAY_SEC)
-        bridgeAck(jobId, commandId, status, message)
+        task.wait(bridgeCommandDelay(cmd))
+        local ok, st, msg = pcall(fn)
+        if ok and type(st) == "string" then
+            bridgeAck(jobId, commandId, st, msg or "")
+        else
+            bridgeAck(jobId, commandId, "error", "Command failed")
+        end
     end)
 end
 
@@ -1670,19 +1778,28 @@ end
 
 local function bridgeHelpMessage(topic)
     topic = bridgeTrim(topic):lower():gsub("^!", "")
-    if topic ~= "" and COMMAND_HELP[topic] then
-        return "ok", "!" .. topic .. ": " .. COMMAND_HELP[topic]
-    elseif topic ~= "" then
+    if topic ~= "" then
+        if isPremiumOnlyCommand(topic) and not ownerIsPremium() then
+            return "error", "Premium required for !" .. topic
+        end
+        if COMMAND_HELP[topic] then
+            return "ok", "!" .. topic .. ": " .. COMMAND_HELP[topic]
+        end
         return "error", "No help for !" .. topic .. " — use /help for the full list"
     end
     local lines = {
         "Discord: /help /gun /stab /fling /tp /who /reset /rejoin",
-        "In-game: !help and the same commands with !",
         "",
     }
-    for _, key in ipairs(HELP_ORDER) do
-        local desc = COMMAND_HELP[key] or ""
-        table.insert(lines, "• **!" .. key .. "** — " .. desc)
+    if ownerIsPremium() then
+        table.insert(lines, "In-game: !help and the same commands with !")
+        table.insert(lines, "")
+        for _, key in ipairs(helpKeysForOwner()) do
+            local desc = COMMAND_HELP[key] or ""
+            table.insert(lines, "• **!" .. key .. "** — " .. desc)
+        end
+    else
+        table.insert(lines, "In-game **!** commands require **Premium**.")
     end
     return "ok", table.concat(lines, "\n")
 end
@@ -1705,7 +1822,7 @@ local function bridgeGunMessage(targetQuery)
     if botHasKnife() then return "error", "No gun available" end
     if not gunAvailableForOwnerMurdStash() then return "error", "No gun available" end
     bringGun(t)
-    return "ok", "Gun delivered to " .. bridgePlayerLabel(t)
+    return "ok", "Gun delivered to " .. bridgeTargetLabel(t)
 end
 
 local function bridgeParseFlingQuery(query)
@@ -1760,7 +1877,7 @@ local function bridgeRunFlingOnce(mode, playerQuery, gen)
     fling(tgt, function(ok) flung = ok end)
     waitFlingDone(gen, 25)
     if flung then
-        return "ok", "Flung " .. bridgePlayerLabel(tgt)
+        return "ok", "Flung " .. bridgeTargetLabel(tgt)
     end
     return "ok", "Fling finished"
 end
@@ -1805,7 +1922,7 @@ local function bridgeStabMessage(targetQuery)
     if status:find("not found", 1, true) or status:find("failed", 1, true) then
         return "error", status
     end
-    return "ok", "Stabbed " .. bridgePlayerLabel(picked)
+    return "ok", "Stabbed " .. bridgeTargetLabel(picked)
 end
 
 local function bridgeFlingMessage(query)
@@ -1835,15 +1952,21 @@ local murdererRoundKills = 0
 local sheriffRoundKills = 0
 local whoKnifeIdPrev, whoGunIdPrev = nil, nil
 
+local function ownerHrp()
+    local o = findOwner()
+    if not o or o == me then return nil end
+    return o.Character and o.Character:FindFirstChild("HumanoidRootPart")
+end
+
 local function distanceStudsToPlayer(p)
-    local h = hrp()
+    local h = ownerHrp()
     local t = p and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
     if not (h and t) then return nil end
     return math.floor((h.Position - t.Position).Magnitude + 0.5)
 end
 
 local function distanceStudsToPart(part)
-    local h = hrp()
+    local h = ownerHrp()
     if not (h and part) then return nil end
     local pos = part.Position
     return math.floor((h.Position - pos).Magnitude + 0.5)
@@ -1907,7 +2030,7 @@ local function bridgeTpMessage(targetQuery)
         return "error", "Player not found"
     end
     tpTo(t)
-    return "ok", "Teleported to " .. bridgePlayerLabel(t)
+    return "ok", "Teleported to " .. bridgeTargetLabel(t)
 end
 
 local function bridgeResetMessage()
@@ -1925,10 +2048,10 @@ local function processBridgeCommands(jobId, commands)
             local ctype = cmd.type
             if ctype == "rejoin" then
                 log("bridge: rejoin requested")
-                task.spawn(function()
+                bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
                     hopServer("discord rejoin", false)
-                    bridgeAckDelayed(jobId, cmd.id, "ok", "Rejoin completed")
-                end)
+                    return "ok", "Rejoin completed"
+                end, cmd)
             elseif ctype == "help" then
                 local topic = cmd.topic or cmd.command or ""
                 local st, msg = bridgeHelpMessage(topic)
@@ -1936,32 +2059,38 @@ local function processBridgeCommands(jobId, commands)
                 bridgeAck(jobId, cmd.id, st, msg)
             elseif ctype == "gun" then
                 log("bridge: gun")
-                local st, msg = bridgeGunMessage(cmd.target or cmd.player or "")
-                bridgeAckDelayed(jobId, cmd.id, st, msg)
+                local target = cmd.target or cmd.player or ""
+                bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
+                    return bridgeGunMessage(target)
+                end, cmd)
             elseif ctype == "stab" then
                 log("bridge: stab")
-                task.spawn(function()
-                    local st, msg = bridgeStabMessage(cmd.target or cmd.query or "")
-                    bridgeAckDelayed(jobId, cmd.id, st, msg)
-                end)
+                local target = cmd.target or cmd.query or ""
+                bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
+                    return bridgeStabMessage(target)
+                end, cmd)
             elseif ctype == "fling" then
                 log("bridge: fling")
-                task.spawn(function()
-                    local st, msg = bridgeFlingMessage(cmd.target or cmd.query or "")
-                    bridgeAckDelayed(jobId, cmd.id, st, msg)
-                end)
+                local target = cmd.target or cmd.query or ""
+                bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
+                    return bridgeFlingMessage(target)
+                end, cmd)
             elseif ctype == "tp" then
                 log("bridge: tp")
-                local st, msg = bridgeTpMessage(cmd.target or cmd.player or "")
-                bridgeAckDelayed(jobId, cmd.id, st, msg)
+                local target = cmd.target or cmd.player or ""
+                bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
+                    return bridgeTpMessage(target)
+                end, cmd)
             elseif ctype == "who" then
                 log("bridge: who")
-                local st, msg = bridgeWhoMessage()
-                bridgeAckDelayed(jobId, cmd.id, st, msg)
+                bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
+                    return bridgeWhoMessage()
+                end, cmd)
             elseif ctype == "reset" then
                 log("bridge: reset")
-                local st, msg = bridgeResetMessage()
-                bridgeAckDelayed(jobId, cmd.id, st, msg)
+                bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
+                    return bridgeResetMessage()
+                end, cmd)
             else
                 bridgeAck(jobId, cmd.id, "error", "unknown command")
             end
@@ -1971,6 +2100,7 @@ end
 
 local function processBridgeClaim(claim)
     if type(claim) ~= "table" then return end
+    syncOwnerPremiumFromClaim(claim)
     local st = claim.status
     if st == "awaiting_join" and claim.roblox_username and claim.id then
         bridgeClaimId = claim.id
@@ -1983,6 +2113,9 @@ local function processBridgeClaim(claim)
             fulfillBridgeClaim(claim.id, claim.roblox_username)
         end
     elseif st == "available" or not claim.roblox_username then
+        if not session.ownerId then
+            G.MM_OwnerPremium = false
+        end
         if bridgeAwaitingName and os.time() >= bridgeClaimExpiresAt then
             clearBridgeReservation("expired")
         elseif not bridgeAwaitingName then
@@ -1991,6 +2124,9 @@ local function processBridgeClaim(claim)
         end
     end
 end
+
+G.MM_RegionSpreadCheck = G.MM_RegionSpreadCheck or false
+G.MM_RegionSpreadAttempts = G.MM_RegionSpreadAttempts or 0
 
 local serverLocationCache, serverLocationJob = nil, nil
 
@@ -2018,6 +2154,43 @@ local function getServerLocationLabel()
         return label
     end
     return nil
+end
+
+local function countRegionPeers(location)
+    if not location or location == "" or not XENO_BRIDGE_ENABLED then return 0 end
+    local qs = "location=" .. Http:UrlEncode(location) .. "&bot_user_id=" .. tostring(me.UserId)
+    local raw = httpJson("GET", XENO_BRIDGE_URL .. "/api/xeno/region-peers?" .. qs)
+    if not raw then return 0 end
+    local ok, data = pcall(function() return Http:JSONDecode(raw) end)
+    if not ok or type(data) ~= "table" or not data.ok then return 0 end
+    return tonumber(data.count) or 0
+end
+
+local function ensureRegionSpreadOnStart()
+    if not XENO_BRIDGE_ENABLED or hopBusy then return end
+    if G.MM_RegionSpreadAttempts >= REGION_SPREAD_MAX_ATTEMPTS then
+        log("region spread: max attempts reached, staying")
+        G.MM_RegionSpreadAttempts = 0
+        return
+    end
+    local loc = getServerLocationLabel()
+    if not loc then
+        log("region spread: location unknown")
+        return
+    end
+    pcall(function() bridgePollOnce() end)
+    local peers = countRegionPeers(loc)
+    log(("region spread: %d other bot(s) in %s"):format(peers, loc))
+    if peers < REGION_PEER_MAX then
+        G.MM_RegionSpreadAttempts = 0
+        G.MM_RegionSpreadCheck = false
+        return
+    end
+    G.MM_RegionSpreadAttempts = (G.MM_RegionSpreadAttempts or 0) + 1
+    log(("region spread: hopping (%d/%d)"):format(G.MM_RegionSpreadAttempts, REGION_SPREAD_MAX_ATTEMPTS))
+    G.MM_RegionSpreadCheck = true
+    queueRegionSpreadOnTeleport()
+    hopServer("region spread", false)
 end
 
 local function bridgePollOnce()
@@ -2215,6 +2388,13 @@ task.spawn(function()
 end)
 
 log("bot online")
+
+if XENO_BRIDGE_ENABLED then
+    task.spawn(function()
+        task.wait(G.MM_RegionSpreadCheck and 3 or 2)
+        ensureRegionSpreadOnStart()
+    end)
+end
 
 local function resolveRoleSnapshot(timeout)
     local deadline = tick() + (timeout or 0)
