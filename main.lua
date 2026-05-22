@@ -1867,6 +1867,9 @@ local function bridgeWhoMessage()
     local s = findHolder({"Gun", "Revolver"})
     local botM, botS = botHasKnife(), botHasGun()
     local murdererP = botM and me or m
+    if not murdererP then
+        return "error", "Round hasn't started yet"
+    end
     local sheriffP = botS and me or s
     local gunDrop = findDroppedGun()
     local gunEquipped = botS or (sheriffP and playerHas(sheriffP, {"Gun", "Revolver"}))
@@ -1875,8 +1878,7 @@ local function bridgeWhoMessage()
     local sheriffDist = sheriffP and distanceStudsToPlayer(sheriffP)
         or (gunDrop and distanceStudsToPart(gunDrop))
     local payload = {
-        murderer = murdererP and whoRoleEntry(murdererP, murdererRoundKills)
-            or whoRoleEntry(nil, murdererRoundKills),
+        murderer = whoRoleEntry(murdererP, murdererRoundKills),
         sheriff = {
             user_id = sheriffP and sheriffP.UserId or nil,
             username = sheriffP and bridgePlayerLabel(sheriffP) or nil,
