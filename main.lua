@@ -45,7 +45,6 @@ do
     local pending = tonumber(G.MM_PendingOwnerId)
     if pending and pending > 0 then
         session.ownerId = pending
-        log("restored owner from hop persist: " .. tostring(pending))
     end
 end
 cam.FieldOfView = DEFAULT_FOV
@@ -472,8 +471,21 @@ end)
     end)
 end
 
-local SERVERHOP_MAX_ATTEMPTS = 35
-local SERVERHOP_JOIN_WAIT_SEC = 18
+local function queueOwnerPersistOnTeleport(ownerId)
+    if not ownerId then return end
+    local queueFn = queue_on_teleport
+        or (syn and syn.queue_on_teleport)
+        or (fluxus and fluxus.queue_on_teleport)
+    if not queueFn then return end
+    pcall(function()
+        queueFn(([[
+pcall(function()
+    local g = getgenv and getgenv() or _G
+    g.MM_PendingOwnerId = %d
+end)
+]]):format(math.floor(ownerId)))
+    end)
+end
 
 G.MM_HopSeenServers = G.MM_HopSeenServers or {}
 G.MM_HopSeenHour = G.MM_HopSeenHour or os.date("!*t").hour
@@ -575,6 +587,12 @@ local function hopServer(reason, continuePingSearch, targetServerId)
     if continuePingSearch then
         hopState.pingSearchActive = true
         queuePingSearchOnTeleport()
+    else
+        if session.ownerId then
+            G.MM_PendingOwnerId = session.ownerId
+            queueOwnerPersistOnTeleport(session.ownerId)
+        end
+        queueRegionSpreadOnTeleport()
     end
     log("server hop: " .. tostring(reason or "requested"))
     G.MM_ServerLocationJob = nil
@@ -1639,9 +1657,7 @@ local function handleCommand(p, msg)
         reset()
     elseif cmd == "serverhop" then
         whisper("Server hopping")
-        task.spawn(function()
-            hopUntilNewServer("manual server hop", nil, nil)
-        end)
+        hopServer("manual server hop", false)
     elseif cmd == "togglegun" then
         if not ownerIsPremium() then
             whisper(PREMIUM_INGAME_MSG, p)
@@ -1783,161 +1799,6 @@ local bridgeAwaitingName = nil
 local bridgeClaimExpiresAt = 0
 local bridgeFulfilledClaimId = nil
 
-local function restoreBridgeStateFromGetenv()
-    local oid = tonumber(G.MM_PendingOwnerId)
-    if oid and oid > 0 then
-        session.ownerId = oid
-    end
-    if G.MM_PendingClaimId and G.MM_PendingClaimId ~= "" then
-        bridgeClaimId = G.MM_PendingClaimId
-    end
-    if G.MM_PendingClaimName and G.MM_PendingClaimName ~= "" then
-        bridgeAwaitingName = G.MM_PendingClaimName
-    end
-    if G.MM_PendingFulfilledClaimId and G.MM_PendingFulfilledClaimId ~= "" then
-        bridgeFulfilledClaimId = G.MM_PendingFulfilledClaimId
-    end
-end
-
-restoreBridgeStateFromGetenv()
-
-local function queuePersistStateOnTeleport(pendingHopAck)
-    local queueFn = queue_on_teleport
-        or (syn and syn.queue_on_teleport)
-        or (fluxus and fluxus.queue_on_teleport)
-    if not queueFn then return end
-    local ownerId = tonumber(session.ownerId) or 0
-    local claimId = tostring(bridgeClaimId or ""):gsub("\\", "\\\\"):gsub('"', '\\"')
-    local claimName = tostring(bridgeAwaitingName or ""):gsub("\\", "\\\\"):gsub('"', '\\"')
-    local fulfilledId = tostring(bridgeFulfilledClaimId or ""):gsub("\\", "\\\\"):gsub('"', '\\"')
-    local prem = G.MM_OwnerPremium == true and "true" or "false"
-    local ackBlock = "g.MM_PendingServerHopAck = nil"
-    if type(pendingHopAck) == "table" and pendingHopAck.command_id then
-        local cid = tostring(pendingHopAck.command_id):gsub("\\", "\\\\"):gsub('"', '\\"')
-        local st = tostring(pendingHopAck.status or "ok"):gsub("\\", "\\\\"):gsub('"', '\\"')
-        local msg = tostring(pendingHopAck.message or ""):gsub("\\", "\\\\"):gsub('"', '\\"')
-        ackBlock = ('g.MM_PendingServerHopAck = {command_id="%s", status="%s", message="%s"}'):format(cid, st, msg)
-    end
-    pcall(function()
-        queueFn(([[
-pcall(function()
-    local g = getgenv and getgenv() or _G
-    g.MM_PendingOwnerId = %d
-    g.MM_PendingClaimId = "%s"
-    g.MM_PendingClaimName = "%s"
-    g.MM_PendingFulfilledClaimId = "%s"
-    g.MM_OwnerPremium = %s
-    g.MM_SkipRegionSpreadOnce = true
-    %s
-end)
-]]):format(
-            math.floor(ownerId),
-            claimId,
-            claimName,
-            fulfilledId,
-            prem,
-            ackBlock
-        ))
-    end)
-end
-
-local function clearPendingServerHopAck()
-    G.MM_PendingServerHopAck = nil
-end
-
-local function setPendingServerHopAck(commandId, status, message)
-    G.MM_PendingServerHopAck = {
-        command_id = commandId,
-        status = status or "ok",
-        message = message or "",
-    }
-end
-
-local function flushPendingServerHopAck()
-    local p = G.MM_PendingServerHopAck
-    if type(p) ~= "table" or not p.command_id or p.command_id == "" then
-        G.MM_PendingServerHopAck = nil
-        return
-    end
-    if bridgeAcked[p.command_id] then
-        G.MM_PendingServerHopAck = nil
-        return
-    end
-    bridgeAck(game.JobId, p.command_id, p.status or "ok", p.message or "Server hop complete")
-    G.MM_PendingServerHopAck = nil
-end
-
-local function snapshotClaimForPersist()
-    if session.ownerId then
-        G.MM_PendingOwnerId = session.ownerId
-    end
-    if bridgeClaimId then G.MM_PendingClaimId = bridgeClaimId end
-    if bridgeAwaitingName then G.MM_PendingClaimName = bridgeAwaitingName end
-    if bridgeFulfilledClaimId then G.MM_PendingFulfilledClaimId = bridgeFulfilledClaimId end
-end
-
-local function hopUntilNewServer(reason, ackCommandId, ackMessage)
-    if hopBusy then return false end
-    local startJob = tostring(game.JobId)
-    G.MM_SkipRegionSpreadOnce = true
-    snapshotClaimForPersist()
-    stopFollow()
-    log("server hop: " .. tostring(reason or "requested") .. " (retry until new server)")
-    for attempt = 1, SERVERHOP_MAX_ATTEMPTS do
-        if hopBusy then
-            task.wait(0.3)
-        else
-            local serverId = resolveHopServerId()
-            if not serverId then
-                log("server hop: no server (attempt " .. attempt .. "/" .. SERVERHOP_MAX_ATTEMPTS .. ")")
-                task.wait(0.55)
-            else
-                hopBusy = true
-                G.MM_ServerLocationJob = nil
-                G.MM_ServerLocationCache = nil
-                if ackCommandId then
-                    setPendingServerHopAck(ackCommandId, "ok", ackMessage)
-                    snapshotClaimForPersist()
-                    queuePersistStateOnTeleport(G.MM_PendingServerHopAck)
-                else
-                    snapshotClaimForPersist()
-                    queuePersistStateOnTeleport(nil)
-                end
-                log(("server hop: attempt %d → %s"):format(attempt, serverId))
-                local ok = pcall(function()
-                    TeleportSvc:TeleportToPlaceInstance(game.PlaceId, serverId, me)
-                end)
-                if not ok then
-                    log("server hop: teleport call failed")
-                    hopMarkSeen(serverId)
-                    hopBusy = false
-                    clearPendingServerHopAck()
-                    task.wait(0.45)
-                else
-                    local deadline = tick() + SERVERHOP_JOIN_WAIT_SEC
-                    while tick() < deadline do
-                        task.wait(0.5)
-                        if tostring(game.JobId) ~= startJob then
-                            hopMarkSeen(serverId)
-                            log("server hop: joined new server " .. tostring(game.JobId))
-                            return true
-                        end
-                    end
-                    log("server hop: still on same server, retrying")
-                    hopMarkSeen(serverId)
-                    hopBusy = false
-                    clearPendingServerHopAck()
-                    task.wait(0.35)
-                end
-            end
-        end
-    end
-    hopBusy = false
-    clearPendingServerHopAck()
-    log("server hop: gave up after " .. SERVERHOP_MAX_ATTEMPTS .. " attempts")
-    return false
-end
-
 local function nameMatchesPlayer(pl, name)
     if not pl or not name or name == "" then return false end
     local lower = name:lower()
@@ -1988,10 +1849,6 @@ local function fulfillBridgeClaim(claimId, username)
         scheduleOwnerOnboarding(pl.UserId)
     end
     bridgeReportClaimEvent("owner_joined", { claim_id = claimId, owner_id = pl.UserId, note = pl.Name })
-    G.MM_PendingOwnerId = pl.UserId
-    G.MM_PendingClaimId = claimId
-    G.MM_PendingClaimName = username
-    G.MM_PendingFulfilledClaimId = claimId
     return true
 end
 
@@ -2431,16 +2288,11 @@ local function processBridgeCommands(jobId, commands)
                         bridgeAck(jobId, cmd.id, "error", "Server hop already in progress")
                         return
                     end
-                    snapshotClaimForPersist()
-                    local ackMsg = "Server hop complete — open the bot profile and Join"
-                    local hopped = hopUntilNewServer("discord server hop", cmd.id, ackMsg)
+                    local hopped = hopServer("discord server hop", false)
                     if hopped then
-                        flushPendingServerHopAck()
-                        if not bridgeAcked[cmd.id] then
-                            bridgeAck(jobId, cmd.id, "ok", ackMsg)
-                        end
+                        bridgeAck(jobId, cmd.id, "ok", "Server hop started — open the bot profile and Join")
                     else
-                        bridgeAck(jobId, cmd.id, "error", "Could not join a new server — try again")
+                        bridgeAck(jobId, cmd.id, "error", "Could not teleport — try again in a moment")
                     end
                 end)
             elseif ctype == "help" then
@@ -2516,20 +2368,10 @@ end
 local function restoreOwnerFromClaim(claim)
     if type(claim) ~= "table" then return end
     local oid = tonumber(claim.owner_id)
-    if oid and oid > 0 then
-        if session.ownerId ~= oid then
-            log("bridge: restored owner " .. tostring(oid))
-        end
+    if oid and oid > 0 and session.ownerId ~= oid then
         session.ownerId = oid
         G.MM_PendingOwnerId = oid
-    end
-    if claim.id then
-        bridgeClaimId = claim.id
-        G.MM_PendingClaimId = claim.id
-    end
-    if claim.roblox_username and claim.roblox_username ~= "" then
-        bridgeAwaitingName = claim.roblox_username
-        G.MM_PendingClaimName = claim.roblox_username
+        log("bridge: restored owner " .. tostring(oid))
     end
 end
 
@@ -2611,11 +2453,6 @@ end
 
 local function ensureRegionSpreadOnStart()
     if not XENO_BRIDGE_ENABLED or hopBusy then return end
-    if G.MM_SkipRegionSpreadOnce then
-        G.MM_SkipRegionSpreadOnce = false
-        log("region spread: skipped (just server hopped)")
-        return
-    end
     if G.MM_RegionSpreadAttempts >= REGION_SPREAD_MAX_ATTEMPTS then
         log("region spread: max attempts reached, staying")
         G.MM_RegionSpreadAttempts = 0
@@ -2637,14 +2474,11 @@ local function ensureRegionSpreadOnStart()
     G.MM_RegionSpreadAttempts = (G.MM_RegionSpreadAttempts or 0) + 1
     log(("region spread: hopping (%d/%d)"):format(G.MM_RegionSpreadAttempts, REGION_SPREAD_MAX_ATTEMPTS))
     G.MM_RegionSpreadCheck = true
-    snapshotClaimForPersist()
-    queuePersistStateOnTeleport(nil)
     queueRegionSpreadOnTeleport()
     hopServer("region spread", false)
 end
 
 local function bridgePollOnce()
-    flushPendingServerHopAck()
     local claimEvent = nil
     if bridgeAwaitingName and bridgeClaimExpiresAt > 0 and os.time() >= bridgeClaimExpiresAt then
         claimEvent = "released"
