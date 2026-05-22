@@ -31,7 +31,8 @@ _G.MM_GunBusy = _G.MM_GunBusy or false
 _G.MM_OwnerDiedPendingReset = _G.MM_OwnerDiedPendingReset or false
 local OWNER_MURD_GUN_MSG = "Gun unavailable"
 local OWNER_MURD_STASH_COOLDOWN = 3
-local PREMIUM_INGAME_MSG = "Premium required for in-game commands — use Discord (/help, /gun, /tp, …)"
+local PREMIUM_REQUIRED_MSG = "Premium is required!"
+local PREMIUM_INGAME_MSG = PREMIUM_REQUIRED_MSG
 G.MM_OwnerPremium = G.MM_OwnerPremium == true
 
 --[[ Session ]]--
@@ -1186,7 +1187,14 @@ local HELP_ORDER = {
     "owner", "dethrone", "tp", "who", "stab", "gun", "fling", "togglegun", "togglewho", "togglealerts",
     "reset", "follow", "unfollow", "chat", "help",
 }
-local PREMIUM_ONLY_COMMANDS = { togglereset = true }
+local PREMIUM_ONLY_COMMANDS = {
+    togglereset = true,
+    togglegun = true,
+    togglewho = true,
+    togglealerts = true,
+    fling = true,
+    chat = true,
+}
 
 local function ownerIsPremium()
     return G.MM_OwnerPremium == true
@@ -1483,6 +1491,10 @@ local function handleCommand(p, msg)
         task.delay(0.8, sendBrandingPromo)
         return
     elseif cmd == "chat" then
+        if not ownerIsPremium() then
+            whisper(PREMIUM_INGAME_MSG, p)
+            return
+        end
         sendChat(rest)
         whisper("Chat sent")
     elseif cmd == "who" then
@@ -1558,6 +1570,10 @@ local function handleCommand(p, msg)
         whisper("Rejoining")
         hopServer("manual rejoin", false)
     elseif cmd == "togglegun" then
+        if not ownerIsPremium() then
+            whisper(PREMIUM_INGAME_MSG, p)
+            return
+        end
         if args[2] and ownerIsMurd then whisper(OWNER_MURD_GUN_MSG) return end
         if args[2] then
             local t = findPlayer(args[2])
@@ -1570,9 +1586,17 @@ local function handleCommand(p, msg)
             whisper("Auto-gun: " .. (toggleGun and "on" or "off"))
         end
     elseif cmd == "togglealerts" then
+        if not ownerIsPremium() then
+            whisper(PREMIUM_INGAME_MSG, p)
+            return
+        end
         toggleAlerts = not toggleAlerts
         whisper("Kill alerts: " .. (toggleAlerts and "on" or "off"))
     elseif cmd == "togglewho" then
+        if not ownerIsPremium() then
+            whisper(PREMIUM_INGAME_MSG, p)
+            return
+        end
         toggleWho = not toggleWho
         whisper("Role callouts: " .. (toggleWho and "on" or "off"))
     elseif cmd == "togglereset" then
@@ -1779,8 +1803,8 @@ end
 local function bridgeHelpMessage(topic)
     topic = bridgeTrim(topic):lower():gsub("^!", "")
     if topic ~= "" then
-        if isPremiumOnlyCommand(topic) and not ownerIsPremium() then
-            return "error", "Premium required for !" .. topic
+        if not ownerIsPremium() then
+            return "error", PREMIUM_REQUIRED_MSG
         end
         if COMMAND_HELP[topic] then
             return "ok", "!" .. topic .. ": " .. COMMAND_HELP[topic]
@@ -1788,7 +1812,8 @@ local function bridgeHelpMessage(topic)
         return "error", "No help for !" .. topic .. " — use /help for the full list"
     end
     local lines = {
-        "Discord: /help /gun /stab /fling /tp /who /reset /rejoin",
+        "Discord: /help /gun /stab /tp /who /reset /rejoin",
+        "Premium: /fling /chat /alerts (+ gun/who toggle options)",
         "",
     }
     if ownerIsPremium() then
@@ -1802,6 +1827,100 @@ local function bridgeHelpMessage(topic)
         table.insert(lines, "In-game **!** commands require **Premium**.")
     end
     return "ok", table.concat(lines, "\n")
+end
+
+local function bridgeToggleGunMessage(mode)
+    if not ownerIsPremium() then
+        return "error", PREMIUM_REQUIRED_MSG
+    end
+    if not session.ownerId then
+        return "error", "No owner — join your reserved server first"
+    end
+    local m = findHolder({"Knife"})
+    local ownerPlayer = findOwner()
+    if ownerMurdererActive(m, ownerPlayer) and not botHasKnife() then
+        return "error", OWNER_MURD_GUN_MSG
+    end
+    mode = bridgeTrim(mode):lower()
+    if mode == "enable" then
+        if toggleGun then
+            return "ok", "Automatic gun is already enabled"
+        end
+        toggleGun = true
+        gunTargetId, gunDelivered = nil, false
+        return "ok", "Automatic gun enabled"
+    elseif mode == "disable" then
+        if not toggleGun then
+            return "error", "Automatic gun is not enabled"
+        end
+        toggleGun = false
+        gunTargetId, gunDelivered = nil, false
+        return "ok", "Automatic gun disabled"
+    end
+    return "error", "Use Enable or Disable"
+end
+
+local function bridgeToggleWhoMessage(mode)
+    if not ownerIsPremium() then
+        return "error", PREMIUM_REQUIRED_MSG
+    end
+    if not session.ownerId then
+        return "error", "No owner — join your reserved server first"
+    end
+    mode = bridgeTrim(mode):lower()
+    if mode == "enable" then
+        if toggleWho then
+            return "ok", "In-game whispers are already enabled"
+        end
+        toggleWho = true
+        return "ok", "In-game whispers enabled"
+    elseif mode == "disable" then
+        if not toggleWho then
+            return "error", "In-game whispers are not enabled"
+        end
+        toggleWho = false
+        return "ok", "In-game whispers disabled"
+    end
+    return "error", "Use Enable or Disable"
+end
+
+local function bridgeToggleAlertsMessage(mode)
+    if not ownerIsPremium() then
+        return "error", PREMIUM_REQUIRED_MSG
+    end
+    if not session.ownerId then
+        return "error", "No owner — join your reserved server first"
+    end
+    mode = bridgeTrim(mode):lower()
+    if mode == "enable" then
+        if toggleAlerts then
+            return "ok", "In-game whispers are already enabled"
+        end
+        toggleAlerts = true
+        return "ok", "In-game whispers enabled"
+    elseif mode == "disable" then
+        if not toggleAlerts then
+            return "error", "In-game whispers are not enabled"
+        end
+        toggleAlerts = false
+        return "ok", "In-game whispers disabled"
+    end
+    return "error", "Use Enable or Disable"
+end
+
+local function bridgeChatMessage(text)
+    if not ownerIsPremium() then
+        return "error", PREMIUM_REQUIRED_MSG
+    end
+    if not session.ownerId then
+        return "error", "No owner — join your reserved server first"
+    end
+    text = bridgeTrim(text)
+    if text == "" then
+        return "error", "Message required"
+    end
+    sendChat(text)
+    return "ok", "Chat sent"
 end
 
 local function bridgeGunMessage(targetQuery)
@@ -1926,6 +2045,9 @@ local function bridgeStabMessage(targetQuery)
 end
 
 local function bridgeFlingMessage(query)
+    if not ownerIsPremium() then
+        return "error", PREMIUM_REQUIRED_MSG
+    end
     if not session.ownerId then
         return "error", "No owner — join your reserved server first"
     end
@@ -2057,6 +2179,30 @@ local function processBridgeCommands(jobId, commands)
                 local st, msg = bridgeHelpMessage(topic)
                 log("bridge: help")
                 bridgeAck(jobId, cmd.id, st, msg)
+            elseif ctype == "toggle_gun" then
+                log("bridge: toggle_gun")
+                local mode = cmd.mode or cmd.action or ""
+                bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
+                    return bridgeToggleGunMessage(mode)
+                end, cmd)
+            elseif ctype == "toggle_who" then
+                log("bridge: toggle_who")
+                local mode = cmd.mode or cmd.action or ""
+                bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
+                    return bridgeToggleWhoMessage(mode)
+                end, cmd)
+            elseif ctype == "toggle_alerts" then
+                log("bridge: toggle_alerts")
+                local mode = cmd.mode or cmd.action or ""
+                bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
+                    return bridgeToggleAlertsMessage(mode)
+                end, cmd)
+            elseif ctype == "chat" then
+                log("bridge: chat")
+                local text = cmd.message or cmd.text or ""
+                bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
+                    return bridgeChatMessage(text)
+                end, cmd)
             elseif ctype == "gun" then
                 log("bridge: gun")
                 local target = cmd.target or cmd.player or ""
