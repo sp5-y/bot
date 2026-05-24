@@ -34,6 +34,7 @@ local XENO_OWNER_USERNAME = tostring(
     or G.BotOwner
     or ""
 ):match("^%s*(.-)%s*$") or ""
+local XENO_INVITE_LINK = tostring(G.XENO_INVITE_LINK or G.XENO_INVITE or G.MM_InviteLink or ""):match("^%s*(.-)%s*$") or ""
 local bridgeOwnerConnected = false
 G.MM_HopState = G.MM_HopState or {pingSearchActive = false}
 local hopState = G.MM_HopState
@@ -2423,6 +2424,7 @@ local function bridgePollOnce()
         bot_username = me.Name,
         bot_user_id = me.UserId,
         owner_username = XENO_OWNER_USERNAME ~= "" and XENO_OWNER_USERNAME or nil,
+        invite_link = XENO_INVITE_LINK ~= "" and XENO_INVITE_LINK or nil,
         owner_present = configuredOwner ~= nil,
         place_id = game.PlaceId,
         owner_id = configuredOwner and configuredOwner.UserId or nil,
