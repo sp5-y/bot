@@ -2662,99 +2662,103 @@ local function waitForRoleCallouts(curM, curS, curBotM, curBotS)
 end
 
 --[[ Main loop ]]--
-local lastMurderId, announced
-local ownerMurdStashBusy = false
-while session.active and gui.Parent do
-    local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
-    local botM, botS = botHasKnife(), botHasGun()
-    local roundActive = isRoundActive()
+local function runMainLoop()
+    local lastMurderId, announced
+    local ownerMurdStashBusy = false
+    while session.active and gui.Parent do
+        local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
+        local botM = botHasKnife()
+        local roundActive = isRoundActive()
 
-    if m then
-        if lastMurderId ~= m.UserId then
-            lastMurderId = m.UserId
-            pcall(function() img.Image = Players:GetUserThumbnailAsync(m.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150) end)
-            lbl.Text = m.DisplayName
-        end
-        f.Visible = true
-    else f.Visible, lastMurderId = false, nil end
+        if m then
+            if lastMurderId ~= m.UserId then
+                lastMurderId = m.UserId
+                pcall(function() img.Image = Players:GetUserThumbnailAsync(m.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150) end)
+                lbl.Text = m.DisplayName
+            end
+            f.Visible = true
+        else f.Visible, lastMurderId = false, nil end
 
-    if (m or botM) and not announced then
-        announced = true
-        gunDelivered = false
-        revealAnnouncePending = true
-        tpHome()
-        local owner = findOwner()
-        task.spawn(function()
-            local curM, curS, curBotM, curBotS = resolveRoleSnapshot(2.5)
+        if (m or botM) and not announced then
+            announced = true
+            gunDelivered = false
+            revealAnnouncePending = true
+            tpHome()
+            local owner = findOwner()
+            task.spawn(function()
+                local curM, curS, curBotM, curBotS = resolveRoleSnapshot(2.5)
 
-            if toggleReveal and session.ownerId then
-                local ok
-                ok, curM, curS, curBotM, curBotS = waitForRoleCallouts(curM, curS, curBotM, curBotS)
-                if not ok then
+                if toggleReveal and session.ownerId then
+                    local ok
+                    ok, curM, curS, curBotM, curBotS = waitForRoleCallouts(curM, curS, curBotM, curBotS)
+                    if not ok then
+                        curM, curS, curBotM, curBotS = resolveRoleSnapshot(0.5)
+                    end
+                else
                     curM, curS, curBotM, curBotS = resolveRoleSnapshot(0.5)
                 end
-            else
-                curM, curS, curBotM, curBotS = resolveRoleSnapshot(0.5)
-            end
 
-            if curBotM and owner and curS and owner.UserId == curS.UserId then
-                tpTo(owner)
-            elseif session.ownerId and not curBotM then
-                tpHome()
-            end
+                if curBotM and owner and curS and owner.UserId == curS.UserId then
+                    tpTo(owner)
+                elseif session.ownerId and not curBotM then
+                    tpHome()
+                end
 
-            roleAnnounceUnlockAt = tick() + 0.35
-            revealAnnouncePending = false
-        end)
-    elseif not roundActive then
-        announced, gunDelivered, revealAnnouncePending = false, false, false
-        ownerMurdStashBusy = false
-        roleAnnounceUnlockAt = 0
-    end
-
-    local ownerForDrop = findOwner()
-    local ownerIsMurd = ownerMurdererActive(m, ownerForDrop) and not botM
-    -- Do not clear toggleGun here — owner-murderer only pauses delivery below; user setting stays on.
-
-    -- Owner murderer: stash guns at spawn when enabled with !toggledrop.
-    if session.ownerId and ownerIsMurd and ownerIsPremium() and toggleDrop and roundActive and SPAWN_CFRAME
-       and not ownerMurdStashBusy and not revealAnnouncePending
-       and tick() >= roleAnnounceUnlockAt
-       and isAlive(me) and gunAvailableForOwnerMurdStash()
-       and not _G.MM_GunBusy and not _G.MM_StabBusy
-       and not flingActive and not flingLoopActive and not flingLoopContinuous and not flingSettling
-    then
-        ownerMurdStashBusy = true
-        _G.MM_GunBusy = true
-        task.spawn(function()
-            pcall(stashGunAtSpawn)
-            task.wait(OWNER_MURD_STASH_COOLDOWN)
-            _G.MM_GunBusy = false
+                roleAnnounceUnlockAt = tick() + 0.35
+                revealAnnouncePending = false
+            end)
+        elseif not roundActive then
+            announced, gunDelivered, revealAnnouncePending = false, false, false
             ownerMurdStashBusy = false
-        end)
+            roleAnnounceUnlockAt = 0
+        end
+
+        local ownerForDrop = findOwner()
+        local ownerIsMurd = ownerMurdererActive(m, ownerForDrop) and not botM
+        -- Do not clear toggleGun here — owner-murderer only pauses delivery below; user setting stays on.
+
+        -- Owner murderer: stash guns at spawn when enabled with !toggledrop.
+        if session.ownerId and ownerIsMurd and ownerIsPremium() and toggleDrop and roundActive and SPAWN_CFRAME
+           and not ownerMurdStashBusy and not revealAnnouncePending
+           and tick() >= roleAnnounceUnlockAt
+           and isAlive(me) and gunAvailableForOwnerMurdStash()
+           and not _G.MM_GunBusy and not _G.MM_StabBusy
+           and not flingActive and not flingLoopActive and not flingLoopContinuous and not flingSettling
+        then
+            ownerMurdStashBusy = true
+            _G.MM_GunBusy = true
+            task.spawn(function()
+                pcall(stashGunAtSpawn)
+                task.wait(OWNER_MURD_STASH_COOLDOWN)
+                _G.MM_GunBusy = false
+                ownerMurdStashBusy = false
+            end)
+        end
+
+        local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or findOwner()
+        if toggleGun and not flingLoopContinuous and not botM and not ownerIsMurd and not gunDelivered and not _G.MM_GunBusy and not _G.MM_StabBusy and me.Character
+           and not revealAnnouncePending and tick() >= roleAnnounceUnlockAt
+           and not flingActive and not flingLoopActive and not flingSettling
+           and gunTarget and gunTarget ~= me and isAlive(gunTarget)
+           and gunAvailableForOwnerMurdStash() then
+            gunDelivered = true
+            _G.MM_GunBusy = true
+            task.spawn(function() bringGun(gunTarget); task.wait(3); _G.MM_GunBusy = false end)
+        end
+
+        local subject = (s and s.Character and s.Character:FindFirstChildOfClass("Humanoid"))
+                      or findDroppedGun()
+                      or (me.Character and me.Character:FindFirstChildOfClass("Humanoid"))
+        if cam.CameraType ~= Enum.CameraType.Custom then cam.CameraType = Enum.CameraType.Custom end
+        if subject then cam.CameraSubject = subject end
+        cam.FieldOfView = WIDE_FOV
+        task.wait(0.5)
     end
 
-    local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or findOwner()
-    if toggleGun and not flingLoopContinuous and not botM and not ownerIsMurd and not gunDelivered and not _G.MM_GunBusy and not _G.MM_StabBusy and me.Character
-       and not revealAnnouncePending and tick() >= roleAnnounceUnlockAt
-       and not flingActive and not flingLoopActive and not flingSettling
-       and gunTarget and gunTarget ~= me and isAlive(gunTarget)
-       and gunAvailableForOwnerMurdStash() then
-        gunDelivered = true
-        _G.MM_GunBusy = true
-        task.spawn(function() bringGun(gunTarget); task.wait(3); _G.MM_GunBusy = false end)
-    end
-
-    local subject = (s and s.Character and s.Character:FindFirstChildOfClass("Humanoid"))
-                  or findDroppedGun()
-                  or (me.Character and me.Character:FindFirstChildOfClass("Humanoid"))
-    if cam.CameraType ~= Enum.CameraType.Custom then cam.CameraType = Enum.CameraType.Custom end
-    if subject then cam.CameraSubject = subject end
-    cam.FieldOfView = WIDE_FOV
-    task.wait(0.5)
+    --[[ Cleanup ]]--
+    cam.FieldOfView = DEFAULT_FOV
+    do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+       if h then cam.CameraSubject = h end end
 end
 
---[[ Cleanup ]]--
-cam.FieldOfView = DEFAULT_FOV
-do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
-   if h then cam.CameraSubject = h end end
+runMainLoop()
