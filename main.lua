@@ -24,7 +24,16 @@ local gunDelivered = false
 local hopBusy = false
 local PING_MIN_MS, PING_MAX_MS = 50, 90
 local G = getgenv and getgenv() or _G
-local XENO_OWNER_USERNAME = tostring(G.XENO_OWNER_USERNAME or G.XENO_OWNER or G.MM_OwnerUsername or ""):match("^%s*(.-)%s*$") or ""
+local XENO_OWNER_USERNAME = tostring(
+    G.XENO_OWNER_USERNAME
+    or G.XENO_OWNER
+    or G.MM_OwnerUsername
+    or G.owner
+    or G.Owner
+    or G.OWNER
+    or G.BotOwner
+    or ""
+):match("^%s*(.-)%s*$") or ""
 local bridgeOwnerConnected = false
 G.MM_HopState = G.MM_HopState or {pingSearchActive = false}
 local hopState = G.MM_HopState
@@ -1325,9 +1334,6 @@ local function helpKeysForOwner()
     for _, k in ipairs(HELP_ORDER) do
         table.insert(keys, k)
     end
-    if not ownerIsPremium() then
-        return keys
-    end
     local out = {}
     for _, k in ipairs(keys) do
         if k == "reset" then
@@ -1458,7 +1464,7 @@ local function syncOwnerPremiumFromClaim(claim)
     G.MM_OwnerPremium = true
 end
 
-function scheduleOwnerOnboarding(userId)
+scheduleOwnerOnboarding = function(userId)
     ownerOnboardingGen = ownerOnboardingGen + 1
     local gen = ownerOnboardingGen
     task.spawn(function()
@@ -2605,6 +2611,11 @@ task.spawn(function()
 end)
 
 log("bot online")
+if XENO_OWNER_USERNAME == "" then
+    log("owner username missing: set getgenv().XENO_OWNER_USERNAME before execute")
+else
+    log("owner username: " .. XENO_OWNER_USERNAME)
+end
 
 if XENO_BRIDGE_ENABLED then
     task.spawn(function()
