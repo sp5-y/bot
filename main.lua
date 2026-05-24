@@ -2412,6 +2412,12 @@ local function bridgePollOnce()
     if bridgeOwnerConnected then
         configuredOwner = syncConfiguredOwner()
     end
+    local playerNames = {}
+    for _, pl in ipairs(Players:GetPlayers()) do
+        if pl ~= me then
+            table.insert(playerNames, pl.Name)
+        end
+    end
     local claimEvent = nil
     if bridgeAwaitingName and bridgeClaimExpiresAt > 0 and os.time() >= bridgeClaimExpiresAt then
         claimEvent = "released"
@@ -2429,6 +2435,7 @@ local function bridgePollOnce()
         place_id = game.PlaceId,
         owner_id = configuredOwner and configuredOwner.UserId or nil,
         player_count = #Players:GetPlayers(),
+        player_names = playerNames,
         claim_event = claimEvent,
         claim_id = bridgeClaimId,
         bot_note = bridgeAwaitingName and ("waiting:" .. bridgeAwaitingName) or nil,
