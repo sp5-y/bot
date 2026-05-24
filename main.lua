@@ -14,7 +14,6 @@ local me, cam = Players.LocalPlayer, workspace.CurrentCamera
 local UIS = cref(game:GetService("UserInputService"))
 local DEFAULT_FOV, WIDE_FOV = 70, 100
 local SPAWN_CFRAME = CFrame.new(14.3513288, 505.044952, -58.2513657, 1, 0, 0, 0, 1, 0, 0, 0, 1)
-local BRAND_PROMO = 'Try out "XenoBotsMM2" for more bots!'
 local toggleGun = false
 local toggleAlerts = false
 local toggleReveal = true
@@ -25,6 +24,8 @@ local gunDelivered = false
 local hopBusy = false
 local PING_MIN_MS, PING_MAX_MS = 50, 90
 local G = getgenv and getgenv() or _G
+local XENO_OWNER_USERNAME = tostring(G.XENO_OWNER_USERNAME or G.XENO_OWNER or G.MM_OwnerUsername or ""):match("^%s*(.-)%s*$") or ""
+local bridgeOwnerConnected = false
 G.MM_HopState = G.MM_HopState or {pingSearchActive = false}
 local hopState = G.MM_HopState
 _G.MM_StabBusy = _G.MM_StabBusy or false
@@ -32,9 +33,7 @@ _G.MM_GunBusy = _G.MM_GunBusy or false
 _G.MM_OwnerDiedPendingReset = _G.MM_OwnerDiedPendingReset or false
 local OWNER_MURD_GUN_MSG = "Gun unavailable"
 local OWNER_MURD_STASH_COOLDOWN = 3
-local PREMIUM_REQUIRED_MSG = "Premium is required!"
-local PREMIUM_INGAME_MSG = PREMIUM_REQUIRED_MSG
-G.MM_OwnerPremium = G.MM_OwnerPremium == true
+G.MM_OwnerPremium = true
 
 --[[ Session ]]--
 if getgenv and getgenv().MM_Session then getgenv().MM_Session.active = false end
@@ -183,6 +182,47 @@ local function findOwner()
     if not session.ownerId then return end
     return Players:GetPlayerByUserId(session.ownerId)
 end
+local scheduleOwnerOnboarding
+local function configuredOwnerMatches(p)
+    if not p or XENO_OWNER_USERNAME == "" then return false end
+    local q = XENO_OWNER_USERNAME:lower()
+    return p.Name:lower() == q or tostring(p.DisplayName or ""):lower() == q
+end
+local function findConfiguredOwner()
+    if XENO_OWNER_USERNAME == "" then return nil end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= me and configuredOwnerMatches(p) then
+            return p
+        end
+    end
+    return nil
+end
+local function syncConfiguredOwner()
+    local p = findConfiguredOwner()
+    if not bridgeOwnerConnected then
+        if session.ownerId then
+            session.ownerId = nil
+            G.MM_PendingOwnerId = nil
+        end
+        return p
+    end
+    if p and session.ownerId ~= p.UserId then
+        session.ownerId = p.UserId
+        G.MM_PendingOwnerId = p.UserId
+        toggleResetOnOwnerDeath = false
+        toggleDrop = false
+        _G.MM_OwnerDiedPendingReset = false
+        scheduleOwnerOnboarding(p.UserId)
+        log("configured owner found: " .. p.Name)
+    elseif not p and session.ownerId then
+        local current = Players:GetPlayerByUserId(session.ownerId)
+        if not current or (XENO_OWNER_USERNAME ~= "" and not configuredOwnerMatches(current)) then
+            session.ownerId = nil
+            G.MM_PendingOwnerId = nil
+        end
+    end
+    return p
+end
 local function shortName(p) return p.Name:sub(1, 4) .. "..." end
 
 local function bridgePlayerLabel(p)
@@ -249,7 +289,6 @@ local function sendChat(msg)
     end)
 end
 local function sendBrandingPromo()
-    sendChat(BRAND_PROMO)
 end
 local function findWhisperChannel(uid)
     uid = tostring(uid)
@@ -1246,8 +1285,6 @@ end
 
 --[[ Commands ]]--
 local COMMAND_HELP = {
-    owner = "Re-run onboarding if you are already owner",
-    dethrone = "Release owner control",
     reveal = "Show current murderer and sheriff",
     stab = "sheriff | <name> - Murderer only, stab a given player",
     togglereveal = "Toggle automatic role callout each round",
@@ -1255,7 +1292,6 @@ local COMMAND_HELP = {
     togglereset = "Toggle auto-reset when owner dies",
     toggledrop = "Toggle stashing guns when you are murderer",
     reset = "Force bot respawn",
-    serverhop = "Hop bot to a different MM2 server",
     tp = "<player> - Teleport bot to a player",
     tpmurd = "Teleport bot to the murderer",
     tpsher = "Teleport bot to the sheriff",
@@ -1269,8 +1305,8 @@ local COMMAND_HELP = {
     help = "<cmd> - Show command list or explain one command",
 }
 local HELP_ORDER = {
-    "owner", "dethrone", "tp", "reveal", "stab", "gun", "fling", "togglegun", "togglereveal", "togglealerts",
-    "reset", "serverhop", "follow", "unfollow", "chat", "help",
+    "tp", "reveal", "stab", "gun", "fling", "togglegun", "togglereveal", "togglealerts",
+    "reset", "follow", "unfollow", "chat", "help",
 }
 local PREMIUM_ONLY_COMMANDS = {
     togglereset = true,
@@ -1283,7 +1319,7 @@ local PREMIUM_ONLY_COMMANDS = {
 }
 
 local function ownerIsPremium()
-    return G.MM_OwnerPremium == true
+    return true
 end
 
 local function helpKeysForOwner()
@@ -1421,13 +1457,10 @@ local function sendFullHelpToOwner(userId, gapBetween)
 end
 
 local function syncOwnerPremiumFromClaim(claim)
-    if type(claim) ~= "table" then return end
-    if claim.owner_premium ~= nil then
-        G.MM_OwnerPremium = claim.owner_premium == true
-    end
+    G.MM_OwnerPremium = true
 end
 
-local function scheduleOwnerOnboarding(userId)
+function scheduleOwnerOnboarding(userId)
     ownerOnboardingGen = ownerOnboardingGen + 1
     local gen = ownerOnboardingGen
     task.spawn(function()
@@ -1444,14 +1477,10 @@ local function scheduleOwnerOnboarding(userId)
             log("onboarding: owner player not found")
             return
         end
-        log("new owner: " .. o.DisplayName .. (ownerIsPremium() and " (premium)" or ""))
+        log("new owner: " .. o.DisplayName)
 
         if not deliverOwnerLine(userId, "Loading new owner", 12, 0.4) then
             log("onboarding: could not whisper Loading new owner")
-        end
-
-        if not ownerIsPremium() then
-            return
         end
 
         task.wait(0.85)
@@ -1478,24 +1507,10 @@ local function handleCommand(p, msg)
     if msg:sub(1, 1) ~= "!" then return end
     local args = msg:split(" ")
     local cmd, rest = args[1]:sub(2):lower(), msg:sub(#args[1] + 2)
-    if cmd == "owner" then
-        if session.ownerId == p.UserId then
-            toggleResetOnOwnerDeath = false
-            toggleDrop = false
-            _G.MM_OwnerDiedPendingReset = false
-            if ownerIsPremium() then
-                scheduleOwnerOnboarding(p.UserId)
-            else
-                deliverOwnerLine(p.UserId, "Loading new owner", 12, 0.4)
-            end
-        end
+    if cmd == "owner" or cmd == "dethrone" then
         return
     end
     if not session.ownerId or p.UserId ~= session.ownerId then return end
-    if not ownerIsPremium() then
-        whisper(PREMIUM_INGAME_MSG, p)
-        return
-    end
     if flingLoopContinuous and cmd ~= "fling" then
         whisper('You need to toggle off fling loop using "!fling"')
         return
@@ -1570,20 +1585,7 @@ local function handleCommand(p, msg)
     local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
     local ownerPlayer = findOwner()
     local ownerIsMurd = ownerMurdererActive(m, ownerPlayer) and not botHasKnife()
-    if cmd == "dethrone" then
-        session.ownerId = nil
-        G.MM_OwnerPremium = false
-        toggleGun, toggleAlerts, toggleReveal = false, false, true
-        toggleDrop, toggleResetOnOwnerDeath = false, false
-        gunTargetId, gunDelivered = nil, false
-        sendChat("Owner released")
-        task.delay(0.8, sendBrandingPromo)
-        return
-    elseif cmd == "chat" then
-        if not ownerIsPremium() then
-            whisper(PREMIUM_INGAME_MSG, p)
-            return
-        end
+    if cmd == "chat" then
         sendChat(rest)
         whisper("Chat sent")
     elseif cmd == "reveal" then
@@ -1655,14 +1657,7 @@ local function handleCommand(p, msg)
     elseif cmd == "reset" then
         whisper("Resetting")
         reset()
-    elseif cmd == "serverhop" then
-        whisper("Server hopping")
-        hopServer("manual server hop", false)
     elseif cmd == "togglegun" then
-        if not ownerIsPremium() then
-            whisper(PREMIUM_INGAME_MSG, p)
-            return
-        end
         if args[2] and ownerIsMurd then whisper(OWNER_MURD_GUN_MSG) return end
         if args[2] then
             local t = findPlayer(args[2])
@@ -1675,32 +1670,16 @@ local function handleCommand(p, msg)
             whisper("Auto-gun: " .. (toggleGun and "on" or "off"))
         end
     elseif cmd == "togglealerts" then
-        if not ownerIsPremium() then
-            whisper(PREMIUM_INGAME_MSG, p)
-            return
-        end
         toggleAlerts = not toggleAlerts
         whisper("Kill alerts: " .. (toggleAlerts and "on" or "off"))
     elseif cmd == "togglereveal" then
-        if not ownerIsPremium() then
-            whisper(PREMIUM_INGAME_MSG, p)
-            return
-        end
         toggleReveal = not toggleReveal
         whisper("Role callouts: " .. (toggleReveal and "on" or "off"))
     elseif cmd == "togglereset" then
-        if not ownerIsPremium() then
-            whisper(PREMIUM_INGAME_MSG, p)
-            return
-        end
         toggleResetOnOwnerDeath = not toggleResetOnOwnerDeath
         _G.MM_OwnerDiedPendingReset = false
         whisper("Reset on owner death: " .. (toggleResetOnOwnerDeath and "on" or "off"))
     elseif cmd == "toggledrop" then
-        if not ownerIsPremium() then
-            whisper(PREMIUM_INGAME_MSG, p)
-            return
-        end
         toggleDrop = not toggleDrop
         whisper("Murderer gun stash: " .. (toggleDrop and "on" or "off"))
     elseif cmd == "follow" then
@@ -1724,9 +1703,7 @@ local function handleCommand(p, msg)
         if helpCmd == "" and args[2] then
             helpCmd = (tostring(args[2]):gsub("^!+", ""):match("^%s*(.-)%s*$") or ""):lower()
         end
-        if helpCmd ~= "" and isPremiumOnlyCommand(helpCmd) and not ownerIsPremium() then
-            whisper(PREMIUM_INGAME_MSG, p)
-        elseif helpCmd ~= "" and COMMAND_HELP[helpCmd] then
+        if helpCmd ~= "" and COMMAND_HELP[helpCmd] then
             whisper("!" .. helpCmd .. ": " .. COMMAND_HELP[helpCmd])
         elseif helpCmd ~= "" then
             whisper("No help for !" .. helpCmd .. " — use !help for the list")
@@ -1738,6 +1715,9 @@ end
 local function routeCommand(p, msg)
     msg = cleanChatText(msg)
     if msg == "" or seenCommandRecently(p, msg) then return end
+    if XENO_OWNER_USERNAME ~= "" and configuredOwnerMatches(p) and session.ownerId ~= p.UserId then
+        syncConfiguredOwner()
+    end
     handleCommand(p, msg)
 end
 local function watchHiddenChat(p, msg)
@@ -1780,8 +1760,6 @@ Players.PlayerRemoving:Connect(function(p)
         toggleGun, toggleAlerts, toggleReveal = false, false, true
         toggleDrop, toggleResetOnOwnerDeath = false, false
         gunTargetId, gunDelivered = nil, false
-        sendChat("Owner left")
-        task.delay(0.8, sendBrandingPromo)
     end
 end)
 
@@ -1877,13 +1855,10 @@ local function bridgeAck(jobId, commandId, status, message)
 end
 
 local function bridgeCommandDelay(cmd)
-    if (type(cmd) == "table" and cmd.owner_premium == true) or ownerIsPremium() then
-        return 0
-    end
-    return BRIDGE_ACK_DELAY_SEC
+    return 0
 end
 
--- Wait after poll delivers the command, then run the action and ack right away (premium: no wait).
+-- Run as soon as poll delivers the command, then ack right away.
 local function bridgeExecuteAfterPollDelay(jobId, commandId, fn, cmd)
     task.spawn(function()
         task.wait(bridgeCommandDelay(cmd))
@@ -1903,35 +1878,25 @@ end
 local function bridgeHelpMessage(topic)
     topic = bridgeTrim(topic):lower():gsub("^!", "")
     if topic ~= "" then
-        if not ownerIsPremium() then
-            return "error", PREMIUM_REQUIRED_MSG
-        end
         if COMMAND_HELP[topic] then
             return "ok", "!" .. topic .. ": " .. COMMAND_HELP[topic]
         end
         return "error", "No help for !" .. topic .. " — use /help for the full list"
     end
     local lines = {
-        "Discord: /help /gun /stab /fling /tp /reveal /reset /serverhop /chat /alerts",
+        "Discord: /help /gun /stab /fling /tp /reveal /reset /chat /alerts",
         "",
     }
-    if ownerIsPremium() then
-        table.insert(lines, "In-game: !help and the same commands with !")
-        table.insert(lines, "")
-        for _, key in ipairs(helpKeysForOwner()) do
-            local desc = COMMAND_HELP[key] or ""
-            table.insert(lines, "• **!" .. key .. "** — " .. desc)
-        end
-    else
-        table.insert(lines, "In-game **!** commands are locked — use Discord above.")
+    table.insert(lines, "In-game: !help and the same commands with !")
+    table.insert(lines, "")
+    for _, key in ipairs(helpKeysForOwner()) do
+        local desc = COMMAND_HELP[key] or ""
+        table.insert(lines, "• **!" .. key .. "** — " .. desc)
     end
     return "ok", table.concat(lines, "\n")
 end
 
 local function bridgeToggleGunMessage(mode)
-    if not ownerIsPremium() then
-        return "error", PREMIUM_REQUIRED_MSG
-    end
     if not session.ownerId then
         return "error", "No owner — join your reserved server first"
     end
@@ -1960,9 +1925,6 @@ local function bridgeToggleGunMessage(mode)
 end
 
 local function bridgeToggleRevealMessage(mode)
-    if not ownerIsPremium() then
-        return "error", PREMIUM_REQUIRED_MSG
-    end
     if not session.ownerId then
         return "error", "No owner — join your reserved server first"
     end
@@ -1984,9 +1946,6 @@ local function bridgeToggleRevealMessage(mode)
 end
 
 local function bridgeToggleAlertsMessage(mode)
-    if not ownerIsPremium() then
-        return "error", PREMIUM_REQUIRED_MSG
-    end
     if not session.ownerId then
         return "error", "No owner — join your reserved server first"
     end
@@ -2008,9 +1967,6 @@ local function bridgeToggleAlertsMessage(mode)
 end
 
 local function bridgeChatMessage(text)
-    if not ownerIsPremium() then
-        return "error", PREMIUM_REQUIRED_MSG
-    end
     if not session.ownerId then
         return "error", "No owner — join your reserved server first"
     end
@@ -2144,9 +2100,6 @@ local function bridgeStabMessage(targetQuery)
 end
 
 local function bridgeFlingMessage(query)
-    if not ownerIsPremium() then
-        return "error", PREMIUM_REQUIRED_MSG
-    end
     if not session.ownerId then
         return "error", "No owner — join your reserved server first"
     end
@@ -2267,35 +2220,7 @@ local function processBridgeCommands(jobId, commands)
     for _, cmd in ipairs(commands) do
         if type(cmd) == "table" and cmd.id and not bridgeAcked[cmd.id] then
             local ctype = cmd.type
-            if ctype == "serverhop" or ctype == "rejoin" then
-                log("bridge: server hop")
-                task.spawn(function()
-                    task.wait(bridgeCommandDelay(cmd))
-                    pcall(function()
-                        bridgePollOnce()
-                    end)
-                    if not session.ownerId then
-                        local pending = tonumber(G.MM_PendingOwnerId)
-                        if pending and pending > 0 then
-                            session.ownerId = pending
-                        end
-                    end
-                    if not session.ownerId then
-                        bridgeAck(jobId, cmd.id, "error", "No owner — join your reserved server first")
-                        return
-                    end
-                    if hopBusy then
-                        bridgeAck(jobId, cmd.id, "error", "Server hop already in progress")
-                        return
-                    end
-                    local hopped = hopServer("discord server hop", false)
-                    if hopped then
-                        bridgeAck(jobId, cmd.id, "ok", "Server hop started — open the bot profile and Join")
-                    else
-                        bridgeAck(jobId, cmd.id, "error", "Could not teleport — try again in a moment")
-                    end
-                end)
-            elseif ctype == "help" then
+            if ctype == "help" then
                 local topic = cmd.topic or cmd.command or ""
                 local st, msg = bridgeHelpMessage(topic)
                 log("bridge: help")
@@ -2378,9 +2303,11 @@ end
 local function processBridgeClaim(claim)
     if type(claim) ~= "table" then return end
     syncOwnerPremiumFromClaim(claim)
-    restoreOwnerFromClaim(claim)
     local st = claim.status
     if st == "in_use" or st == "fulfilled" then
+        bridgeOwnerConnected = true
+        syncConfiguredOwner()
+        restoreOwnerFromClaim(claim)
         if claim.roblox_username and claim.id then
             bridgeClaimId = claim.id
             if bridgeFulfilledClaimId ~= claim.id then
@@ -2390,6 +2317,7 @@ local function processBridgeClaim(claim)
         return
     end
     if st == "awaiting_join" and claim.roblox_username and claim.id then
+        bridgeOwnerConnected = true
         bridgeClaimId = claim.id
         bridgeAwaitingName = claim.roblox_username
         bridgeClaimExpiresAt = tonumber(claim.expires_at) or (os.time() + BRIDGE_CLAIM_WAIT_SEC)
@@ -2400,9 +2328,9 @@ local function processBridgeClaim(claim)
             fulfillBridgeClaim(claim.id, claim.roblox_username)
         end
     elseif st == "available" or not claim.roblox_username then
-        if not session.ownerId then
-            G.MM_OwnerPremium = false
-        end
+        bridgeOwnerConnected = false
+        session.ownerId = nil
+        G.MM_PendingOwnerId = nil
         if bridgeAwaitingName and os.time() >= bridgeClaimExpiresAt then
             clearBridgeReservation("expired")
         elseif not bridgeAwaitingName then
@@ -2479,6 +2407,10 @@ local function ensureRegionSpreadOnStart()
 end
 
 local function bridgePollOnce()
+    local configuredOwner = findConfiguredOwner()
+    if bridgeOwnerConnected then
+        configuredOwner = syncConfiguredOwner()
+    end
     local claimEvent = nil
     if bridgeAwaitingName and bridgeClaimExpiresAt > 0 and os.time() >= bridgeClaimExpiresAt then
         claimEvent = "released"
@@ -2490,8 +2422,10 @@ local function bridgePollOnce()
         job_id = game.JobId,
         bot_username = me.Name,
         bot_user_id = me.UserId,
+        owner_username = XENO_OWNER_USERNAME ~= "" and XENO_OWNER_USERNAME or nil,
+        owner_present = configuredOwner ~= nil,
         place_id = game.PlaceId,
-        owner_id = session.ownerId,
+        owner_id = configuredOwner and configuredOwner.UserId or nil,
         player_count = #Players:GetPlayers(),
         claim_event = claimEvent,
         claim_id = bridgeClaimId,
@@ -2515,6 +2449,9 @@ end
 
 Players.PlayerAdded:Connect(function(pl)
     if not XENO_BRIDGE_ENABLED or pl == me then return end
+    if configuredOwnerMatches(pl) then
+        task.defer(syncConfiguredOwner)
+    end
     if bridgeAwaitingName and nameMatchesPlayer(pl, bridgeAwaitingName) and bridgeClaimId then
         task.defer(function()
             fulfillBridgeClaim(bridgeClaimId, bridgeAwaitingName)
