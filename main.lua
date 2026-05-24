@@ -288,8 +288,6 @@ local function sendChat(msg)
         else RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(msg, "All") end
     end)
 end
-local function sendBrandingPromo()
-end
 local function findWhisperChannel(uid)
     uid = tostring(uid)
     for _, ch in ipairs(TCS.TextChannels:GetChildren()) do
@@ -1507,9 +1505,6 @@ local function handleCommand(p, msg)
     if msg:sub(1, 1) ~= "!" then return end
     local args = msg:split(" ")
     local cmd, rest = args[1]:sub(2):lower(), msg:sub(#args[1] + 2)
-    if cmd == "owner" or cmd == "dethrone" then
-        return
-    end
     if not session.ownerId or p.UserId ~= session.ownerId then return end
     if flingLoopContinuous and cmd ~= "fling" then
         whisper('You need to toggle off fling loop using "!fling"')
@@ -1768,7 +1763,6 @@ local XENO_BRIDGE_URL = (getgenv and getgenv().XENO_BRIDGE_URL) or "https://xeno
 local XENO_BRIDGE_ENABLED = not (getgenv and getgenv().XENO_BRIDGE_ENABLED == false)
 local XENO_POLL_SEC = (getgenv and tonumber(getgenv().XENO_POLL_SEC)) or 2.5
 local BRIDGE_CLAIM_WAIT_SEC = 15 * 60
-local BRIDGE_ACK_DELAY_SEC = 5
 local REGION_PEER_MAX = 3
 local REGION_SPREAD_MAX_ATTEMPTS = 12
 local bridgeAcked = {}
@@ -2711,7 +2705,7 @@ while session.active and gui.Parent do
     local ownerIsMurd = ownerMurdererActive(m, ownerForDrop) and not botM
     -- Do not clear toggleGun here — owner-murderer only pauses delivery below; user setting stays on.
 
-    -- Owner murderer: stash guns at spawn only if premium owner enabled !toggledrop
+    -- Owner murderer: stash guns at spawn when enabled with !toggledrop.
     if session.ownerId and ownerIsMurd and ownerIsPremium() and toggleDrop and roundActive and SPAWN_CFRAME
        and not ownerMurdStashBusy and not revealAnnouncePending
        and tick() >= roleAnnounceUnlockAt
