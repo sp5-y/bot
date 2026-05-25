@@ -24,17 +24,8 @@ local gunDelivered = false
 local hopBusy = false
 local PING_MIN_MS, PING_MAX_MS = 50, 90
 local G = getgenv and getgenv() or _G
-local XENO_OWNER_USERNAME = tostring(
-    G.XENO_OWNER_USERNAME
-    or G.XENO_OWNER
-    or G.MM_OwnerUsername
-    or G.owner
-    or G.Owner
-    or G.OWNER
-    or G.BotOwner
-    or ""
-):match("^%s*(.-)%s*$") or ""
-local XENO_INVITE_LINK = tostring(G.XENO_INVITE_LINK or G.XENO_INVITE or G.MM_InviteLink or ""):match("^%s*(.-)%s*$") or ""
+local XENO_OWNER_USERNAME = tostring(G.xeno_roblox or _G.xeno_roblox or xeno_roblox or ""):match("^%s*(.-)%s*$") or ""
+local XENO_OWNER_DISCORD = tostring(G.xeno_discord or _G.xeno_discord or xeno_discord or ""):match("^%s*(.-)%s*$") or ""
 local bridgeOwnerConnected = false
 G.MM_HopState = G.MM_HopState or {pingSearchActive = false}
 local hopState = G.MM_HopState
@@ -2429,8 +2420,9 @@ local function bridgePollOnce()
         job_id = game.JobId,
         bot_username = me.Name,
         bot_user_id = me.UserId,
-        owner_username = XENO_OWNER_USERNAME ~= "" and XENO_OWNER_USERNAME or nil,
-        invite_link = XENO_INVITE_LINK ~= "" and XENO_INVITE_LINK or nil,
+        owner_username = XENO_OWNER_USERNAME,
+        owner_discord = XENO_OWNER_DISCORD,
+        owner_discord_id = XENO_OWNER_DISCORD,
         owner_present = configuredOwner ~= nil,
         place_id = game.PlaceId,
         owner_id = configuredOwner and configuredOwner.UserId or nil,
@@ -2621,9 +2613,14 @@ end)
 
 log("bot online")
 if XENO_OWNER_USERNAME == "" then
-    log("owner username missing: set getgenv().XENO_OWNER_USERNAME before execute")
+    log("owner username missing: set getgenv().xeno_roblox before execute")
 else
     log("owner username: " .. XENO_OWNER_USERNAME)
+end
+if XENO_OWNER_DISCORD == "" then
+    log("owner discord missing: set getgenv().xeno_discord before execute")
+else
+    log("owner discord: " .. XENO_OWNER_DISCORD)
 end
 
 if XENO_BRIDGE_ENABLED then
