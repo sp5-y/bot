@@ -37,10 +37,38 @@ local OWNER_MURD_STASH_COOLDOWN = 3
 G.MM_OwnerPremium = true
 
 --[[ Session ]]--
-if getgenv and getgenv().MM_Session then getgenv().MM_Session.active = false end
+local oldSession = G.MM_Session or _G.MM_Session
+if type(oldSession) == "table" then
+    oldSession.active = false
+    oldSession.ownerId = nil
+end
+local oldCleanup = G.MM_Cleanup or _G.MM_Cleanup
+if type(oldCleanup) == "function" then pcall(oldCleanup) end
 if game.CoreGui:FindFirstChild("MM") then game.CoreGui.MM:Destroy() end
-local session = {active = true, ownerId = nil}
-if getgenv then getgenv().MM_Session = session end
+local gui
+local session = {active = true, ownerId = nil, connections = {}}
+local function trackConnection(conn)
+    if conn then table.insert(session.connections, conn) end
+    return conn
+end
+local function cleanupSession()
+    if not session.active and session.cleaned then return end
+    session.active = false
+    session.cleaned = true
+    session.ownerId = nil
+    for _, conn in ipairs(session.connections) do
+        pcall(function() conn:Disconnect() end)
+    end
+    session.connections = {}
+    _G.MM_StabBusy = false
+    _G.MM_GunBusy = false
+    _G.MM_OwnerDiedPendingReset = false
+    if gui and gui.Parent then pcall(function() gui:Destroy() end) end
+end
+G.MM_Session = session
+G.MM_Cleanup = cleanupSession
+_G.MM_Session = session
+_G.MM_Cleanup = cleanupSession
 do
     local pending = tonumber(G.MM_PendingOwnerId)
     if pending and pending > 0 then
@@ -62,10 +90,11 @@ task.spawn(function()
     local origVolume = UGS.MasterVolume
     UGS.MasterVolume = 0
     pcall(function()
-        Players.LocalPlayer.Idled:Connect(function()
+        trackConnection(Players.LocalPlayer.Idled:Connect(function()
+            if not session.active then return end
             VU:CaptureController()
             VU:ClickButton2(Vector2.new(math.random(10, 50), math.random(10, 50)))
-        end)
+        end))
     end)
     while session.active and not UIS:IsKeyDown(Enum.KeyCode.RightAlt) do
         pcall(function()
@@ -84,7 +113,7 @@ task.spawn(function()
 end)
 
 --[[ GUI ]]--
-local gui = Instance.new("ScreenGui", game.CoreGui)
+gui = Instance.new("ScreenGui", game.CoreGui)
 gui.Name, gui.ResetOnSpawn = "MM", false
 local f = Instance.new("Frame", gui)
 f.Size, f.Position = UDim2.new(0, 140, 0, 180), UDim2.new(1, -150, 0, 10)
@@ -589,8 +618,8 @@ local function findHopServer()
         for _, server in ipairs(page.data or {}) do
             local sid = server.id and tostring(server.id) or ""
             if sid ~= "" and sid ~= jobId and not hopIsSeen(sid) then
-                local playing = tonumber(server.playing) or 0
-                local maxPlayers = tonumber(server.maxPlayers) or 0
+            local playing = tonumber(server.playing) or 0
+            local maxPlayers = tonumber(server.maxPlayers) or 0
                 if maxPlayers > playing then
                     if playing > 2 then
                         return sid
@@ -670,6 +699,28 @@ local function horizontalApproachLead(root)
     local spd = vh.Magnitude
     if spd <= 0.12 then return Vector3.zero end
     return vh.Unit * math.min(spd * 0.14, 8)
+end
+local GUN_DROP_PREDICT_SEC = 0.55
+local function gunDropLead(root, hum)
+    if not root then return Vector3.zero end
+    local v = root.AssemblyLinearVelocity
+    if v.Magnitude < 1e-3 then v = root.Velocity end
+    local vh = Vector3.new(v.X, 0, v.Z)
+    if hum then
+        local md = hum.MoveDirection
+        if md.Magnitude > 0.05 then
+            local moveVel = Vector3.new(md.X, 0, md.Z) * math.max(hum.WalkSpeed, 16)
+            if moveVel.Magnitude > vh.Magnitude then
+                vh = moveVel
+            else
+                vh = vh * 0.35 + moveVel * 0.65
+            end
+        end
+    end
+    local spd = vh.Magnitude
+    if spd <= 0.12 then return Vector3.zero end
+    local lead = math.clamp(spd * GUN_DROP_PREDICT_SEC + 2.5, 5, 18)
+    return vh.Unit * lead
 end
 -- Fling-only: stronger lookahead for ~15fps cap (velocity + Humanoid move intent).
 local FLING_PREDICT_SEC = 0.22
@@ -784,9 +835,25 @@ local function dropGunAt(target)
     stopFollow()
     local h = hrp()
     local oh = target.Character:FindFirstChild("HumanoidRootPart")
+    local hum = target.Character:FindFirstChildOfClass("Humanoid")
     if not (h and oh) then return false end
-    h.CFrame = oh.CFrame + horizontalApproachLead(oh)
-    task.wait(0.1); reset()
+    local lead = gunDropLead(oh, hum)
+    local dropPos = oh.Position + lead + Vector3.new(0, 0.25, 0)
+    local face = lead.Magnitude > 0.1 and (dropPos + lead.Unit) or (oh.Position + oh.CFrame.LookVector)
+    zeroVel(h)
+    h.CFrame = CFrame.new(dropPos, face)
+    zeroVel(h)
+    task.wait(0.05)
+    local fresh = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    local freshHum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
+    if fresh and isAlive(target) then
+        lead = gunDropLead(fresh, freshHum)
+        dropPos = fresh.Position + lead + Vector3.new(0, 0.25, 0)
+        face = lead.Magnitude > 0.1 and (dropPos + lead.Unit) or (fresh.Position + fresh.CFrame.LookVector)
+        h.CFrame = CFrame.new(dropPos, face)
+        zeroVel(h)
+    end
+    task.wait(0.04); reset()
     return true
 end
 local function bringGun(target)
@@ -873,7 +940,7 @@ local function getStabHorizontalVelocity(th, hum, lastPos, lastT)
 end
 
 local function getStabCFrame(target, lastPos, lastT)
-    local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+        local th = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
     local hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
     if not th then return end
     local anchor = th.Position + Vector3.new(0, 0.25, 0)
@@ -907,9 +974,9 @@ local function stabPass(target, lastPos, lastT)
     local cf, curPos = getStabCFrame(target, lastPos, lastT)
     local mh = hrp()
     if not (cf and mh) then return false end
-    zeroVel(mh)
+        zeroVel(mh)
     mh.CFrame = cf
-    zeroVel(mh)
+        zeroVel(mh)
     task.wait(0.05)
     cf = getStabCFrame(target, nil, nil) or cf
     if cf then
@@ -918,7 +985,7 @@ local function stabPass(target, lastPos, lastT)
         zeroVel(mh)
     end
     task.wait(0.1)
-    pcall(function()
+        pcall(function()
         local handle = knife:FindFirstChild("Handle")
         if knife:FindFirstChild("KnifeServer") and handle then
             local c = (handle.CFrame * CFrame.new(0, 1, 0)).Position
@@ -1522,10 +1589,10 @@ local function handleCommand(p, msg)
             if flingLoopActive or flingActive or flingSettling then
                 cancelFlingWork()
                 whisper("Fling loop stopped")
-                return
-            end
+        return
+    end
             whisper("!fling all | sheriff | murder | <name> — add loop to repeat, !fling alone stops")
-            return
+        return
         end
 
         if flingLoopContinuous then
@@ -1706,6 +1773,7 @@ local function handleCommand(p, msg)
     end
 end
 local function routeCommand(p, msg)
+    if not session.active then return end
     msg = cleanChatText(msg)
     if msg == "" or seenCommandRecently(p, msg) then return end
     if XENO_OWNER_USERNAME ~= "" and configuredOwnerMatches(p) and session.ownerId ~= p.UserId then
@@ -1720,7 +1788,8 @@ local function watchHiddenChat(p, msg)
     if clean == "" then return end
     local hidden = true
     local conn
-    conn = event.OnClientEvent:Connect(function(packet)
+    conn = trackConnection(event.OnClientEvent:Connect(function(packet)
+        if not session.active then return end
         local packetMsg = packet and packet.Message
         if packet and packet.SpeakerUserId == p.UserId and type(packetMsg) == "string" then
             local suffix = clean:sub(math.max(1, #clean - #packetMsg + 1))
@@ -1728,7 +1797,7 @@ local function watchHiddenChat(p, msg)
                 hidden = false
             end
         end
-    end)
+    end))
     task.delay(1, function()
         if conn then conn:Disconnect() end
         if hidden and session.active then
@@ -1738,14 +1807,19 @@ local function watchHiddenChat(p, msg)
     end)
 end
 local function hookSpeaker(p)
-    p.Chatted:Connect(function(msg)
+    trackConnection(p.Chatted:Connect(function(msg)
+        if not session.active then return end
         routeCommand(p, msg)
         watchHiddenChat(p, msg)
-    end)
+    end))
 end
 for _, p in ipairs(Players:GetPlayers()) do hookSpeaker(p) end
-Players.PlayerAdded:Connect(hookSpeaker)
-Players.PlayerRemoving:Connect(function(p)
+trackConnection(Players.PlayerAdded:Connect(function(p)
+    if not session.active then return end
+    hookSpeaker(p)
+end))
+trackConnection(Players.PlayerRemoving:Connect(function(p)
+    if not session.active then return end
     if session.ownerId and p.UserId == session.ownerId then
         if hopBusy then return end
         session.ownerId = nil
@@ -1754,7 +1828,7 @@ Players.PlayerRemoving:Connect(function(p)
         toggleDrop, toggleResetOnOwnerDeath = false, false
         gunTargetId, gunDelivered = nil, false
     end
-end)
+end))
 
 --[[ Discord bridge (discord-xeno.py Flask) ]]--
 local XENO_BRIDGE_URL = (getgenv and getgenv().XENO_BRIDGE_URL) or "https://xenobotsmm2.xyz"
@@ -2208,8 +2282,10 @@ local function bridgeResetMessage()
 end
 
 local function processBridgeCommands(jobId, commands)
+    if not session.active then return end
     if type(commands) ~= "table" then return end
     for _, cmd in ipairs(commands) do
+        if not session.active then return end
         if type(cmd) == "table" and cmd.id and not bridgeAcked[cmd.id] then
             local ctype = cmd.type
             if ctype == "help" then
@@ -2399,6 +2475,7 @@ local function ensureRegionSpreadOnStart()
 end
 
 local function bridgePollOnce()
+    if not session.active then return false end
     local configuredOwner = findConfiguredOwner()
     if bridgeOwnerConnected then
         configuredOwner = syncConfiguredOwner()
@@ -2437,6 +2514,7 @@ local function bridgePollOnce()
         pollBody.server_location = serverLoc
     end
     local raw = httpJson("POST", XENO_BRIDGE_URL .. "/api/xeno/poll", pollBody)
+    if not session.active then return false end
     if not raw then return false end
     local ok, data = pcall(function() return Http:JSONDecode(raw) end)
     if not ok or type(data) ~= "table" or not data.ok then return false end
@@ -2448,8 +2526,8 @@ local function bridgePollOnce()
     return true
 end
 
-Players.PlayerAdded:Connect(function(pl)
-    if not XENO_BRIDGE_ENABLED or pl == me then return end
+trackConnection(Players.PlayerAdded:Connect(function(pl)
+    if not session.active or not XENO_BRIDGE_ENABLED or pl == me then return end
     if configuredOwnerMatches(pl) then
         task.defer(syncConfiguredOwner)
     end
@@ -2458,16 +2536,16 @@ Players.PlayerAdded:Connect(function(pl)
             fulfillBridgeClaim(bridgeClaimId, bridgeAwaitingName)
         end)
     end
-end)
+end))
 
-Players.PlayerRemoving:Connect(function(p)
-    if not XENO_BRIDGE_ENABLED then return end
+trackConnection(Players.PlayerRemoving:Connect(function(p)
+    if not session.active or not XENO_BRIDGE_ENABLED then return end
     if session.ownerId and p.UserId == session.ownerId then
         if hopBusy then return end
         bridgeFulfilledClaimId = nil
         bridgeReportClaimEvent("owner_left", { owner_id = nil, note = p.Name })
     end
-end)
+end))
 
 if XENO_BRIDGE_ENABLED then
     task.spawn(function()
@@ -2671,27 +2749,27 @@ end
 local function runMainLoop()
     local lastMurderId, announced
     local ownerMurdStashBusy = false
-    while session.active and gui.Parent do
-        local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
+while session.active and gui.Parent do
+    local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
         local botM = botHasKnife()
         local roundActive = isRoundActive()
 
-        if m then
-            if lastMurderId ~= m.UserId then
-                lastMurderId = m.UserId
-                pcall(function() img.Image = Players:GetUserThumbnailAsync(m.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150) end)
-                lbl.Text = m.DisplayName
-            end
-            f.Visible = true
-        else f.Visible, lastMurderId = false, nil end
+    if m then
+        if lastMurderId ~= m.UserId then
+            lastMurderId = m.UserId
+            pcall(function() img.Image = Players:GetUserThumbnailAsync(m.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size150x150) end)
+            lbl.Text = m.DisplayName
+        end
+        f.Visible = true
+    else f.Visible, lastMurderId = false, nil end
 
-        if (m or botM) and not announced then
-            announced = true
+    if (m or botM) and not announced then
+        announced = true
             gunDelivered = false
             revealAnnouncePending = true
             tpHome()
-            local owner = findOwner()
-            task.spawn(function()
+        local owner = findOwner()
+        task.spawn(function()
                 local curM, curS, curBotM, curBotS = resolveRoleSnapshot(2.5)
 
                 if toggleReveal and session.ownerId then
@@ -2699,8 +2777,8 @@ local function runMainLoop()
                     ok, curM, curS, curBotM, curBotS = waitForRoleCallouts(curM, curS, curBotM, curBotS)
                     if not ok then
                         curM, curS, curBotM, curBotS = resolveRoleSnapshot(0.5)
-                    end
-                else
+                end
+            else
                     curM, curS, curBotM, curBotS = resolveRoleSnapshot(0.5)
                 end
 
@@ -2712,14 +2790,14 @@ local function runMainLoop()
 
                 roleAnnounceUnlockAt = tick() + 0.35
                 revealAnnouncePending = false
-            end)
-        elseif not roundActive then
+        end)
+    elseif not roundActive then
             announced, gunDelivered, revealAnnouncePending = false, false, false
             ownerMurdStashBusy = false
-            roleAnnounceUnlockAt = 0
-        end
+        roleAnnounceUnlockAt = 0
+    end
 
-        local ownerForDrop = findOwner()
+    local ownerForDrop = findOwner()
         local ownerIsMurd = ownerMurdererActive(m, ownerForDrop) and not botM
         -- Do not clear toggleGun here — owner-murderer only pauses delivery below; user setting stays on.
 
@@ -2732,39 +2810,40 @@ local function runMainLoop()
            and not flingActive and not flingLoopActive and not flingLoopContinuous and not flingSettling
         then
             ownerMurdStashBusy = true
-            _G.MM_GunBusy = true
-            task.spawn(function()
+        _G.MM_GunBusy = true
+        task.spawn(function()
                 pcall(stashGunAtSpawn)
                 task.wait(OWNER_MURD_STASH_COOLDOWN)
-                _G.MM_GunBusy = false
+            _G.MM_GunBusy = false
                 ownerMurdStashBusy = false
-            end)
-        end
+        end)
+    end
 
-        local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or findOwner()
+    local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or findOwner()
         if toggleGun and not flingLoopContinuous and not botM and not ownerIsMurd and not gunDelivered and not _G.MM_GunBusy and not _G.MM_StabBusy and me.Character
            and not revealAnnouncePending and tick() >= roleAnnounceUnlockAt
            and not flingActive and not flingLoopActive and not flingSettling
-           and gunTarget and gunTarget ~= me and isAlive(gunTarget)
+       and gunTarget and gunTarget ~= me and isAlive(gunTarget)
            and gunAvailableForOwnerMurdStash() then
-            gunDelivered = true
-            _G.MM_GunBusy = true
-            task.spawn(function() bringGun(gunTarget); task.wait(3); _G.MM_GunBusy = false end)
-        end
-
-        local subject = (s and s.Character and s.Character:FindFirstChildOfClass("Humanoid"))
-                      or findDroppedGun()
-                      or (me.Character and me.Character:FindFirstChildOfClass("Humanoid"))
-        if cam.CameraType ~= Enum.CameraType.Custom then cam.CameraType = Enum.CameraType.Custom end
-        if subject then cam.CameraSubject = subject end
-        cam.FieldOfView = WIDE_FOV
-        task.wait(0.5)
+        gunDelivered = true
+        _G.MM_GunBusy = true
+        task.spawn(function() bringGun(gunTarget); task.wait(3); _G.MM_GunBusy = false end)
     end
 
-    --[[ Cleanup ]]--
-    cam.FieldOfView = DEFAULT_FOV
-    do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
-       if h then cam.CameraSubject = h end end
+    local subject = (s and s.Character and s.Character:FindFirstChildOfClass("Humanoid"))
+                  or findDroppedGun()
+                  or (me.Character and me.Character:FindFirstChildOfClass("Humanoid"))
+    if cam.CameraType ~= Enum.CameraType.Custom then cam.CameraType = Enum.CameraType.Custom end
+    if subject then cam.CameraSubject = subject end
+    cam.FieldOfView = WIDE_FOV
+    task.wait(0.5)
+end
+
+--[[ Cleanup ]]--
+cam.FieldOfView = DEFAULT_FOV
+do local h = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
+   if h then cam.CameraSubject = h end end
+    cleanupSession()
 end
 
 runMainLoop()
