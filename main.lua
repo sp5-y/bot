@@ -1357,6 +1357,7 @@ local COMMAND_HELP = {
     togglealerts = "Toggle kill/drop/pickup alerts",
     togglereset = "Toggle auto-reset when owner dies",
     toggledrop = "Toggle stashing guns when you are murderer",
+    drop = "Drop gun at spawn",
     reset = "Force bot respawn",
     tp = "<player> - Teleport bot to a player",
     tpmurd = "Teleport bot to the murderer",
@@ -1371,7 +1372,7 @@ local COMMAND_HELP = {
     help = "<cmd> - Show command list or explain one command",
 }
 local HELP_ORDER = {
-    "tp", "reveal", "stab", "gun", "fling", "togglegun", "togglereveal", "togglealerts",
+    "tp", "reveal", "stab", "gun", "drop", "fling", "togglegun", "togglereveal", "togglealerts",
     "reset", "follow", "unfollow", "chat", "help",
 }
 local PREMIUM_ONLY_COMMANDS = {
@@ -1711,6 +1712,15 @@ local function handleCommand(p, msg)
         if not gunAvailableForOwnerMurdStash() then whisper("No gun available") return end
         bringGun(t)
         whisper("Gun delivered to " .. commandTargetLabel(t))
+    elseif cmd == "drop" then
+        if _G.MM_GunBusy then whisper("Gun busy, try again") return end
+        if _G.MM_StabBusy then whisper("Stab busy, try again") return end
+        if botHasKnife() then whisper("No gun available") return end
+        if not gunAvailableForOwnerMurdStash() then whisper("No gun available") return end
+        _G.MM_GunBusy = true
+        local ok = stashGunAtSpawn()
+        _G.MM_GunBusy = false
+        whisper(ok and "Gun dropped at spawn" or "No gun available")
     elseif cmd == "spawn" or cmd == "home" then
         tpHome()
         whisper("Teleported to spawn")
@@ -2032,6 +2042,63 @@ local function bridgeToggleAlertsMessage(mode)
     return "error", "Use Enable or Disable"
 end
 
+local function bridgeToggleResetMessage(mode)
+    if not session.ownerId then
+        return "error", "No owner — join your reserved server first"
+    end
+    mode = bridgeTrim(mode):lower()
+    if mode == "enable" then
+        if toggleResetOnOwnerDeath then
+            return "ok", "Automatic reset is already enabled"
+        end
+        toggleResetOnOwnerDeath = true
+        return "ok", "Automatic reset enabled"
+    elseif mode == "disable" then
+        if not toggleResetOnOwnerDeath then
+            return "error", "Automatic reset is not enabled"
+        end
+        toggleResetOnOwnerDeath = false
+        _G.MM_OwnerDiedPendingReset = false
+        return "ok", "Automatic reset disabled"
+    end
+    return "error", "Use Enable or Disable"
+end
+
+local function bridgeToggleDropMessage(mode)
+    if not session.ownerId then
+        return "error", "No owner — join your reserved server first"
+    end
+    mode = bridgeTrim(mode):lower()
+    if mode == "enable" then
+        if toggleDrop then
+            return "ok", "Automatic drop is already enabled"
+        end
+        toggleDrop = true
+        return "ok", "Automatic drop enabled"
+    elseif mode == "disable" then
+        if not toggleDrop then
+            return "error", "Automatic drop is not enabled"
+        end
+        toggleDrop = false
+        return "ok", "Automatic drop disabled"
+    end
+    return "error", "Use Enable or Disable"
+end
+
+local function bridgeDropMessage()
+    if not session.ownerId then
+        return "error", "No owner — join your reserved server first"
+    end
+    if _G.MM_GunBusy then return "error", "Gun busy, try again" end
+    if _G.MM_StabBusy then return "error", "Stab busy, try again" end
+    if botHasKnife() then return "error", "No gun available" end
+    if not gunAvailableForOwnerMurdStash() then return "error", "No gun available" end
+    _G.MM_GunBusy = true
+    local ok = stashGunAtSpawn()
+    _G.MM_GunBusy = false
+    return ok and "ok" or "error", ok and "Gun dropped at spawn" or "No gun available"
+end
+
 local function bridgeChatMessage(text)
     if not session.ownerId then
         return "error", "No owner — join your reserved server first"
@@ -2311,6 +2378,18 @@ local function processBridgeCommands(jobId, commands)
                 bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
                     return bridgeToggleAlertsMessage(mode)
                 end, cmd)
+            elseif ctype == "toggle_reset" then
+                log("bridge: toggle_reset")
+                local mode = cmd.mode or cmd.action or ""
+                bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
+                    return bridgeToggleResetMessage(mode)
+                end, cmd)
+            elseif ctype == "toggle_drop" then
+                log("bridge: toggle_drop")
+                local mode = cmd.mode or cmd.action or ""
+                bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
+                    return bridgeToggleDropMessage(mode)
+                end, cmd)
             elseif ctype == "chat" then
                 log("bridge: chat")
                 local text = cmd.message or cmd.text or ""
@@ -2322,6 +2401,11 @@ local function processBridgeCommands(jobId, commands)
                 local target = cmd.target or cmd.player or ""
                 bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
                     return bridgeGunMessage(target)
+                end, cmd)
+            elseif ctype == "drop" then
+                log("bridge: drop")
+                bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
+                    return bridgeDropMessage()
                 end, cmd)
             elseif ctype == "stab" then
                 log("bridge: stab")
