@@ -26,8 +26,8 @@ local PING_MIN_MS, PING_MAX_MS = 50, 90
 local G = getgenv and getgenv() or _G
 local XENO_OWNER_USERNAME = tostring(G.xeno_roblox or _G.xeno_roblox or xeno_roblox or ""):match("^%s*(.-)%s*$") or ""
 local XENO_OWNER_DISCORD = tostring(G.xeno_discord or _G.xeno_discord or xeno_discord or ""):match("^%s*(.-)%s*$") or ""
-local PUBLIC_MODE = G.public_mode == true or _G.public_mode == true or public_mode == true
-local ANNOUNCEMENT_MESSAGE = tostring(G.announcement_message or _G.announcement_message or announcement_message or ""):match("^%s*(.-)%s*$") or ""
+local PUBLIC_MODE = G.public_mode == true or _G.public_mode == true
+local ANNOUNCEMENT_MESSAGE = tostring(G.announcement_message or _G.announcement_message or ""):match("^%s*(.-)%s*$") or ""
 local ACTIVE_OWNER_USERNAME = XENO_OWNER_USERNAME
 local bridgeOwnerConnected = false
 G.MM_HopState = G.MM_HopState or {pingSearchActive = false}
