@@ -256,7 +256,7 @@ local function syncConfiguredOwner()
     return p
 end
 
-local function currentToggleConfig()
+function G.MM_CurrentToggleConfig()
     return {
         automatic_gun = toggleGun,
         reveal = toggleReveal,
@@ -266,7 +266,7 @@ local function currentToggleConfig()
     }
 end
 
-local function applyToggleConfig(cfg)
+function G.MM_ApplyToggleConfig(cfg)
     if type(cfg) ~= "table" then return end
     if cfg.automatic_gun ~= nil then
         toggleGun = cfg.automatic_gun == true
@@ -281,7 +281,7 @@ local function applyToggleConfig(cfg)
     if cfg.automatic_drop ~= nil then toggleDrop = cfg.automatic_drop == true end
 end
 
-local function currentOwnerInfo()
+function G.MM_CurrentOwnerInfo()
     local owner = findOwner()
     if not owner then return nil end
     return {
@@ -355,11 +355,6 @@ local function sendChat(msg)
         else RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(msg, "All") end
     end)
 end
-local function publicReply(msg)
-    if not msg or msg == "" then return false end
-    sendChat(msg)
-    return true
-end
 local function findWhisperChannel(uid)
     uid = tostring(uid)
     for _, ch in ipairs(TCS.TextChannels:GetChildren()) do
@@ -405,7 +400,7 @@ local function ensureWhisperChannel(o)
 end
 local function whisper(m, target)
     if PUBLIC_MODE then
-        publicReply(m)
+        sendChat(m)
         return
     end
     local o = target or findOwner()
@@ -442,7 +437,8 @@ local function whisper(m, target)
 end
 local function whisperOk(m, target)
     if PUBLIC_MODE then
-        return publicReply(m)
+        sendChat(m)
+        return true
     end
     local o = target or findOwner()
     if not o then return false end
@@ -739,16 +735,6 @@ local followTarget = nil
 local function stopFollow()
     followTarget = nil
 end
--- Horizontal lead from HRP velocity so handoffs stay ahead of walking targets.
-local function horizontalApproachLead(root)
-    if not root then return Vector3.zero end
-    local v = root.AssemblyLinearVelocity
-    if v.Magnitude < 1e-3 then v = root.Velocity end
-    local vh = Vector3.new(v.X, 0, v.Z)
-    local spd = vh.Magnitude
-    if spd <= 0.12 then return Vector3.zero end
-    return vh.Unit * math.min(spd * 0.14, 8)
-end
 local GUN_DROP_PREDICT_SEC = 0.82
 local GUN_RESET_LATENCY_SEC = 0.18
 local function gunDropLead(root, hum)
@@ -829,7 +815,7 @@ local function stowKnife()
         pcall(function() knife.Parent = me.Backpack end)
     end
 end
-local function stabBusyActive()
+function G.MM_StabBusyActive()
     if _G.MM_StabBusy and tick() <= tonumber(_G.MM_StabBusyUntil or 0) then
         return true
     end
@@ -837,11 +823,11 @@ local function stabBusyActive()
     _G.MM_StabBusyUntil = 0
     return false
 end
-local function beginStabBusy(seconds)
+function G.MM_BeginStabBusy(seconds)
     _G.MM_StabBusy = true
     _G.MM_StabBusyUntil = tick() + (seconds or 53)
 end
-local function endStabBusy()
+function G.MM_EndStabBusy()
     _G.MM_StabBusy = false
     _G.MM_StabBusyUntil = 0
 end
@@ -889,7 +875,7 @@ local function runDeferredOwnerResetIfIdle()
         _G.MM_OwnerDiedPendingReset = false
         return
     end
-    if _G.MM_OwnerDiedPendingReset and not _G.MM_GunBusy and not stabBusyActive() then
+    if _G.MM_OwnerDiedPendingReset and not _G.MM_GunBusy and not G.MM_StabBusyActive() then
         _G.MM_OwnerDiedPendingReset = false
         log("owner died during combat -> resetting bot")
         task.spawn(function() pcall(reset) end)
@@ -922,25 +908,25 @@ local function dropGunAt(target)
     task.wait(0.08); reset()
     return true
 end
-local function targetHasGun(target)
+function G.MM_TargetHasGun(target)
     return target and playerHas(target, {"Gun", "Revolver"})
 end
-local function waitForGunPickup(target, timeout)
+function G.MM_WaitForGunPickup(target, timeout)
     local deadline = tick() + (timeout or 1.6)
     while tick() < deadline do
-        if targetHasGun(target) then return true end
+        if G.MM_TargetHasGun(target) then return true end
         task.wait(0.08)
     end
-    return targetHasGun(target)
+    return G.MM_TargetHasGun(target)
 end
 local function bringGun(target)
     if _G.MM_StabBusy then return false end
     target = target or findOwner()
     if not isAlive(target) then return false end
-    if targetHasGun(target) then return true end
+    if G.MM_TargetHasGun(target) then return true end
     if botHasGun() then
         if not dropGunAt(target) then return false end
-        return waitForGunPickup(target, 1.8)
+        return G.MM_WaitForGunPickup(target, 1.8)
     end
     local g, h = findDroppedGun(), hrp()
     if not (g and h) then return false end
@@ -952,7 +938,7 @@ local function bringGun(target)
     end
     if not botHasGun() then return false end
     if not dropGunAt(target) then return false end
-    return waitForGunPickup(target, 1.8)
+    return G.MM_WaitForGunPickup(target, 1.8)
 end
 local function stashGunAtSpawn()
     if _G.MM_StabBusy then return false end
@@ -1798,9 +1784,9 @@ local function handleCommand(p, msg)
             picked = findOtherPlayer(q)
             if not picked then whisper("Player not found") return end
         end
-        if stabBusyActive() then whisper("Stab busy, try again") return end
+        if G.MM_StabBusyActive() then whisper("Stab busy, try again") return end
         if _G.MM_GunBusy then whisper("Gun busy, try again") return end
-        beginStabBusy()
+        G.MM_BeginStabBusy()
         local targetUid = picked and picked.UserId or nil
         whisper(stabAll and "Stabbing everyone" or ("Stabbing " .. shortName(picked)))
         task.spawn(function()
@@ -1821,7 +1807,7 @@ local function handleCommand(p, msg)
                 log(tostring(err))
             end
             whisperCombatResult(status)
-            endStabBusy()
+            G.MM_EndStabBusy()
             runDeferredOwnerResetIfIdle()
         end)
     elseif cmd == "gun" then
@@ -1834,7 +1820,7 @@ local function handleCommand(p, msg)
         whisper(ok and ("Gun delivered to " .. commandTargetLabel(t)) or "Gun missed, try again")
     elseif cmd == "drop" then
         if _G.MM_GunBusy then whisper("Gun busy, try again") return end
-        if stabBusyActive() then whisper("Stab busy, try again") return end
+        if G.MM_StabBusyActive() then whisper("Stab busy, try again") return end
         if botHasKnife() then whisper("No gun available") return end
         if not gunAvailableForOwnerMurdStash() then whisper("No gun available") return end
         _G.MM_GunBusy = true
@@ -1959,8 +1945,10 @@ trackConnection(Players.PlayerRemoving:Connect(function(p)
 end))
 
 --[[ Discord bridge (discord-xeno.py Flask) ]]--
-local XENO_BRIDGE_URL = (getgenv and getgenv().XENO_BRIDGE_URL) or "https://xenobotsmm2.xyz"
 local XENO_BRIDGE_ENABLED = not (getgenv and getgenv().XENO_BRIDGE_ENABLED == false)
+local ensureRegionSpreadOnStart
+do
+local XENO_BRIDGE_URL = (getgenv and getgenv().XENO_BRIDGE_URL) or "https://xenobotsmm2.xyz"
 local XENO_POLL_SEC = (getgenv and tonumber(getgenv().XENO_POLL_SEC)) or 2.5
 local BRIDGE_CLAIM_WAIT_SEC = 15 * 60
 local REGION_PEER_MAX = 3
@@ -1970,6 +1958,7 @@ local bridgeClaimId = nil
 local bridgeAwaitingName = nil
 local bridgeClaimExpiresAt = 0
 local bridgeFulfilledClaimId = nil
+local bridgePollOnce
 
 local function nameMatchesPlayer(pl, name)
     if not pl or not name or name == "" then return false end
@@ -1996,8 +1985,8 @@ local function bridgeReportClaimEvent(event, extra)
             bot_user_id = me.UserId,
             place_id = game.PlaceId,
             owner_id = extra.owner_id or session.ownerId,
-            owner = currentOwnerInfo(),
-            toggle_config = currentToggleConfig(),
+            owner = G.MM_CurrentOwnerInfo(),
+            toggle_config = G.MM_CurrentToggleConfig(),
             player_count = #Players:GetPlayers(),
             claim_event = event,
             claim_id = extra.claim_id or bridgeClaimId,
@@ -2208,7 +2197,7 @@ local function bridgeDropMessage()
         return "error", "No owner — join your reserved server first"
     end
     if _G.MM_GunBusy then return "error", "Gun busy, try again" end
-    if stabBusyActive() then return "error", "Stab busy, try again" end
+    if G.MM_StabBusyActive() then return "error", "Stab busy, try again" end
     if botHasKnife() then return "error", "No gun available" end
     if not gunAvailableForOwnerMurdStash() then return "error", "No gun available" end
     _G.MM_GunBusy = true
@@ -2331,9 +2320,9 @@ local function bridgeStabMessage(targetQuery)
         picked = findOtherPlayer(q)
         if not picked then return "error", "Player not found" end
     end
-    if stabBusyActive() then return "error", "Stab busy, try again" end
+    if G.MM_StabBusyActive() then return "error", "Stab busy, try again" end
     if _G.MM_GunBusy then return "error", "Gun busy, try again" end
-    beginStabBusy()
+    G.MM_BeginStabBusy()
     local targetUid = picked and picked.UserId or nil
     local status = "Player not found"
     local okRun, errRun = pcall(function()
@@ -2347,7 +2336,7 @@ local function bridgeStabMessage(targetQuery)
         end
         status = msg
     end)
-    endStabBusy()
+    G.MM_EndStabBusy()
     runDeferredOwnerResetIfIdle()
     if not okRun then
         return "error", "Stab failed"
@@ -2482,8 +2471,8 @@ local function bridgeOwnerMessage(targetQuery)
     if targetQuery == "" then
         local owner = findOwner()
         local payload = {
-            owner = currentOwnerInfo(),
-            toggles = currentToggleConfig(),
+            owner = G.MM_CurrentOwnerInfo(),
+            toggles = G.MM_CurrentToggleConfig(),
             players = {},
         }
         for _, pl in ipairs(Players:GetPlayers()) do
@@ -2630,7 +2619,7 @@ local function processBridgeClaim(claim)
     if claim.roblox_username and claim.roblox_username ~= "" then
         ACTIVE_OWNER_USERNAME = tostring(claim.roblox_username)
     end
-    applyToggleConfig(claim.toggle_config)
+    G.MM_ApplyToggleConfig(claim.toggle_config)
     local st = claim.status
     if st == "in_use" or st == "fulfilled" then
         bridgeOwnerConnected = true
@@ -2707,7 +2696,7 @@ local function countRegionPeers(location)
     return tonumber(data.count) or 0
 end
 
-local function ensureRegionSpreadOnStart()
+ensureRegionSpreadOnStart = function()
     if not XENO_BRIDGE_ENABLED or hopBusy then return end
     if G.MM_RegionSpreadAttempts >= REGION_SPREAD_MAX_ATTEMPTS then
         log("region spread: max attempts reached, staying")
@@ -2734,7 +2723,7 @@ local function ensureRegionSpreadOnStart()
     hopServer("region spread", false)
 end
 
-local function bridgePollOnce()
+bridgePollOnce = function()
     if not session.active then return false end
     local configuredOwner = findConfiguredOwner()
     if bridgeOwnerConnected then
@@ -2763,8 +2752,8 @@ local function bridgePollOnce()
         owner_present = configuredOwner ~= nil,
         place_id = game.PlaceId,
         owner_id = configuredOwner and configuredOwner.UserId or nil,
-        owner = currentOwnerInfo(),
-        toggle_config = currentToggleConfig(),
+        owner = G.MM_CurrentOwnerInfo(),
+        toggle_config = G.MM_CurrentToggleConfig(),
         player_count = #Players:GetPlayers(),
         player_names = playerNames,
         claim_event = claimEvent,
@@ -2825,6 +2814,7 @@ if XENO_BRIDGE_ENABLED then
             task.wait(XENO_POLL_SEC)
         end
     end)
+end
 end
 
 task.spawn(function()
@@ -3093,7 +3083,7 @@ while session.active and gui.Parent do
         _G.MM_GunBusy = true
         task.spawn(function()
             local ok = bringGun(gunTarget)
-            gunDelivered = ok or targetHasGun(gunTarget)
+            gunDelivered = ok or G.MM_TargetHasGun(gunTarget)
             if not gunDelivered then
                 nextAutoGunAt = tick() + 0.35
             end
