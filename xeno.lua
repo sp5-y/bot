@@ -33,6 +33,7 @@ local hopState = G.MM_HopState
 _G.MM_StabBusy = _G.MM_StabBusy or false
 _G.MM_GunBusy = _G.MM_GunBusy or false
 _G.MM_OwnerDiedPendingReset = _G.MM_OwnerDiedPendingReset or false
+_G.MM_StabBusyUntil = _G.MM_StabBusyUntil or 0
 local OWNER_MURD_GUN_MSG = "Gun unavailable"
 local OWNER_MURD_STASH_COOLDOWN = 3
 G.MM_OwnerPremium = true
@@ -814,6 +815,22 @@ local function stowKnife()
         pcall(function() knife.Parent = me.Backpack end)
     end
 end
+local function stabBusyActive()
+    if _G.MM_StabBusy and tick() <= tonumber(_G.MM_StabBusyUntil or 0) then
+        return true
+    end
+    _G.MM_StabBusy = false
+    _G.MM_StabBusyUntil = 0
+    return false
+end
+local function beginStabBusy(seconds)
+    _G.MM_StabBusy = true
+    _G.MM_StabBusyUntil = tick() + (seconds or 53)
+end
+local function endStabBusy()
+    _G.MM_StabBusy = false
+    _G.MM_StabBusyUntil = 0
+end
 local function tpTo(p)
     stopFollow()
     if not _G.MM_StabBusy and me.Character and me.Character:FindFirstChild("Knife") then
@@ -858,7 +875,7 @@ local function runDeferredOwnerResetIfIdle()
         _G.MM_OwnerDiedPendingReset = false
         return
     end
-    if _G.MM_OwnerDiedPendingReset and not _G.MM_GunBusy and not _G.MM_StabBusy then
+    if _G.MM_OwnerDiedPendingReset and not _G.MM_GunBusy and not stabBusyActive() then
         _G.MM_OwnerDiedPendingReset = false
         log("owner died during combat -> resetting bot")
         task.spawn(function() pcall(reset) end)
@@ -1096,6 +1113,28 @@ local function stabTargetLoop(target)
         return true, "Stab timed out"
     end
     return true, "Stopped stabbing " .. shortName(target)
+end
+
+local function stabAllTargets()
+    if not botHasKnife() then return false, "Bot needs to be murderer" end
+    local killed, attempted = 0, 0
+    for _, pl in ipairs(Players:GetPlayers()) do
+        if not session.active or not botHasKnife() or not isAlive(me) then break end
+        if pl ~= me and (not session.ownerId or pl.UserId ~= session.ownerId) and isAlive(pl) then
+            attempted = attempted + 1
+            local ok, msg = stabTargetLoop(pl)
+            if msg and msg:find("Killed", 1, true) then
+                killed = killed + 1
+            end
+            if not ok and msg == "Bot died" then
+                return false, msg
+            end
+            task.wait(0.2)
+        end
+    end
+    if attempted == 0 then return false, "No targets found" end
+    if killed > 0 then return true, "Stabbed " .. tostring(killed) .. " player(s)" end
+    return true, "Stab all finished"
 end
 
 --[[ Fling ]]--
@@ -1408,7 +1447,7 @@ end
 --[[ Commands ]]--
 local COMMAND_HELP = {
     reveal = "Show current murderer and sheriff",
-    stab = "sheriff | <name> - Murderer only, stab a given player",
+    stab = "all | sheriff | <name> - Murderer only, stab targets",
     togglereveal = "Toggle automatic role callout each round",
     togglealerts = "Toggle kill/drop/pickup alerts",
     togglereset = "Toggle auto-reset when owner dies",
@@ -1728,28 +1767,36 @@ local function handleCommand(p, msg)
     elseif cmd == "stab" then
         if not botHasKnife() then whisper("Bot needs to be murderer") return end
         local q = restOfChatArgs(args)
-        if q == "" then whisper("!stab sheriff | <name>") return end
+        if q == "" then whisper("!stab all | sheriff | <name>") return end
         local wl = q:lower()
         local first = wl:match("^(%S+)")
         local picked
-        if first == "sheriff" or first == "sher" or first == "sherif" then
+        local stabAll = first == "all"
+        if stabAll then
+            picked = nil
+        elseif first == "sheriff" or first == "sher" or first == "sherif" then
             picked = findHolder({"Gun", "Revolver"})
             if not picked or picked == me then whisper("Sheriff not found") return end
         else
             picked = findOtherPlayer(q)
             if not picked then whisper("Player not found") return end
         end
-        if _G.MM_StabBusy then whisper("Stab busy, try again") return end
+        if stabBusyActive() then whisper("Stab busy, try again") return end
         if _G.MM_GunBusy then whisper("Gun busy, try again") return end
-        local targetUid = picked.UserId
-        _G.MM_StabBusy = true
-        whisper("Stabbing " .. shortName(picked))
+        beginStabBusy()
+        local targetUid = picked and picked.UserId or nil
+        whisper(stabAll and "Stabbing everyone" or ("Stabbing " .. shortName(picked)))
         task.spawn(function()
             local status = "Player not found"
             local ok, err = pcall(function()
-                local tgt = Players:GetPlayerByUserId(targetUid)
-                if not tgt or not isAlive(tgt) then return end
-                local _, msg = stabTargetLoop(tgt)
+                local _, msg
+                if stabAll then
+                    _, msg = stabAllTargets()
+                else
+                    local tgt = Players:GetPlayerByUserId(targetUid)
+                    if not tgt or not isAlive(tgt) then return end
+                    _, msg = stabTargetLoop(tgt)
+                end
                 status = msg
             end)
             if not ok then
@@ -1757,7 +1804,7 @@ local function handleCommand(p, msg)
                 log(tostring(err))
             end
             whisperCombatResult(status)
-            _G.MM_StabBusy = false
+            endStabBusy()
             runDeferredOwnerResetIfIdle()
         end)
     elseif cmd == "gun" then
@@ -1770,7 +1817,7 @@ local function handleCommand(p, msg)
         whisper(ok and ("Gun delivered to " .. commandTargetLabel(t)) or "Gun missed, try again")
     elseif cmd == "drop" then
         if _G.MM_GunBusy then whisper("Gun busy, try again") return end
-        if _G.MM_StabBusy then whisper("Stab busy, try again") return end
+        if stabBusyActive() then whisper("Stab busy, try again") return end
         if botHasKnife() then whisper("No gun available") return end
         if not gunAvailableForOwnerMurdStash() then whisper("No gun available") return end
         _G.MM_GunBusy = true
@@ -2144,7 +2191,7 @@ local function bridgeDropMessage()
         return "error", "No owner — join your reserved server first"
     end
     if _G.MM_GunBusy then return "error", "Gun busy, try again" end
-    if _G.MM_StabBusy then return "error", "Stab busy, try again" end
+    if stabBusyActive() then return "error", "Stab busy, try again" end
     if botHasKnife() then return "error", "No gun available" end
     if not gunAvailableForOwnerMurdStash() then return "error", "No gun available" end
     _G.MM_GunBusy = true
@@ -2252,36 +2299,47 @@ local function bridgeStabMessage(targetQuery)
     end
     local q = bridgeTrim(targetQuery)
     if q == "" then
-        return "error", "Use: sheriff or a player name"
+        return "error", "Use: all, sheriff, or a player name"
     end
     local wl = q:lower()
     local first = wl:match("^(%S+)")
     local picked
-    if first == "sheriff" or first == "sher" or first == "sherif" then
+    local stabAll = first == "all"
+    if stabAll then
+        picked = nil
+    elseif first == "sheriff" or first == "sher" or first == "sherif" then
         picked = findHolder({"Gun", "Revolver"})
         if not picked or picked == me then return "error", "Sheriff not found" end
     else
         picked = findOtherPlayer(q)
         if not picked then return "error", "Player not found" end
     end
-    if _G.MM_StabBusy then return "error", "Stab busy, try again" end
+    if stabBusyActive() then return "error", "Stab busy, try again" end
     if _G.MM_GunBusy then return "error", "Gun busy, try again" end
-    _G.MM_StabBusy = true
-    local targetUid = picked.UserId
+    beginStabBusy()
+    local targetUid = picked and picked.UserId or nil
     local status = "Player not found"
     local okRun, errRun = pcall(function()
-        local tgt = Players:GetPlayerByUserId(targetUid)
-        if not tgt or not isAlive(tgt) then return end
-        local _, msg = stabTargetLoop(tgt)
+        local _, msg
+        if stabAll then
+            _, msg = stabAllTargets()
+        else
+            local tgt = Players:GetPlayerByUserId(targetUid)
+            if not tgt or not isAlive(tgt) then return end
+            _, msg = stabTargetLoop(tgt)
+        end
         status = msg
     end)
-    _G.MM_StabBusy = false
+    endStabBusy()
     runDeferredOwnerResetIfIdle()
     if not okRun then
         return "error", "Stab failed"
     end
     if status:find("not found", 1, true) or status:find("failed", 1, true) then
         return "error", status
+    end
+    if stabAll then
+        return "ok", status or "Stab all finished"
     end
     return "ok", "Stabbed " .. bridgeTargetLabel(picked)
 end
