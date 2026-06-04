@@ -26,6 +26,7 @@ local PING_MIN_MS, PING_MAX_MS = 50, 90
 local G = getgenv and getgenv() or _G
 local XENO_OWNER_USERNAME = tostring(G.xeno_roblox or _G.xeno_roblox or xeno_roblox or ""):match("^%s*(.-)%s*$") or ""
 local XENO_OWNER_DISCORD = tostring(G.xeno_discord or _G.xeno_discord or xeno_discord or ""):match("^%s*(.-)%s*$") or ""
+local ACTIVE_OWNER_USERNAME = XENO_OWNER_USERNAME
 local bridgeOwnerConnected = false
 G.MM_HopState = G.MM_HopState or {pingSearchActive = false}
 local hopState = G.MM_HopState
@@ -214,12 +215,12 @@ local function findOwner()
 end
 local scheduleOwnerOnboarding
 local function configuredOwnerMatches(p)
-    if not p or XENO_OWNER_USERNAME == "" then return false end
-    local q = XENO_OWNER_USERNAME:lower()
+    if not p or ACTIVE_OWNER_USERNAME == "" then return false end
+    local q = ACTIVE_OWNER_USERNAME:lower()
     return p.Name:lower() == q or tostring(p.DisplayName or ""):lower() == q
 end
 local function findConfiguredOwner()
-    if XENO_OWNER_USERNAME == "" then return nil end
+    if ACTIVE_OWNER_USERNAME == "" then return nil end
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= me and configuredOwnerMatches(p) then
             return p
@@ -239,19 +240,52 @@ local function syncConfiguredOwner()
     if p and session.ownerId ~= p.UserId then
         session.ownerId = p.UserId
         G.MM_PendingOwnerId = p.UserId
-        toggleResetOnOwnerDeath = false
-        toggleDrop = false
         _G.MM_OwnerDiedPendingReset = false
         scheduleOwnerOnboarding(p.UserId)
         log("configured owner found: " .. p.Name)
     elseif not p and session.ownerId then
         local current = Players:GetPlayerByUserId(session.ownerId)
-        if not current or (XENO_OWNER_USERNAME ~= "" and not configuredOwnerMatches(current)) then
+        if not current or (ACTIVE_OWNER_USERNAME ~= "" and not configuredOwnerMatches(current)) then
             session.ownerId = nil
             G.MM_PendingOwnerId = nil
         end
     end
     return p
+end
+
+local function currentToggleConfig()
+    return {
+        automatic_gun = toggleGun,
+        reveal = toggleReveal,
+        alerts = toggleAlerts,
+        automatic_reset = toggleResetOnOwnerDeath,
+        automatic_drop = toggleDrop,
+    }
+end
+
+local function applyToggleConfig(cfg)
+    if type(cfg) ~= "table" then return end
+    if cfg.automatic_gun ~= nil then
+        toggleGun = cfg.automatic_gun == true
+        if not toggleGun then gunTargetId, gunDelivered = nil, false end
+    end
+    if cfg.reveal ~= nil then toggleReveal = cfg.reveal == true end
+    if cfg.alerts ~= nil then toggleAlerts = cfg.alerts == true end
+    if cfg.automatic_reset ~= nil then
+        toggleResetOnOwnerDeath = cfg.automatic_reset == true
+        if not toggleResetOnOwnerDeath then _G.MM_OwnerDiedPendingReset = false end
+    end
+    if cfg.automatic_drop ~= nil then toggleDrop = cfg.automatic_drop == true end
+end
+
+local function currentOwnerInfo()
+    local owner = findOwner()
+    if not owner then return nil end
+    return {
+        user_id = owner.UserId,
+        username = owner.Name,
+        display_name = owner.DisplayName,
+    }
 end
 local function shortName(p) return p.Name:sub(1, 4) .. "..." end
 
@@ -700,7 +734,8 @@ local function horizontalApproachLead(root)
     if spd <= 0.12 then return Vector3.zero end
     return vh.Unit * math.min(spd * 0.14, 8)
 end
-local GUN_DROP_PREDICT_SEC = 0.55
+local GUN_DROP_PREDICT_SEC = 0.82
+local GUN_RESET_LATENCY_SEC = 0.18
 local function gunDropLead(root, hum)
     if not root then return Vector3.zero end
     local v = root.AssemblyLinearVelocity
@@ -719,7 +754,7 @@ local function gunDropLead(root, hum)
     end
     local spd = vh.Magnitude
     if spd <= 0.12 then return Vector3.zero end
-    local lead = math.clamp(spd * GUN_DROP_PREDICT_SEC + 2.5, 5, 18)
+    local lead = math.clamp(spd * (GUN_DROP_PREDICT_SEC + GUN_RESET_LATENCY_SEC) + 3.5, 7, 26)
     return vh.Unit * lead
 end
 -- Fling-only: stronger lookahead for ~15fps cap (velocity + Humanoid move intent).
@@ -843,29 +878,50 @@ local function dropGunAt(target)
     zeroVel(h)
     h.CFrame = CFrame.new(dropPos, face)
     zeroVel(h)
-    task.wait(0.05)
+    task.wait(0.03)
     local fresh = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
     local freshHum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
     if fresh and isAlive(target) then
         lead = gunDropLead(fresh, freshHum)
-        dropPos = fresh.Position + lead + Vector3.new(0, 0.25, 0)
+        dropPos = fresh.Position + lead + Vector3.new(0, 0.1, 0)
         face = lead.Magnitude > 0.1 and (dropPos + lead.Unit) or (fresh.Position + fresh.CFrame.LookVector)
         h.CFrame = CFrame.new(dropPos, face)
         zeroVel(h)
     end
-    task.wait(0.04); reset()
+    task.wait(0.08); reset()
     return true
 end
+local function targetHasGun(target)
+    return target and playerHas(target, {"Gun", "Revolver"})
+end
+local function waitForGunPickup(target, timeout)
+    local deadline = tick() + (timeout or 1.6)
+    while tick() < deadline do
+        if targetHasGun(target) then return true end
+        task.wait(0.08)
+    end
+    return targetHasGun(target)
+end
 local function bringGun(target)
-    if _G.MM_StabBusy then return end
+    if _G.MM_StabBusy then return false end
     target = target or findOwner()
-    if not isAlive(target) then return end
-    if botHasGun() then dropGunAt(target); return end
+    if not isAlive(target) then return false end
+    if targetHasGun(target) then return true end
+    if botHasGun() then
+        if not dropGunAt(target) then return false end
+        return waitForGunPickup(target, 1.8)
+    end
     local g, h = findDroppedGun(), hrp()
-    if not (g and h) then return end
+    if not (g and h) then return false end
     g.CFrame = h.CFrame
-    task.wait(0.5)
-    dropGunAt(target)
+    local t0 = tick()
+    while session.active and tick() - t0 < 1.6 do
+        if botHasGun() then break end
+        task.wait(0.05)
+    end
+    if not botHasGun() then return false end
+    if not dropGunAt(target) then return false end
+    return waitForGunPickup(target, 1.8)
 end
 local function stashGunAtSpawn()
     if _G.MM_StabBusy then return false end
@@ -1710,8 +1766,8 @@ local function handleCommand(p, msg)
         if ownerIsMurd then whisper(OWNER_MURD_GUN_MSG) return end
         if botHasKnife() then whisper("No gun available") return end
         if not gunAvailableForOwnerMurdStash() then whisper("No gun available") return end
-        bringGun(t)
-        whisper("Gun delivered to " .. commandTargetLabel(t))
+        local ok = bringGun(t)
+        whisper(ok and ("Gun delivered to " .. commandTargetLabel(t)) or "Gun missed, try again")
     elseif cmd == "drop" then
         if _G.MM_GunBusy then whisper("Gun busy, try again") return end
         if _G.MM_StabBusy then whisper("Stab busy, try again") return end
@@ -1786,7 +1842,7 @@ local function routeCommand(p, msg)
     if not session.active then return end
     msg = cleanChatText(msg)
     if msg == "" or seenCommandRecently(p, msg) then return end
-    if XENO_OWNER_USERNAME ~= "" and configuredOwnerMatches(p) and session.ownerId ~= p.UserId then
+    if ACTIVE_OWNER_USERNAME ~= "" and configuredOwnerMatches(p) and session.ownerId ~= p.UserId then
         syncConfiguredOwner()
     end
     handleCommand(p, msg)
@@ -1834,8 +1890,6 @@ trackConnection(Players.PlayerRemoving:Connect(function(p)
         if hopBusy then return end
         session.ownerId = nil
         G.MM_PendingOwnerId = nil
-        toggleGun, toggleAlerts, toggleReveal = false, false, true
-        toggleDrop, toggleResetOnOwnerDeath = false, false
         gunTargetId, gunDelivered = nil, false
     end
 end))
@@ -1878,6 +1932,8 @@ local function bridgeReportClaimEvent(event, extra)
             bot_user_id = me.UserId,
             place_id = game.PlaceId,
             owner_id = extra.owner_id or session.ownerId,
+            owner = currentOwnerInfo(),
+            toggle_config = currentToggleConfig(),
             player_count = #Players:GetPlayers(),
             claim_event = event,
             claim_id = extra.claim_id or bridgeClaimId,
@@ -1897,8 +1953,6 @@ local function fulfillBridgeClaim(claimId, username)
     bridgeAwaitingName = nil
     log("bridge: owner joined — " .. pl.Name)
     if prevId ~= pl.UserId then
-        toggleResetOnOwnerDeath = false
-        toggleDrop = false
         _G.MM_OwnerDiedPendingReset = false
         scheduleOwnerOnboarding(pl.UserId)
     end
@@ -2128,8 +2182,8 @@ local function bridgeGunMessage(targetQuery)
     if ownerIsMurd then return "error", OWNER_MURD_GUN_MSG end
     if botHasKnife() then return "error", "No gun available" end
     if not gunAvailableForOwnerMurdStash() then return "error", "No gun available" end
-    bringGun(t)
-    return "ok", "Gun delivered to " .. bridgeTargetLabel(t)
+    local ok = bringGun(t)
+    return ok and "ok" or "error", ok and ("Gun delivered to " .. bridgeTargetLabel(t)) or "Gun missed, try again"
 end
 
 local function bridgeParseFlingQuery(query)
@@ -2348,6 +2402,43 @@ local function bridgeResetMessage()
     return "ok", "Bot reset"
 end
 
+local function bridgeOwnerMessage(targetQuery)
+    targetQuery = bridgeTrim(targetQuery)
+    if targetQuery == "" then
+        local owner = findOwner()
+        local payload = {
+            owner = currentOwnerInfo(),
+            toggles = currentToggleConfig(),
+            players = {},
+        }
+        for _, pl in ipairs(Players:GetPlayers()) do
+            if pl ~= me then
+                table.insert(payload.players, {
+                    user_id = pl.UserId,
+                    username = pl.Name,
+                    display_name = pl.DisplayName,
+                })
+            end
+        end
+        if not owner then
+            payload.message = "Owner has not joined yet"
+        end
+        return "ok", Http:JSONEncode(payload)
+    end
+    local newOwner = findPlayer(targetQuery)
+    if not newOwner or newOwner == me then
+        return "error", "Player not found"
+    end
+    ACTIVE_OWNER_USERNAME = newOwner.Name
+    bridgeOwnerConnected = true
+    session.ownerId = newOwner.UserId
+    G.MM_PendingOwnerId = newOwner.UserId
+    _G.MM_OwnerDiedPendingReset = false
+    scheduleOwnerOnboarding(newOwner.UserId)
+    log("bridge: owner changed — " .. newOwner.Name)
+    return "ok", "Owner changed to " .. newOwner.Name
+end
+
 local function processBridgeCommands(jobId, commands)
     if not session.active then return end
     if type(commands) ~= "table" then return end
@@ -2435,6 +2526,12 @@ local function processBridgeCommands(jobId, commands)
                 bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
                     return bridgeResetMessage()
                 end, cmd)
+            elseif ctype == "owner" then
+                log("bridge: owner")
+                local target = cmd.target or cmd.player or ""
+                bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
+                    return bridgeOwnerMessage(target)
+                end, cmd)
             else
                 bridgeAck(jobId, cmd.id, "error", "unknown command")
             end
@@ -2455,6 +2552,10 @@ end
 local function processBridgeClaim(claim)
     if type(claim) ~= "table" then return end
     syncOwnerPremiumFromClaim(claim)
+    if claim.roblox_username and claim.roblox_username ~= "" then
+        ACTIVE_OWNER_USERNAME = tostring(claim.roblox_username)
+    end
+    applyToggleConfig(claim.toggle_config)
     local st = claim.status
     if st == "in_use" or st == "fulfilled" then
         bridgeOwnerConnected = true
@@ -2587,6 +2688,8 @@ local function bridgePollOnce()
         owner_present = configuredOwner ~= nil,
         place_id = game.PlaceId,
         owner_id = configuredOwner and configuredOwner.UserId or nil,
+        owner = currentOwnerInfo(),
+        toggle_config = currentToggleConfig(),
         player_count = #Players:GetPlayers(),
         player_names = playerNames,
         claim_event = claimEvent,
@@ -2833,6 +2936,7 @@ end
 local function runMainLoop()
     local lastMurderId, announced
     local ownerMurdStashBusy = false
+    local nextAutoGunAt = 0
 while session.active and gui.Parent do
     local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
         local botM = botHasKnife()
@@ -2906,12 +3010,21 @@ while session.active and gui.Parent do
     local gunTarget = (gunTargetId and Players:GetPlayerByUserId(gunTargetId)) or findOwner()
         if toggleGun and not flingLoopContinuous and not botM and not ownerIsMurd and not gunDelivered and not _G.MM_GunBusy and not _G.MM_StabBusy and me.Character
            and not revealAnnouncePending and tick() >= roleAnnounceUnlockAt
+           and tick() >= nextAutoGunAt
            and not flingActive and not flingLoopActive and not flingSettling
        and gunTarget and gunTarget ~= me and isAlive(gunTarget)
            and gunAvailableForOwnerMurdStash() then
-        gunDelivered = true
+        nextAutoGunAt = tick() + 2.2
         _G.MM_GunBusy = true
-        task.spawn(function() bringGun(gunTarget); task.wait(3); _G.MM_GunBusy = false end)
+        task.spawn(function()
+            local ok = bringGun(gunTarget)
+            gunDelivered = ok or targetHasGun(gunTarget)
+            if not gunDelivered then
+                nextAutoGunAt = tick() + 0.35
+            end
+            task.wait(0.4)
+            _G.MM_GunBusy = false
+        end)
     end
 
     local subject = (s and s.Character and s.Character:FindFirstChildOfClass("Humanoid"))
