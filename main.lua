@@ -2153,8 +2153,8 @@ local function bridgeOwnerMessage(changeQuery)
         if prevId ~= nextOwner.UserId then
             gunTargetId, gunDelivered = nil, false
             _G.MM_OwnerDiedPendingReset = false
-            scheduleOwnerOnboarding(nextOwner.UserId)
         end
+        scheduleOwnerOnboarding(nextOwner.UserId)
         bridgeReportClaimEvent("owner_joined", { claim_id = bridgeClaimId, owner_id = nextOwner.UserId, note = nextOwner.Name })
         return "ok", bridgeOwnerPayload("changed", nextOwner)
     end
