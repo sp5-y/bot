@@ -27,6 +27,7 @@ local G = getgenv and getgenv() or _G
 local XENO_OWNER_USERNAME = tostring(G.xeno_roblox or _G.xeno_roblox or xeno_roblox or ""):match("^%s*(.-)%s*$") or ""
 local XENO_OWNER_DISCORD = tostring(G.xeno_discord or _G.xeno_discord or xeno_discord or ""):match("^%s*(.-)%s*$") or ""
 local bridgeOwnerConnected = false
+local manualOwnerId = nil
 G.MM_HopState = G.MM_HopState or {pingSearchActive = false}
 local hopState = G.MM_HopState
 _G.MM_StabBusy = _G.MM_StabBusy or false
@@ -228,6 +229,19 @@ local function findConfiguredOwner()
     return nil
 end
 local function syncConfiguredOwner()
+    if manualOwnerId then
+        local manual = Players:GetPlayerByUserId(manualOwnerId)
+        if manual then
+            if session.ownerId ~= manual.UserId then
+                session.ownerId = manual.UserId
+                G.MM_PendingOwnerId = manual.UserId
+                scheduleOwnerOnboarding(manual.UserId)
+                log("manual owner found: " .. manual.Name)
+            end
+            return manual
+        end
+        manualOwnerId = nil
+    end
     local p = findConfiguredOwner()
     if not bridgeOwnerConnected then
         if session.ownerId then
@@ -1832,6 +1846,9 @@ trackConnection(Players.PlayerRemoving:Connect(function(p)
     if not session.active then return end
     if session.ownerId and p.UserId == session.ownerId then
         if hopBusy then return end
+        if manualOwnerId == p.UserId then
+            manualOwnerId = nil
+        end
         session.ownerId = nil
         G.MM_PendingOwnerId = nil
         toggleGun, toggleAlerts, toggleReveal = false, false, true
@@ -2097,6 +2114,56 @@ local function bridgeDropMessage()
     local ok = stashGunAtSpawn()
     _G.MM_GunBusy = false
     return ok and "ok" or "error", ok and "Gun dropped at spawn" or "No gun available"
+end
+
+local function bridgeOwnerPayload(status, ownerPlayer)
+    local toggles = {
+        automatic_gun = toggleGun,
+        automatic_reveal = toggleReveal,
+        alerts = toggleAlerts,
+        automatic_reset = toggleResetOnOwnerDeath,
+        automatic_drop = toggleDrop,
+    }
+    local payload = {
+        status = status or "ok",
+        toggles = toggles,
+    }
+    if ownerPlayer then
+        payload.owner = {
+            user_id = ownerPlayer.UserId,
+            username = ownerPlayer.Name,
+            display_name = ownerPlayer.DisplayName,
+        }
+    end
+    return Http:JSONEncode(payload)
+end
+
+local function bridgeOwnerMessage(changeQuery)
+    changeQuery = bridgeTrim(changeQuery)
+    if changeQuery ~= "" then
+        local nextOwner = findPlayerInServerByName(changeQuery) or findPlayer(changeQuery)
+        if not nextOwner or nextOwner == me then
+            return "error", "Player not found"
+        end
+        local prevId = session.ownerId
+        manualOwnerId = nextOwner.UserId
+        session.ownerId = nextOwner.UserId
+        G.MM_PendingOwnerId = nextOwner.UserId
+        bridgeOwnerConnected = true
+        if prevId ~= nextOwner.UserId then
+            gunTargetId, gunDelivered = nil, false
+            _G.MM_OwnerDiedPendingReset = false
+            scheduleOwnerOnboarding(nextOwner.UserId)
+        end
+        bridgeReportClaimEvent("owner_joined", { claim_id = bridgeClaimId, owner_id = nextOwner.UserId, note = nextOwner.Name })
+        return "ok", bridgeOwnerPayload("changed", nextOwner)
+    end
+
+    local ownerPlayer = findOwner()
+    if ownerPlayer then
+        return "ok", bridgeOwnerPayload("ok", ownerPlayer)
+    end
+    return "ok", bridgeOwnerPayload("waiting", nil)
 end
 
 local function bridgeChatMessage(text)
@@ -2407,6 +2474,12 @@ local function processBridgeCommands(jobId, commands)
                 bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
                     return bridgeDropMessage()
                 end, cmd)
+            elseif ctype == "owner" then
+                log("bridge: owner")
+                local change = cmd.change or cmd.target or cmd.player or ""
+                bridgeExecuteAfterPollDelay(jobId, cmd.id, function()
+                    return bridgeOwnerMessage(change)
+                end, cmd)
             elseif ctype == "stab" then
                 log("bridge: stab")
                 local target = cmd.target or cmd.query or ""
@@ -2452,9 +2525,36 @@ local function restoreOwnerFromClaim(claim)
     end
 end
 
+local function applyOwnerConfigFromClaim(claim)
+    if type(claim) ~= "table" or type(claim.owner_config) ~= "table" then return end
+    local cfg = claim.owner_config
+    if cfg.automatic_gun ~= nil then
+        toggleGun = cfg.automatic_gun == true
+        if not toggleGun then
+            gunTargetId, gunDelivered = nil, false
+        end
+    end
+    if cfg.automatic_reveal ~= nil then
+        toggleReveal = cfg.automatic_reveal == true
+    end
+    if cfg.alerts ~= nil then
+        toggleAlerts = cfg.alerts == true
+    end
+    if cfg.automatic_reset ~= nil then
+        toggleResetOnOwnerDeath = cfg.automatic_reset == true
+        if not toggleResetOnOwnerDeath then
+            _G.MM_OwnerDiedPendingReset = false
+        end
+    end
+    if cfg.automatic_drop ~= nil then
+        toggleDrop = cfg.automatic_drop == true
+    end
+end
+
 local function processBridgeClaim(claim)
     if type(claim) ~= "table" then return end
     syncOwnerPremiumFromClaim(claim)
+    applyOwnerConfigFromClaim(claim)
     local st = claim.status
     if st == "in_use" or st == "fulfilled" then
         bridgeOwnerConnected = true
@@ -2568,6 +2668,9 @@ local function bridgePollOnce()
     for _, pl in ipairs(Players:GetPlayers()) do
         if pl ~= me then
             table.insert(playerNames, pl.Name)
+            if pl.DisplayName and pl.DisplayName ~= "" and pl.DisplayName ~= pl.Name then
+                table.insert(playerNames, pl.DisplayName)
+            end
         end
     end
     local claimEvent = nil
@@ -2626,6 +2729,9 @@ trackConnection(Players.PlayerRemoving:Connect(function(p)
     if not session.active or not XENO_BRIDGE_ENABLED then return end
     if session.ownerId and p.UserId == session.ownerId then
         if hopBusy then return end
+        if manualOwnerId == p.UserId then
+            manualOwnerId = nil
+        end
         bridgeFulfilledClaimId = nil
         bridgeReportClaimEvent("owner_left", { owner_id = nil, note = p.Name })
     end
