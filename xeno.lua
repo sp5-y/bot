@@ -348,12 +348,16 @@ local function getHeldTool(p, names)
 end
 --[[ Chat / Whisper ]]--
 local function sendChat(msg)
-    if not msg or msg == "" then return end
-    msg = tostring(msg)
-    pcall(function()
-        if not isLegacy then TCS.TextChannels.RBXGeneral:SendAsync(msg)
-        else RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(msg, "All") end
+    msg = tostring(msg or ""):match("^%s*(.-)%s*$") or ""
+    if msg == "" then return false end
+    local ok = pcall(function()
+        if not isLegacy then
+            TCS.TextChannels.RBXGeneral:SendAsync(msg)
+        else
+            RS.DefaultChatSystemChatEvents.SayMessageRequest:FireServer(msg, "All")
+        end
     end)
+    return ok == true
 end
 local function findWhisperChannel(uid)
     uid = tostring(uid)
@@ -398,8 +402,8 @@ local function ensureWhisperChannel(o)
     end
     return findWhisperChannel(o.UserId)
 end
-local function whisper(m, target)
-    if PUBLIC_MODE then
+local function whisper(m, target, forcePrivate)
+    if PUBLIC_MODE and not forcePrivate then
         sendChat(m)
         return
     end
@@ -435,10 +439,9 @@ local function whisper(m, target)
         end
     end)
 end
-local function whisperOk(m, target)
-    if PUBLIC_MODE then
-        sendChat(m)
-        return true
+local function whisperOk(m, target, forcePrivate)
+    if PUBLIC_MODE and not forcePrivate then
+        return sendChat(m)
     end
     local o = target or findOwner()
     if not o then return false end
@@ -735,27 +738,28 @@ local followTarget = nil
 local function stopFollow()
     followTarget = nil
 end
-local GUN_DROP_PREDICT_SEC = 0.82
-local GUN_RESET_LATENCY_SEC = 0.18
-local function gunDropLead(root, hum)
+local GUN_DROP_PREDICT_SEC = 1.1
+local GUN_RESET_LATENCY_SEC = 0.32
+local function gunDropLead(root, hum, boost)
     if not root then return Vector3.zero end
+    boost = boost or 1
     local v = root.AssemblyLinearVelocity
     if v.Magnitude < 1e-3 then v = root.Velocity end
     local vh = Vector3.new(v.X, 0, v.Z)
     if hum then
         local md = hum.MoveDirection
         if md.Magnitude > 0.05 then
-            local moveVel = Vector3.new(md.X, 0, md.Z) * math.max(hum.WalkSpeed, 16)
+            local moveVel = Vector3.new(md.X, 0, md.Z).Unit * math.max(hum.WalkSpeed, vh.Magnitude, 16)
             if moveVel.Magnitude > vh.Magnitude then
                 vh = moveVel
             else
-                vh = vh * 0.35 + moveVel * 0.65
+                vh = vh * 0.2 + moveVel * 0.8
             end
         end
     end
     local spd = vh.Magnitude
     if spd <= 0.12 then return Vector3.zero end
-    local lead = math.clamp(spd * (GUN_DROP_PREDICT_SEC + GUN_RESET_LATENCY_SEC) + 3.5, 7, 26)
+    local lead = math.clamp((spd * (GUN_DROP_PREDICT_SEC + GUN_RESET_LATENCY_SEC) + 4.5) * boost, 9, 38)
     return vh.Unit * lead
 end
 -- Fling-only: stronger lookahead for ~15fps cap (velocity + Humanoid move intent).
@@ -881,31 +885,32 @@ local function runDeferredOwnerResetIfIdle()
         task.spawn(function() pcall(reset) end)
     end
 end
-local function dropGunAt(target)
+local function dropGunAt(target, boost)
     if _G.MM_StabBusy then return false end
     if not isAlive(target) then return false end
+    boost = boost or 1
     stopFollow()
     local h = hrp()
     local oh = target.Character:FindFirstChild("HumanoidRootPart")
     local hum = target.Character:FindFirstChildOfClass("Humanoid")
     if not (h and oh) then return false end
-    local lead = gunDropLead(oh, hum)
+    local lead = gunDropLead(oh, hum, boost)
     local dropPos = oh.Position + lead + Vector3.new(0, 0.25, 0)
     local face = lead.Magnitude > 0.1 and (dropPos + lead.Unit) or (oh.Position + oh.CFrame.LookVector)
     zeroVel(h)
     h.CFrame = CFrame.new(dropPos, face)
     zeroVel(h)
-    task.wait(0.03)
+    task.wait(0.02)
     local fresh = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
     local freshHum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
     if fresh and isAlive(target) then
-        lead = gunDropLead(fresh, freshHum)
+        lead = gunDropLead(fresh, freshHum, boost)
         dropPos = fresh.Position + lead + Vector3.new(0, 0.1, 0)
         face = lead.Magnitude > 0.1 and (dropPos + lead.Unit) or (fresh.Position + fresh.CFrame.LookVector)
         h.CFrame = CFrame.new(dropPos, face)
         zeroVel(h)
     end
-    task.wait(0.08); reset()
+    task.wait(0.035); reset()
     return true
 end
 function G.MM_TargetHasGun(target)
@@ -924,21 +929,25 @@ local function bringGun(target)
     target = target or findOwner()
     if not isAlive(target) then return false end
     if G.MM_TargetHasGun(target) then return true end
-    if botHasGun() then
-        if not dropGunAt(target) then return false end
-        return G.MM_WaitForGunPickup(target, 1.8)
+    for attempt = 1, 3 do
+        if not botHasGun() then
+            local g, h = findDroppedGun(), hrp()
+            if not (g and h) then return false end
+            g.CFrame = h.CFrame
+            local t0 = tick()
+            while session.active and tick() - t0 < 1.6 do
+                if botHasGun() then break end
+                task.wait(0.05)
+            end
+        end
+        if not botHasGun() then return false end
+        if not dropGunAt(target, 1 + (attempt - 1) * 0.35) then return false end
+        if G.MM_WaitForGunPickup(target, 2.1) then
+            return true
+        end
+        task.wait(0.12)
     end
-    local g, h = findDroppedGun(), hrp()
-    if not (g and h) then return false end
-    g.CFrame = h.CFrame
-    local t0 = tick()
-    while session.active and tick() - t0 < 1.6 do
-        if botHasGun() then break end
-        task.wait(0.05)
-    end
-    if not botHasGun() then return false end
-    if not dropGunAt(target) then return false end
-    return G.MM_WaitForGunPickup(target, 1.8)
+    return G.MM_TargetHasGun(target)
 end
 local function stashGunAtSpawn()
     if _G.MM_StabBusy then return false end
@@ -1569,6 +1578,18 @@ local function resolveOwnerPlayer(userId)
     return Players:GetPlayerByUserId(userId)
 end
 
+local function ownerAnnouncementText(owner)
+    local msg = ANNOUNCEMENT_MESSAGE
+    if msg == "" or not owner then return "" end
+    local username = tostring(owner.Name or XENO_OWNER_USERNAME or "")
+    local display = tostring(owner.DisplayName or username)
+    msg = msg:gsub("{owner}", username)
+    msg = msg:gsub("{username}", username)
+    msg = msg:gsub("{display_name}", display)
+    msg = msg:gsub("'%.%.%.'", "'" .. username .. "'")
+    return msg:gsub("%.%.%.", username)
+end
+
 -- One line at a time; retry whisperOk, then one best-effort whisper() if all acks fail.
 local function deliverOwnerLine(userId, msg, attempts, step)
     attempts = attempts or 14
@@ -1576,14 +1597,14 @@ local function deliverOwnerLine(userId, msg, attempts, step)
     for _ = 1, attempts do
         if session.ownerId ~= userId then return false end
         local o = resolveOwnerPlayer(userId)
-        if o and whisperOk(msg, o) then return true end
+        if o and whisperOk(msg, o, true) then return true end
         task.wait(step)
     end
     local o = resolveOwnerPlayer(userId)
     if not o then return false end
-    whisper(msg, o)
+    whisper(msg, o, true)
     task.wait(0.35)
-    return whisperOk(msg, o) or session.ownerId == userId
+    return whisperOk(msg, o, true) or session.ownerId == userId
 end
 
 local function sendFullHelpToOwner(userId, gapBetween)
@@ -1637,8 +1658,9 @@ scheduleOwnerOnboarding = function(userId)
             return
         end
         log("new owner: " .. o.DisplayName)
-        if ANNOUNCEMENT_MESSAGE ~= "" then
-            sendChat(ANNOUNCEMENT_MESSAGE)
+        local announcement = ownerAnnouncementText(o)
+        if announcement ~= "" then
+            sendChat(announcement)
         end
 
         if not deliverOwnerLine(userId, "Loading new owner", 12, 0.4) then
