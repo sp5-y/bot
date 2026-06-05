@@ -402,11 +402,7 @@ local function ensureWhisperChannel(o)
     end
     return findWhisperChannel(o.UserId)
 end
-local function whisper(m, target, forcePrivate)
-    if PUBLIC_MODE and not forcePrivate then
-        sendChat(m)
-        return
-    end
+local function whisper(m, target)
     local o = target or findOwner()
     if not o then log("whisper: no target") return end
     log("-> " .. o.DisplayName .. ": " .. m)
@@ -439,10 +435,7 @@ local function whisper(m, target, forcePrivate)
         end
     end)
 end
-local function whisperOk(m, target, forcePrivate)
-    if PUBLIC_MODE and not forcePrivate then
-        return sendChat(m)
-    end
+local function whisperOk(m, target)
     local o = target or findOwner()
     if not o then return false end
     log("-> " .. o.DisplayName .. ": " .. m)
@@ -471,6 +464,13 @@ local function whisperOk(m, target, forcePrivate)
         if ok then return true end
     end
     return false
+end
+local function commandReply(msg)
+    if PUBLIC_MODE then
+        return sendChat(msg)
+    end
+    whisper(msg)
+    return true
 end
 
 local hiddenChatEvent = nil
@@ -1692,6 +1692,8 @@ local function handleCommand(p, msg)
     local args = msg:split(" ")
     local cmd, rest = args[1]:sub(2):lower(), msg:sub(#args[1] + 2)
     if not session.ownerId or p.UserId ~= session.ownerId then return end
+    local privateWhisper = whisper
+    local whisper = commandReply
     if flingLoopContinuous and cmd ~= "fling" then
         whisper('You need to toggle off fling loop using "!fling"')
         return
@@ -1773,9 +1775,9 @@ local function handleCommand(p, msg)
         local botM, botS = botHasKnife(), botHasGun()
         local mL = botM and "Me" or (m and shortName(m)) or "?"
         local sL = botS and "Me" or (s and shortName(s)) or "?"
-        whisper("Murderer: " .. mL)
+        privateWhisper("Murderer: " .. mL)
         task.wait(0.3)
-        whisper("Sheriff: " .. sL)
+        privateWhisper("Sheriff: " .. sL)
     elseif cmd == "tp" then
         local t = findPlayer(args[2]) or findOwner()
         if not t then whisper("Player not found") return end
@@ -1828,7 +1830,7 @@ local function handleCommand(p, msg)
                 status = "Stab failed"
                 log(tostring(err))
             end
-            whisperCombatResult(status)
+            whisper(status)
             G.MM_EndStabBusy()
             runDeferredOwnerResetIfIdle()
         end)
