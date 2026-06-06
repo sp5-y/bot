@@ -1776,9 +1776,9 @@ local function handleCommand(p, msg)
         local botM, botS = botHasKnife(), botHasGun()
         local mL = botM and "Me" or (m and shortName(m)) or "?"
         local sL = botS and "Me" or (s and shortName(s)) or "?"
-        privateWhisper("Murderer: " .. mL)
+        whisper("Murderer: " .. mL)
         task.wait(0.3)
-        privateWhisper("Sheriff: " .. sL)
+        whisper("Sheriff: " .. sL)
     elseif cmd == "tp" then
         local t = findPlayer(args[2]) or findOwner()
         if not t then whisper("Player not found") return end
