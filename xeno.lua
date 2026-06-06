@@ -170,6 +170,8 @@ local function log(msg)
 end
 
 --[[ Finders ]]--
+G.MM_GunNames = G.MM_GunNames or {"Gun", "Revolver", "SheriffGun", "Laser", "Luger", "Blaster"}
+G.MM_KnifeNames = G.MM_KnifeNames or {"Knife"}
 local function hasItem(parent, names)
     for _, c in ipairs(parent and parent:GetChildren() or {}) do
         if table.find(names, c.Name) then return true end
@@ -183,11 +185,11 @@ local function findHolder(names)
         if p ~= me and playerHas(p, names) then return p end
     end
 end
-local function botHasGun() return playerHas(me, {"Gun", "Revolver"}) end
-local function botHasKnife() return playerHas(me, {"Knife"}) end
+local function botHasGun() return playerHas(me, G.MM_GunNames) end
+local function botHasKnife() return playerHas(me, G.MM_KnifeNames) end
 local function findDroppedGun()
     for _, o in ipairs(workspace:GetDescendants()) do
-        if o:IsA("Tool") and (o.Name == "Gun" or o.Name == "Revolver" or o.Name == "GunDrop")
+        if o:IsA("Tool") and (table.find(G.MM_GunNames, o.Name) or o.Name == "GunDrop")
            and not Players:GetPlayerFromCharacter(o.Parent) then
             local h = o:FindFirstChild("Handle") or o:FindFirstChildWhichIsA("BasePart")
             if h then return h end
@@ -740,26 +742,34 @@ local function stopFollow()
 end
 local GUN_DROP_PREDICT_SEC = 0.45
 local GUN_RESET_LATENCY_SEC = 0.18
-local function gunDropLead(root, hum, boost)
+local GUN_MOTION_SAMPLE_SEC = 0.1
+local function gunDropLead(root, hum, boost, observedVelocity)
     if not root then return Vector3.zero end
     boost = boost or 1
     local v = root.AssemblyLinearVelocity
     if v.Magnitude < 1e-3 then v = root.Velocity end
     local vh = Vector3.new(v.X, 0, v.Z)
+    local observed = observedVelocity and Vector3.new(observedVelocity.X, 0, observedVelocity.Z) or Vector3.zero
+    if observed.Magnitude > 0.75 then
+        vh = observed
+    elseif vh.Magnitude < 2 then
+        vh = Vector3.zero
+    end
     if hum then
         local md = hum.MoveDirection
         if md.Magnitude > 0.05 then
             local moveVel = Vector3.new(md.X, 0, md.Z).Unit * math.max(math.min(hum.WalkSpeed, 20), vh.Magnitude, 12)
-            if moveVel.Magnitude > vh.Magnitude then
-                vh = moveVel
-            else
-                vh = vh * 0.35 + moveVel * 0.65
+            if vh.Magnitude > 0.75 then
+                local align = vh.Unit:Dot(moveVel.Unit)
+                if align > 0.45 then
+                    vh = vh * 0.8 + moveVel * 0.2
+                end
             end
         end
     end
     local spd = vh.Magnitude
-    if spd <= 0.12 then return Vector3.zero end
-    local lead = math.clamp((spd * (GUN_DROP_PREDICT_SEC + GUN_RESET_LATENCY_SEC) + 1.75) * boost, 4, 16)
+    if spd <= 0.75 then return Vector3.zero end
+    local lead = math.clamp((spd * (GUN_DROP_PREDICT_SEC + GUN_RESET_LATENCY_SEC) + 1.25) * boost, 2.5, 13)
     return vh.Unit * lead
 end
 -- Fling-only: stronger lookahead for ~15fps cap (velocity + Humanoid move intent).
@@ -894,17 +904,25 @@ local function dropGunAt(target, boost)
     local oh = target.Character:FindFirstChild("HumanoidRootPart")
     local hum = target.Character:FindFirstChildOfClass("Humanoid")
     if not (h and oh) then return false end
-    local lead = gunDropLead(oh, hum, boost)
+    local samplePos, sampleAt = oh.Position, tick()
+    task.wait(GUN_MOTION_SAMPLE_SEC)
+    oh = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+    hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
+    if not (h and oh and isAlive(target)) then return false end
+    local observedVelocity = (oh.Position - samplePos) / math.max(tick() - sampleAt, 0.03)
+    local lead = gunDropLead(oh, hum, boost, observedVelocity)
     local dropPos = oh.Position + lead + Vector3.new(0, 0.25, 0)
     local face = lead.Magnitude > 0.1 and (dropPos + lead.Unit) or (oh.Position + oh.CFrame.LookVector)
     zeroVel(h)
     h.CFrame = CFrame.new(dropPos, face)
     zeroVel(h)
+    local movedFrom, movedAt = oh.Position, tick()
     task.wait(0.05)
     local fresh = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
     local freshHum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
     if fresh and isAlive(target) then
-        lead = gunDropLead(fresh, freshHum, boost)
+        observedVelocity = (fresh.Position - movedFrom) / math.max(tick() - movedAt, 0.03)
+        lead = gunDropLead(fresh, freshHum, boost, observedVelocity)
         dropPos = fresh.Position + lead + Vector3.new(0, 0.1, 0)
         face = lead.Magnitude > 0.1 and (dropPos + lead.Unit) or (fresh.Position + fresh.CFrame.LookVector)
         h.CFrame = CFrame.new(dropPos, face)
@@ -914,7 +932,7 @@ local function dropGunAt(target, boost)
     return true
 end
 function G.MM_TargetHasGun(target)
-    return target and playerHas(target, {"Gun", "Revolver"})
+    return target and playerHas(target, G.MM_GunNames)
 end
 function G.MM_WaitForGunPickup(target, timeout)
     local deadline = tick() + (timeout or 1.6)
@@ -1324,7 +1342,7 @@ local function runFlingLoop(mode, playerQuery, gen, continuousLoop)
         local function collectTargets()
             local targets = {}
             if mode == "sheriff" then
-                local s = findHolder({"Gun", "Revolver"})
+                local s = findHolder(G.MM_GunNames)
                 if s and s ~= me then table.insert(targets, s) end
             elseif mode == "murder" then
                 local murd = findHolder({"Knife"})
@@ -1416,7 +1434,7 @@ end
 
 --[[ Round ]]--
 local function isRoundActive()
-    return findHolder({"Knife"}) or findHolder({"Gun", "Revolver"})
+    return findHolder({"Knife"}) or findHolder(G.MM_GunNames)
         or botHasKnife() or botHasGun()
 end
 
@@ -1766,7 +1784,7 @@ local function handleCommand(p, msg)
         end
         return
     end
-    local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
+    local m, s = findHolder({"Knife"}), findHolder(G.MM_GunNames)
     local ownerPlayer = findOwner()
     local ownerIsMurd = ownerMurdererActive(m, ownerPlayer) and not botHasKnife()
     if cmd == "chat" then
@@ -1803,7 +1821,7 @@ local function handleCommand(p, msg)
         if stabAll then
             picked = nil
         elseif first == "sheriff" or first == "sher" or first == "sherif" then
-            picked = findHolder({"Gun", "Revolver"})
+            picked = findHolder(G.MM_GunNames)
             if not picked or picked == me then whisper("Sheriff not found") return end
         else
             picked = findOtherPlayer(q)
@@ -2302,7 +2320,7 @@ local function bridgeRunFlingOnce(mode, playerQuery, gen)
 
     local tgt
     if mode == "sheriff" then
-        tgt = findHolder({"Gun", "Revolver"})
+        tgt = findHolder(G.MM_GunNames)
         if not tgt or tgt == me then return "error", "Sheriff not found" end
     elseif mode == "murder" then
         tgt = findHolder({"Knife"})
@@ -2339,7 +2357,7 @@ local function bridgeStabMessage(targetQuery)
     if stabAll then
         picked = nil
     elseif first == "sheriff" or first == "sher" or first == "sherif" then
-        picked = findHolder({"Gun", "Revolver"})
+        picked = findHolder(G.MM_GunNames)
         if not picked or picked == me then return "error", "Sheriff not found" end
     else
         picked = findOtherPlayer(q)
@@ -2437,7 +2455,7 @@ local function bridgeRevealMessage()
         return "error", "No owner — join your reserved server first"
     end
     local m = findHolder({"Knife"})
-    local s = findHolder({"Gun", "Revolver"})
+    local s = findHolder(G.MM_GunNames)
     local botM, botS = botHasKnife(), botHasGun()
     local murdererP = botM and me or m
     if not murdererP then
@@ -2445,7 +2463,7 @@ local function bridgeRevealMessage()
     end
     local sheriffP = botS and me or s
     local gunDrop = findDroppedGun()
-    local gunEquipped = botS or (sheriffP and playerHas(sheriffP, {"Gun", "Revolver"}))
+    local gunEquipped = botS or (sheriffP and playerHas(sheriffP, G.MM_GunNames))
     local gunDropped = gunDrop ~= nil and not sheriffP
     local gunAvailable = gunEquipped or gunDropped
     local sheriffDist = sheriffP and distanceStudsToPlayer(sheriffP)
@@ -2888,7 +2906,7 @@ task.spawn(function()
     local suppressDrop = false
     while session.active do
         local kHolder = findHolder({"Knife"})
-        local gHolder = findHolder({"Gun", "Revolver"})
+        local gHolder = findHolder(G.MM_GunNames)
         local kid = kHolder and kHolder.UserId
         local gid = gHolder and gHolder.UserId
         local droppedGun = findDroppedGun() ~= nil
@@ -2990,7 +3008,7 @@ local function resolveRoleSnapshot(timeout)
     local curM, curS, curBotM, curBotS
     repeat
         curM = findHolder({"Knife"})
-        curS = findHolder({"Gun", "Revolver"})
+        curS = findHolder(G.MM_GunNames)
         curBotM = botHasKnife()
         curBotS = botHasGun()
         if (curBotM or curM) and (curBotS or curS) then
@@ -3028,7 +3046,7 @@ local function runMainLoop()
     local ownerMurdStashBusy = false
     local nextAutoGunAt = 0
 while session.active and gui.Parent do
-    local m, s = findHolder({"Knife"}), findHolder({"Gun", "Revolver"})
+    local m, s = findHolder({"Knife"}), findHolder(G.MM_GunNames)
         local botM = botHasKnife()
         local roundActive = isRoundActive()
 
