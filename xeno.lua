@@ -738,8 +738,8 @@ local followTarget = nil
 local function stopFollow()
     followTarget = nil
 end
-local GUN_DROP_PREDICT_SEC = 1.1
-local GUN_RESET_LATENCY_SEC = 0.32
+local GUN_DROP_PREDICT_SEC = 0.45
+local GUN_RESET_LATENCY_SEC = 0.18
 local function gunDropLead(root, hum, boost)
     if not root then return Vector3.zero end
     boost = boost or 1
@@ -749,17 +749,17 @@ local function gunDropLead(root, hum, boost)
     if hum then
         local md = hum.MoveDirection
         if md.Magnitude > 0.05 then
-            local moveVel = Vector3.new(md.X, 0, md.Z).Unit * math.max(hum.WalkSpeed, vh.Magnitude, 16)
+            local moveVel = Vector3.new(md.X, 0, md.Z).Unit * math.max(math.min(hum.WalkSpeed, 20), vh.Magnitude, 12)
             if moveVel.Magnitude > vh.Magnitude then
                 vh = moveVel
             else
-                vh = vh * 0.2 + moveVel * 0.8
+                vh = vh * 0.35 + moveVel * 0.65
             end
         end
     end
     local spd = vh.Magnitude
     if spd <= 0.12 then return Vector3.zero end
-    local lead = math.clamp((spd * (GUN_DROP_PREDICT_SEC + GUN_RESET_LATENCY_SEC) + 4.5) * boost, 9, 38)
+    local lead = math.clamp((spd * (GUN_DROP_PREDICT_SEC + GUN_RESET_LATENCY_SEC) + 1.75) * boost, 4, 16)
     return vh.Unit * lead
 end
 -- Fling-only: stronger lookahead for ~15fps cap (velocity + Humanoid move intent).
@@ -900,7 +900,7 @@ local function dropGunAt(target, boost)
     zeroVel(h)
     h.CFrame = CFrame.new(dropPos, face)
     zeroVel(h)
-    task.wait(0.02)
+    task.wait(0.05)
     local fresh = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
     local freshHum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
     if fresh and isAlive(target) then
@@ -910,7 +910,7 @@ local function dropGunAt(target, boost)
         h.CFrame = CFrame.new(dropPos, face)
         zeroVel(h)
     end
-    task.wait(0.035); reset()
+    task.wait(0.12); reset()
     return true
 end
 function G.MM_TargetHasGun(target)
@@ -941,7 +941,8 @@ local function bringGun(target)
             end
         end
         if not botHasGun() then return false end
-        if not dropGunAt(target, 1 + (attempt - 1) * 0.35) then return false end
+        local boost = attempt == 1 and 0.8 or (attempt == 2 and 1 or 1.25)
+        if not dropGunAt(target, boost) then return false end
         if G.MM_WaitForGunPickup(target, 2.1) then
             return true
         end
