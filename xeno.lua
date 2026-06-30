@@ -2183,7 +2183,6 @@ local function findPlayerInServerByName(name)
     end
 end
 
-do
 local function bridgeReportClaimEvent(event, extra)
     extra = extra or {}
     pcall(function()
@@ -2894,15 +2893,6 @@ local function countRegionPeers(location)
     local ok, data = pcall(function() return Http:JSONDecode(raw) end)
     if not ok or type(data) ~= "table" or not data.ok then return 0 end
     return tonumber(data.count) or 0
-end
-
-bridgeReportClaimEvent = bridgeReportClaimEvent
-fulfillBridgeClaim = fulfillBridgeClaim
-clearBridgeReservation = clearBridgeReservation
-processBridgeCommands = processBridgeCommands
-processBridgeClaim = processBridgeClaim
-getServerLocationLabel = getServerLocationLabel
-countRegionPeers = countRegionPeers
 end
 
 G.MM_RegionSpreadCheck = G.MM_RegionSpreadCheck or false
