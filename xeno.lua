@@ -236,27 +236,29 @@ local function findConfiguredOwner()
 end
 local function syncConfiguredOwner()
     local p = findConfiguredOwner()
-    if not bridgeOwnerConnected then
-        if session.ownerId then
-            session.ownerId = nil
-            G.MM_PendingOwnerId = nil
+    if p then
+        if session.ownerId ~= p.UserId then
+            session.ownerId = p.UserId
+            G.MM_PendingOwnerId = p.UserId
+            _G.MM_OwnerDiedPendingReset = false
+            if bridgeOwnerConnected then
+                scheduleOwnerOnboarding(p.UserId)
+                log("configured owner found: " .. p.Name)
+            end
         end
         return p
     end
-    if p and session.ownerId ~= p.UserId then
-        session.ownerId = p.UserId
-        G.MM_PendingOwnerId = p.UserId
-        _G.MM_OwnerDiedPendingReset = false
-        scheduleOwnerOnboarding(p.UserId)
-        log("configured owner found: " .. p.Name)
-    elseif not p and session.ownerId then
+    if session.ownerId then
         local current = Players:GetPlayerByUserId(session.ownerId)
-        if not current or (ACTIVE_OWNER_USERNAME ~= "" and not configuredOwnerMatches(current)) then
+        if not current then
+            session.ownerId = nil
+            G.MM_PendingOwnerId = nil
+        elseif ACTIVE_OWNER_USERNAME ~= "" and not configuredOwnerMatches(current) then
             session.ownerId = nil
             G.MM_PendingOwnerId = nil
         end
     end
-    return p
+    return nil
 end
 
 function G.MM_CurrentToggleConfig()
@@ -405,8 +407,14 @@ local function ensureWhisperChannel(o)
     end
     return findWhisperChannel(o.UserId)
 end
+local function resolveWhisperTarget(target)
+    if typeof(target) == "Instance" and target:IsA("Player") then
+        return target
+    end
+    return findOwner() or findConfiguredOwner()
+end
 local function whisper(m, target)
-    local o = target or findOwner()
+    local o = resolveWhisperTarget(target)
     if not o then log("whisper: no target") return end
     log("-> " .. o.DisplayName .. ": " .. m)
     pcall(function()
@@ -439,7 +447,7 @@ local function whisper(m, target)
     end)
 end
 local function whisperOk(m, target)
-    local o = target or findOwner()
+    local o = resolveWhisperTarget(target)
     if not o then return false end
     log("-> " .. o.DisplayName .. ": " .. m)
     if isLegacy then
@@ -2114,7 +2122,7 @@ local function routeCommand(p, msg)
     if not session.active then return end
     msg = cleanChatText(msg)
     if msg == "" or seenCommandRecently(p, msg) then return end
-    if ACTIVE_OWNER_USERNAME ~= "" and configuredOwnerMatches(p) and session.ownerId ~= p.UserId then
+    if ACTIVE_OWNER_USERNAME ~= "" and configuredOwnerMatches(p) then
         syncConfiguredOwner()
     end
     handleCommand(p, msg)
@@ -2863,8 +2871,12 @@ local function processBridgeClaim(claim)
         end
     elseif st == "available" or not claim.roblox_username then
         bridgeOwnerConnected = false
-        session.ownerId = nil
-        G.MM_PendingOwnerId = nil
+        if not findConfiguredOwner() then
+            session.ownerId = nil
+            G.MM_PendingOwnerId = nil
+        else
+            syncConfiguredOwner()
+        end
         if bridgeAwaitingName and os.time() >= bridgeClaimExpiresAt then
             clearBridgeReservation("expired")
         elseif not bridgeAwaitingName then
@@ -2943,8 +2955,8 @@ end
 bridgePollOnce = function()
     if not session.active then return false end
     local configuredOwner = findConfiguredOwner()
-    if bridgeOwnerConnected then
-        configuredOwner = syncConfiguredOwner()
+    if bridgeOwnerConnected or configuredOwner then
+        configuredOwner = syncConfiguredOwner() or configuredOwner
     end
     local playerNames = {}
     for _, pl in ipairs(Players:GetPlayers()) do
