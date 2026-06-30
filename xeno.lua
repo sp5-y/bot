@@ -67,6 +67,8 @@ local function cleanupSession()
     _G.MM_StabBusy = false
     _G.MM_GunBusy = false
     _G.MM_OwnerDiedPendingReset = false
+    disableAntiFling()
+    disconnectAntiFling()
     if gui and gui.Parent then pcall(function() gui:Destroy() end) end
 end
 G.MM_Session = session
@@ -743,34 +745,64 @@ end
 local GUN_DROP_PREDICT_SEC = 0.45
 local GUN_RESET_LATENCY_SEC = 0.18
 local GUN_MOTION_SAMPLE_SEC = 0.1
-local function gunDropLead(root, hum, boost, observedVelocity)
+local GUN_PICKUP_FORWARD = 0.8
+local gunPredState = {}
+local function gunDropLead(root, hum, boost, observedVelocity, targetId, dt)
     if not root then return Vector3.zero end
     boost = boost or 1
+    dt = dt or GUN_MOTION_SAMPLE_SEC
+
+    local sid = targetId or 0
+    local state = gunPredState[sid] or {smooth = Vector3.zero, last = Vector3.zero}
+    gunPredState[sid] = state
+
     local v = root.AssemblyLinearVelocity
     if v.Magnitude < 1e-3 then v = root.Velocity end
     local vh = Vector3.new(v.X, 0, v.Z)
     local observed = observedVelocity and Vector3.new(observedVelocity.X, 0, observedVelocity.Z) or Vector3.zero
     if observed.Magnitude > 0.75 then
-        vh = observed
+        vh = vh * 0.2 + observed * 0.8
     elseif vh.Magnitude < 2 then
         vh = Vector3.zero
     end
     if hum then
         local md = hum.MoveDirection
         if md.Magnitude > 0.05 then
-            local moveVel = Vector3.new(md.X, 0, md.Z).Unit * math.max(math.min(hum.WalkSpeed, 20), vh.Magnitude, 12)
-            if vh.Magnitude > 0.75 then
-                local align = vh.Unit:Dot(moveVel.Unit)
-                if align > 0.45 then
-                    vh = vh * 0.8 + moveVel * 0.2
-                end
-            end
+            local moveVel = Vector3.new(md.X, 0, md.Z).Unit * math.max(10, math.min(hum.WalkSpeed, 20))
+            vh = vh.Magnitude < 0.5 and moveVel or (vh * 0.65 + moveVel * 0.35)
         end
     end
-    local spd = vh.Magnitude
-    if spd <= 0.75 then return Vector3.zero end
-    local lead = math.clamp((spd * (GUN_DROP_PREDICT_SEC + GUN_RESET_LATENCY_SEC) + 1.25) * boost, 2.5, 13)
-    return vh.Unit * lead
+    state.smooth = state.smooth * 0.55 + vh * 0.45
+    local blended = state.smooth
+    local spd = blended.Magnitude
+
+    if spd <= 2.25 then
+        local facing = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+        if facing.Magnitude > 0.05 then
+            return facing.Unit * GUN_PICKUP_FORWARD
+        end
+        return Vector3.zero
+    end
+
+    local dir = blended.Unit
+    local accel = (blended - state.last) / math.max(dt, 0.03)
+    local ah = Vector3.new(accel.X, 0, accel.Z)
+    local look = Vector3.new(root.CFrame.LookVector.X, 0, root.CFrame.LookVector.Z)
+    if look.Magnitude > 0.05 then
+        dir = (dir * 0.75 + look.Unit * 0.25).Unit
+    end
+    local curve = 0
+    if state.last.Magnitude > 0.75 then
+        curve = math.clamp((1 - state.last.Unit:Dot(dir)) * 0.5, 0, 0.5)
+    end
+    local lookahead = (GUN_DROP_PREDICT_SEC + GUN_RESET_LATENCY_SEC) * (1 - curve)
+    local lead = (spd * lookahead + GUN_PICKUP_FORWARD) * boost
+    if ah.Magnitude > 1 then
+        lead = lead + math.clamp(ah.Magnitude * 0.02, 0, 0.9)
+    end
+    lead = math.clamp(lead, 1.7, 10.5)
+    state.last = blended
+    return dir * lead
 end
 -- Fling-only: stronger lookahead for ~15fps cap (velocity + Humanoid move intent).
 local FLING_PREDICT_SEC = 0.22
@@ -818,6 +850,106 @@ local function zeroVel(h)
     h.Velocity = Vector3.zero
     h.RotVelocity = Vector3.zero
 end
+
+--[[ Anti Fling ]]--
+local antiFlingState = {enabled = false, conns = {}, lastSafe = nil, busyDepth = 0}
+local function disconnectAntiFling()
+    for _, c in ipairs(antiFlingState.conns) do
+        pcall(function() c:Disconnect() end)
+    end
+    antiFlingState.conns = {}
+end
+local function bindAntiFlingForCharacter(char)
+    disconnectAntiFling()
+    if not antiFlingState.enabled or not char then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not (hum and root) then return end
+    antiFlingState.lastSafe = root.CFrame
+    for _, part in ipairs(char:GetChildren()) do
+        if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+            part.CanCollide = false
+        end
+    end
+    for _, seatName in ipairs({"Seat1", "Seat2"}) do
+        local seat = char:FindFirstChild(seatName)
+        if seat then pcall(function() seat:Destroy() end) end
+    end
+    pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false) end)
+    table.insert(antiFlingState.conns, RunSvc.Heartbeat:Connect(function()
+        if not char.Parent then return end
+        for _, part in ipairs(char:GetChildren()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                part.CanCollide = false
+            end
+        end
+    end))
+    table.insert(antiFlingState.conns, RunSvc.Heartbeat:Connect(function()
+        if root.Position.Y < -100 or root.Position.Y > 400 then
+            if antiFlingState.lastSafe then
+                root.CFrame = antiFlingState.lastSafe
+            end
+        end
+    end))
+    table.insert(antiFlingState.conns, RunSvc.Heartbeat:Connect(function()
+        if root.Velocity.Magnitude < 50 and root.RotVelocity.Magnitude < 50 then
+            antiFlingState.lastSafe = root.CFrame
+        end
+    end))
+    table.insert(antiFlingState.conns, RunSvc.Stepped:Connect(function()
+        if root.Velocity.Magnitude > 50 then
+            root.Velocity = Vector3.zero
+        end
+        if root.RotVelocity.Magnitude > 50 then
+            root.RotVelocity = Vector3.zero
+        end
+    end))
+end
+local function enableAntiFling()
+    if antiFlingState.enabled then return end
+    antiFlingState.enabled = true
+    if me.Character then bindAntiFlingForCharacter(me.Character) end
+end
+local function disableAntiFling()
+    if not antiFlingState.enabled then return end
+    antiFlingState.enabled = false
+    disconnectAntiFling()
+    local char = me.Character
+    if char then
+        for _, part in ipairs(char:GetChildren()) do
+            if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                part.CanCollide = true
+            end
+        end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            pcall(function() hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, true) end)
+        end
+    end
+end
+local function actionBegin()
+    antiFlingState.busyDepth = antiFlingState.busyDepth + 1
+    if antiFlingState.busyDepth == 1 then
+        disableAntiFling()
+    end
+end
+local function actionEnd()
+    antiFlingState.busyDepth = math.max(0, antiFlingState.busyDepth - 1)
+    if antiFlingState.busyDepth == 0 then
+        enableAntiFling()
+    end
+end
+trackConnection(me.CharacterAdded:Connect(function(char)
+    task.wait(0.15)
+    if antiFlingState.enabled then
+        bindAntiFlingForCharacter(char)
+    end
+end))
+task.spawn(function()
+    task.wait(0.2)
+    if session.active then enableAntiFling() end
+end)
+
 local function stowKnife()
     if not botHasKnife() then return end
     local hum = me.Character and me.Character:FindFirstChildOfClass("Humanoid")
@@ -838,12 +970,14 @@ function G.MM_StabBusyActive()
     return false
 end
 function G.MM_BeginStabBusy(seconds)
+    actionBegin()
     _G.MM_StabBusy = true
     _G.MM_StabBusyUntil = tick() + (seconds or 53)
 end
 function G.MM_EndStabBusy()
     _G.MM_StabBusy = false
     _G.MM_StabBusyUntil = 0
+    actionEnd()
 end
 local function tpTo(p)
     stopFollow()
@@ -909,8 +1043,9 @@ local function dropGunAt(target, boost)
     oh = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
     hum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
     if not (h and oh and isAlive(target)) then return false end
-    local observedVelocity = (oh.Position - samplePos) / math.max(tick() - sampleAt, 0.03)
-    local lead = gunDropLead(oh, hum, boost, observedVelocity)
+    local dt = math.max(tick() - sampleAt, 0.03)
+    local observedVelocity = (oh.Position - samplePos) / dt
+    local lead = gunDropLead(oh, hum, boost, observedVelocity, target.UserId, dt)
     local dropPos = oh.Position + lead + Vector3.new(0, 0.25, 0)
     local face = lead.Magnitude > 0.1 and (dropPos + lead.Unit) or (oh.Position + oh.CFrame.LookVector)
     zeroVel(h)
@@ -921,8 +1056,9 @@ local function dropGunAt(target, boost)
     local fresh = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
     local freshHum = target.Character and target.Character:FindFirstChildOfClass("Humanoid")
     if fresh and isAlive(target) then
-        observedVelocity = (fresh.Position - movedFrom) / math.max(tick() - movedAt, 0.03)
-        lead = gunDropLead(fresh, freshHum, boost, observedVelocity)
+        dt = math.max(tick() - movedAt, 0.03)
+        observedVelocity = (fresh.Position - movedFrom) / dt
+        lead = gunDropLead(fresh, freshHum, boost, observedVelocity, target.UserId, dt)
         dropPos = fresh.Position + lead + Vector3.new(0, 0.1, 0)
         face = lead.Magnitude > 0.1 and (dropPos + lead.Unit) or (fresh.Position + fresh.CFrame.LookVector)
         h.CFrame = CFrame.new(dropPos, face)
@@ -944,13 +1080,18 @@ function G.MM_WaitForGunPickup(target, timeout)
 end
 local function bringGun(target)
     if _G.MM_StabBusy then return false end
+    actionBegin()
+    local function finish(ok)
+        actionEnd()
+        return ok
+    end
     target = target or findOwner()
-    if not isAlive(target) then return false end
-    if G.MM_TargetHasGun(target) then return true end
+    if not isAlive(target) then return finish(false) end
+    if G.MM_TargetHasGun(target) then return finish(true) end
     for attempt = 1, 3 do
         if not botHasGun() then
             local g, h = findDroppedGun(), hrp()
-            if not (g and h) then return false end
+            if not (g and h) then return finish(false) end
             g.CFrame = h.CFrame
             local t0 = tick()
             while session.active and tick() - t0 < 1.6 do
@@ -958,19 +1099,24 @@ local function bringGun(target)
                 task.wait(0.05)
             end
         end
-        if not botHasGun() then return false end
+        if not botHasGun() then return finish(false) end
         local boost = attempt == 1 and 0.8 or (attempt == 2 and 1 or 1.25)
-        if not dropGunAt(target, boost) then return false end
+        if not dropGunAt(target, boost) then return finish(false) end
         if G.MM_WaitForGunPickup(target, 2.1) then
-            return true
+            return finish(true)
         end
         task.wait(0.12)
     end
-    return G.MM_TargetHasGun(target)
+    return finish(G.MM_TargetHasGun(target))
 end
 local function stashGunAtSpawn()
-    if _G.MM_StabBusy then return false end
-    if not SPAWN_CFRAME or not isAlive(me) then return false end
+    actionBegin()
+    local function finish(ok)
+        actionEnd()
+        return ok
+    end
+    if _G.MM_StabBusy then return finish(false) end
+    if not SPAWN_CFRAME or not isAlive(me) then return finish(false) end
     if not botHasGun() then
         local g, h = findDroppedGun(), hrp()
         if not (g and h) then return false end
@@ -980,12 +1126,12 @@ local function stashGunAtSpawn()
             if botHasGun() then break end
             task.wait(0.05)
         end
-        if not botHasGun() then return false end
+        if not botHasGun() then return finish(false) end
     end
     for i = 1, 2 do tpHome(); task.wait(0.15) end
     task.wait(0.1)
     reset()
-    return true
+    return finish(true)
 end
 local function ownerMurdererActive(murderer, ownerPlayer)
     return ownerPlayer and murderer and murderer.UserId == ownerPlayer.UserId
@@ -1219,6 +1365,8 @@ local function fling(target, onDone)
     flingActive = true
     log("flinging " .. target.DisplayName)
     task.spawn(function()
+        actionBegin()
+        local okRun, errRun = pcall(function()
         local thrp0 = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
         local startPos = thrp0 and thrp0.Position
         local startedAt = tick()
@@ -1267,6 +1415,11 @@ local function fling(target, onDone)
             whisper("Flung " .. shortName(target))
         end
         recoverAfterFling()
+        end)
+        if not okRun then
+            log("fling error: " .. tostring(errRun))
+        end
+        actionEnd()
     end)
 end
 
