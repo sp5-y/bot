@@ -1164,6 +1164,9 @@ local STAB_MAX_LEAD = 3
 local STAB_MELEE_OFFSET = 1.05
 local STAB_MOVE_MIN = 2
 local STAB_IDLE_LOCAL = CFrame.new(-0.6, 0.08, 2.05)
+local STAB_SETTLE_SEC = 0.08
+local STAB_HOLD_SEC = 0.28
+local STAB_POST_STAB_SEC = 0.38
 
 local function getStabHorizontalVelocity(th, hum, lastPos, lastT)
     local v = th.AssemblyLinearVelocity
@@ -1223,6 +1226,16 @@ local function whisperCombatResult(msg)
     whisper(msg)
 end
 
+local function holdStabAt(mh, cf, seconds)
+    local deadline = tick() + seconds
+    while tick() < deadline do
+        zeroVel(mh)
+        mh.CFrame = cf
+        zeroVel(mh)
+        task.wait(0.06)
+    end
+end
+
 local function stabPass(target, lastPos, lastT)
     if not isAlive(target) or not isAlive(me) then return false end
     if not botHasKnife() then return false end
@@ -1232,18 +1245,18 @@ local function stabPass(target, lastPos, lastT)
     local cf, curPos = getStabCFrame(target, lastPos, lastT)
     local mh = hrp()
     if not (cf and mh) then return false end
-        zeroVel(mh)
+    zeroVel(mh)
     mh.CFrame = cf
-        zeroVel(mh)
-    task.wait(0.05)
+    zeroVel(mh)
+    task.wait(STAB_SETTLE_SEC)
     cf = getStabCFrame(target, nil, nil) or cf
     if cf then
         zeroVel(mh)
         mh.CFrame = cf
         zeroVel(mh)
     end
-    task.wait(0.1)
-        pcall(function()
+    holdStabAt(mh, cf, STAB_HOLD_SEC)
+    pcall(function()
         local handle = knife:FindFirstChild("Handle")
         if knife:FindFirstChild("KnifeServer") and handle then
             local c = (handle.CFrame * CFrame.new(0, 1, 0)).Position
@@ -1252,6 +1265,7 @@ local function stabPass(target, lastPos, lastT)
         knife:Activate()
     end)
     pcall(function() knife:Activate() end)
+    holdStabAt(mh, cf, STAB_POST_STAB_SEC)
     return true, curPos or (target.Character and target.Character:FindFirstChild("HumanoidRootPart") and target.Character.HumanoidRootPart.Position)
 end
 
@@ -1272,8 +1286,9 @@ local function stabTargetLoop(target)
             return false, "Stab failed"
         end
         if curPos then lastPos, lastT = curPos, tick() end
+        task.wait(0.12)
         tpHome()
-        task.wait(0.05)
+        task.wait(0.08)
         if not isAlive(target) then
             stowKnife()
             return true, "Killed " .. shortName(target)
