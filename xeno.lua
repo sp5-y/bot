@@ -67,8 +67,7 @@ local function cleanupSession()
     _G.MM_StabBusy = false
     _G.MM_GunBusy = false
     _G.MM_OwnerDiedPendingReset = false
-    disableAntiFling()
-    disconnectAntiFling()
+    if G.MM_AntiFlingShutdown then pcall(G.MM_AntiFlingShutdown) end
     if gui and gui.Parent then pcall(function() gui:Destroy() end) end
 end
 G.MM_Session = session
@@ -742,9 +741,10 @@ local followTarget = nil
 local function stopFollow()
     followTarget = nil
 end
+local GUN_MOTION_SAMPLE_SEC = 0.1
+do
 local GUN_DROP_PREDICT_SEC = 0.45
 local GUN_RESET_LATENCY_SEC = 0.18
-local GUN_MOTION_SAMPLE_SEC = 0.1
 local GUN_PICKUP_FORWARD = 0.8
 local gunPredState = {}
 local function gunDropLead(root, hum, boost, observedVelocity, targetId, dt)
@@ -804,6 +804,8 @@ local function gunDropLead(root, hum, boost, observedVelocity, targetId, dt)
     state.last = blended
     return dir * lead
 end
+G.MM_gunDropLead = gunDropLead
+end
 -- Fling-only: stronger lookahead for ~15fps cap (velocity + Humanoid move intent).
 local FLING_PREDICT_SEC = 0.22
 local function flingApproachLead(root, hum)
@@ -852,6 +854,7 @@ local function zeroVel(h)
 end
 
 --[[ Anti Fling ]]--
+do
 local antiFlingState = {enabled = false, conns = {}, lastSafe = nil, busyDepth = 0}
 local function disconnectAntiFling()
     for _, c in ipairs(antiFlingState.conns) do
@@ -939,6 +942,13 @@ local function actionEnd()
         enableAntiFling()
     end
 end
+G.MM_ActionBegin = actionBegin
+G.MM_ActionEnd = actionEnd
+G.MM_AntiFlingShutdown = function()
+    antiFlingState.busyDepth = 0
+    disableAntiFling()
+    disconnectAntiFling()
+end
 trackConnection(me.CharacterAdded:Connect(function(char)
     task.wait(0.15)
     if antiFlingState.enabled then
@@ -949,6 +959,7 @@ task.spawn(function()
     task.wait(0.2)
     if session.active then enableAntiFling() end
 end)
+end
 
 local function stowKnife()
     if not botHasKnife() then return end
@@ -970,14 +981,14 @@ function G.MM_StabBusyActive()
     return false
 end
 function G.MM_BeginStabBusy(seconds)
-    actionBegin()
+    G.MM_ActionBegin()
     _G.MM_StabBusy = true
     _G.MM_StabBusyUntil = tick() + (seconds or 53)
 end
 function G.MM_EndStabBusy()
     _G.MM_StabBusy = false
     _G.MM_StabBusyUntil = 0
-    actionEnd()
+    G.MM_ActionEnd()
 end
 local function tpTo(p)
     stopFollow()
@@ -1045,7 +1056,7 @@ local function dropGunAt(target, boost)
     if not (h and oh and isAlive(target)) then return false end
     local dt = math.max(tick() - sampleAt, 0.03)
     local observedVelocity = (oh.Position - samplePos) / dt
-    local lead = gunDropLead(oh, hum, boost, observedVelocity, target.UserId, dt)
+    local lead = G.MM_gunDropLead(oh, hum, boost, observedVelocity, target.UserId, dt)
     local dropPos = oh.Position + lead + Vector3.new(0, 0.25, 0)
     local face = lead.Magnitude > 0.1 and (dropPos + lead.Unit) or (oh.Position + oh.CFrame.LookVector)
     zeroVel(h)
@@ -1058,7 +1069,7 @@ local function dropGunAt(target, boost)
     if fresh and isAlive(target) then
         dt = math.max(tick() - movedAt, 0.03)
         observedVelocity = (fresh.Position - movedFrom) / dt
-        lead = gunDropLead(fresh, freshHum, boost, observedVelocity, target.UserId, dt)
+        lead = G.MM_gunDropLead(fresh, freshHum, boost, observedVelocity, target.UserId, dt)
         dropPos = fresh.Position + lead + Vector3.new(0, 0.1, 0)
         face = lead.Magnitude > 0.1 and (dropPos + lead.Unit) or (fresh.Position + fresh.CFrame.LookVector)
         h.CFrame = CFrame.new(dropPos, face)
@@ -1080,9 +1091,9 @@ function G.MM_WaitForGunPickup(target, timeout)
 end
 local function bringGun(target)
     if _G.MM_StabBusy then return false end
-    actionBegin()
+    G.MM_ActionBegin()
     local function finish(ok)
-        actionEnd()
+        G.MM_ActionEnd()
         return ok
     end
     target = target or findOwner()
@@ -1110,9 +1121,9 @@ local function bringGun(target)
     return finish(G.MM_TargetHasGun(target))
 end
 local function stashGunAtSpawn()
-    actionBegin()
+    G.MM_ActionBegin()
     local function finish(ok)
-        actionEnd()
+        G.MM_ActionEnd()
         return ok
     end
     if _G.MM_StabBusy then return finish(false) end
@@ -1365,7 +1376,7 @@ local function fling(target, onDone)
     flingActive = true
     log("flinging " .. target.DisplayName)
     task.spawn(function()
-        actionBegin()
+        G.MM_ActionBegin()
         local okRun, errRun = pcall(function()
         local thrp0 = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
         local startPos = thrp0 and thrp0.Position
@@ -1419,7 +1430,7 @@ local function fling(target, onDone)
         if not okRun then
             log("fling error: " .. tostring(errRun))
         end
-        actionEnd()
+        G.MM_ActionEnd()
     end)
 end
 
@@ -2172,6 +2183,7 @@ local function findPlayerInServerByName(name)
     end
 end
 
+do
 local function bridgeReportClaimEvent(event, extra)
     extra = extra or {}
     pcall(function()
@@ -2799,16 +2811,6 @@ local function processBridgeCommands(jobId, commands)
     end
 end
 
-local function restoreOwnerFromClaim(claim)
-    if type(claim) ~= "table" then return end
-    local oid = tonumber(claim.owner_id)
-    if oid and oid > 0 and session.ownerId ~= oid then
-        session.ownerId = oid
-        G.MM_PendingOwnerId = oid
-        log("bridge: restored owner " .. tostring(oid))
-    end
-end
-
 local function processBridgeClaim(claim)
     if type(claim) ~= "table" then return end
     syncOwnerPremiumFromClaim(claim)
@@ -2820,7 +2822,12 @@ local function processBridgeClaim(claim)
     if st == "in_use" or st == "fulfilled" then
         bridgeOwnerConnected = true
         syncConfiguredOwner()
-        restoreOwnerFromClaim(claim)
+        local oid = tonumber(claim.owner_id)
+        if oid and oid > 0 and session.ownerId ~= oid then
+            session.ownerId = oid
+            G.MM_PendingOwnerId = oid
+            log("bridge: restored owner " .. tostring(oid))
+        end
         if claim.roblox_username and claim.id then
             bridgeClaimId = claim.id
             if bridgeFulfilledClaimId ~= claim.id then
@@ -2852,9 +2859,6 @@ local function processBridgeClaim(claim)
         end
     end
 end
-
-G.MM_RegionSpreadCheck = G.MM_RegionSpreadCheck or false
-G.MM_RegionSpreadAttempts = G.MM_RegionSpreadAttempts or 0
 
 local function getServerLocationLabel()
     if G.MM_ServerLocationJob == game.JobId and G.MM_ServerLocationCache then
@@ -2891,6 +2895,18 @@ local function countRegionPeers(location)
     if not ok or type(data) ~= "table" or not data.ok then return 0 end
     return tonumber(data.count) or 0
 end
+
+bridgeReportClaimEvent = bridgeReportClaimEvent
+fulfillBridgeClaim = fulfillBridgeClaim
+clearBridgeReservation = clearBridgeReservation
+processBridgeCommands = processBridgeCommands
+processBridgeClaim = processBridgeClaim
+getServerLocationLabel = getServerLocationLabel
+countRegionPeers = countRegionPeers
+end
+
+G.MM_RegionSpreadCheck = G.MM_RegionSpreadCheck or false
+G.MM_RegionSpreadAttempts = G.MM_RegionSpreadAttempts or 0
 
 ensureRegionSpreadOnStart = function()
     if not XENO_BRIDGE_ENABLED or hopBusy then return end
